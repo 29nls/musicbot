@@ -4,12 +4,17 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
+# Schema ikut disalin karena `npm ci` menjalankan `prisma generate` (postinstall).
+COPY prisma ./prisma
+COPY prisma.config.ts ./
 RUN npm ci
 
 FROM deps AS build
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build \
+# Generate ulang (idempoten) supaya client pasti sesuai schema, lalu compile.
+RUN npx prisma generate \
+ && npm run build \
  && npm prune --omit=dev
 
 FROM node:22-alpine AS runtime

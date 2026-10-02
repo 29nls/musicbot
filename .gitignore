@@ -3,6 +3,9 @@ node_modules/
 dist/
 coverage/
 
+# Prisma Client hasil generate (dibuat ulang oleh `prisma generate`)
+src/generated/
+
 # Environment (rahasia!)
 .env
 .env.*

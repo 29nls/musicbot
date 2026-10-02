@@ -3,6 +3,7 @@ import { BotClient } from './client.js';
 import { EnvError, getEnv } from './config/env.js';
 import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
+import { connectDatabase, disconnectDatabase } from './services/database.js';
 import { getLogger } from './services/logger.js';
 
 // Disimpan di scope modul supaya bisa ditutup dengan bersih saat startup gagal.
@@ -19,6 +20,10 @@ async function main(): Promise<void> {
   await loadEvents(client);
 
   registerProcessHandlers(client);
+
+  // Database: bot tetap dijalankan walau DB mati (perintah seperti /ping tidak
+  // butuh DB), tapi perintah yang butuh konfigurasi akan gagal dengan pesan jelas.
+  await connectDatabase();
 
   logger.info(
     { node: process.version, lavalink: `${env.LAVALINK_HOST}:${env.LAVALINK_PORT}` },
@@ -42,7 +47,7 @@ function registerProcessHandlers(bot: BotClient): void {
     const forceExit = setTimeout(() => process.exit(1), 10_000);
     forceExit.unref();
 
-    void bot.destroy().then(() => {
+    void Promise.allSettled([disconnectDatabase(), bot.destroy()]).then(() => {
       logger.info('Bot berhenti dengan bersih');
       process.exit(0);
     });
@@ -91,9 +96,9 @@ try {
     console.error(`\n✖ Bot gagal dijalankan:\n${describeFailure(error)}\n`);
   }
 
-  // Tutup koneksi gateway lebih dulu supaya proses keluar rapi: memanggil
-  // process.exit() saat socket masih aktif memicu assertion libuv di Windows.
-  await client?.destroy().catch(() => undefined);
+  // Tutup koneksi lebih dulu supaya proses keluar rapi: memanggil process.exit()
+  // saat socket masih aktif memicu assertion libuv di Windows.
+  await Promise.allSettled([disconnectDatabase(), client?.destroy() ?? Promise.resolve()]);
   process.exitCode = 1;
 
   // Watchdog: kalau ada handle yang tidak menutup, jangan menggantung selamanya.

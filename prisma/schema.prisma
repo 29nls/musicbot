@@ -1,0 +1,45 @@
+// Skema database Harmony.
+//
+// Catatan Prisma 7:
+// - Generator `prisma-client` (Rust-free) menulis client ke src/generated/
+//   supaya bisa langsung dipakai ESM + NodeNext.
+// - URL database TIDAK lagi ditulis di sini; diatur di prisma.config.ts.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Konfigurasi bot untuk satu server (guild). Satu baris per guild.
+model GuildConfig {
+  guildId String @id @db.VarChar(20)
+
+  // Channel & role
+  logChannelId     String? @db.VarChar(20)
+  welcomeChannelId String? @db.VarChar(20)
+  goodbyeChannelId String? @db.VarChar(20)
+  djRoleId         String? @db.VarChar(20)
+
+  // Teks sambutan, mendukung placeholder {user} {server} {count}
+  welcomeMessage String? @db.VarChar(1500)
+
+  // Preferensi musik
+  defaultVolume  Int @default(100)
+  idleTimeoutSec Int @default(300)
+
+  /// Modul aktif: { music, moderation, automod, logging }
+  modulesEnabled Json @default("{\"music\": true, \"moderation\": true, \"automod\": false, \"logging\": false}")
+
+  locale String @default("id") @db.VarChar(5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("guild_config")
+}

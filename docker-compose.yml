@@ -9,6 +9,24 @@
 name: harmony
 
 services:
+  # Terapkan migrasi database sebelum bot start. Memakai stage `build` dari
+  # Dockerfile karena Prisma CLI ada di devDependencies.
+  migrate:
+    build:
+      context: .
+      target: build
+    image: harmony-bot:build
+    container_name: harmony-migrate
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["npx", "prisma", "migrate", "deploy"]
+
   bot:
     build: .
     image: harmony-bot:local
@@ -23,6 +41,8 @@ services:
       REDIS_URL: redis://redis:6379
       LAVALINK_HOST: lavalink
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
