@@ -1,3 +1,4 @@
+import type { FilterMode } from './filters.js';
 import type { LoopMode } from './loop.js';
 
 /** Satu lagu dalam bentuk yang dipakai bot (bukan bentuk mentah Lavalink). */
@@ -26,6 +27,8 @@ export interface QueueSnapshot {
   idleRemainingMs: number | null;
   /** Mode loop yang sedang aktif; selalu ada, default `off`. */
   loopMode: LoopMode;
+  /** Filter audio yang sedang aktif; selalu ada, default `off`. */
+  filterMode: FilterMode;
 }
 
 /** Hasil pencarian ke Lavalink — sengaja tidak membocorkan tipe internal library. */

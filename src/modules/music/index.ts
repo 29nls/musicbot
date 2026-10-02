@@ -30,6 +30,16 @@ export {
 } from './loop.js';
 export type { LoopMode } from './loop.js';
 export {
+  FILTER_MODES,
+  FILTER_SAFETY,
+  filterModeHint,
+  filterModeLabel,
+  filterParamsFor,
+  isWithinSafeBounds,
+  parseFilterMode,
+} from './filters.js';
+export type { AudioFilterParams, EqualizerBand, FilterMode } from './filters.js';
+export {
   MAX_SEEK_MS,
   parsePosition,
   resolveSeekPosition,

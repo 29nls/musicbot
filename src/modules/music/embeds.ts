@@ -1,6 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
 import { formatDuration } from '../../utils/duration.js';
+import { filterModeLabel } from './filters.js';
 import { loopModeLabel } from './loop.js';
 import { formatSeconds } from './searchSession.js';
 import { describeTrack, formatTrackDuration, progressBar } from './track.js';
@@ -37,6 +38,7 @@ export function nowPlayingEmbed(track: TrackInfo, snapshot: QueueSnapshot): Embe
       },
       { name: 'Diputar sejak', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
       { name: 'Loop', value: loopModeLabel(snapshot.loopMode), inline: true },
+      { name: 'Filter', value: filterModeLabel(snapshot.filterMode), inline: true },
     )
     .setTimestamp();
 

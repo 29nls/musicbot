@@ -5,7 +5,9 @@ import type { GuildConfig } from '../config/index.js';
 import { DEFAULT_IDLE_TIMEOUT_SEC } from '../config/types.js';
 import { IdleTimer } from './idleTimer.js';
 import { cycleResetOn, planAdvance, type LoopMode } from './loop.js';
+import { filterParamsFor, isWithinSafeBounds, type FilterMode } from './filters.js';
 import { clampVolume } from './permissions.js';
+import type { FilterOptions } from 'shoukaku';
 import { MusicQueue } from './queue.js';
 import { buildSearchIdentifier } from './search.js';
 import type { RandomSource } from './shuffle.js';
@@ -64,6 +66,8 @@ export class MusicService {
   private readonly idleTimers = new Map<string, IdleTimer>();
   private readonly attachedPlayers = new Map<string, Player>();
   private readonly loopModes = new Map<string, LoopMode>();
+  /** Filter audio aktif per server; default `off`. */
+  private readonly filterModes = new Map<string, FilterMode>();
   /**
    * Lagu-lagu yang sudah diputar dalam satu siklus, urut.
    *
@@ -185,6 +189,7 @@ export class MusicService {
 
       const accepted = queue.add(rest);
       await player.setGlobalVolume(clampVolume(config.defaultVolume));
+      await this.applyStoredFilters(guildId, player);
       await this.startTrack(guildId, player, first);
 
       return {
@@ -258,6 +263,49 @@ export class MusicService {
     }
 
     return previous;
+  }
+
+  /** Mode filter server ini; default `off`. */
+  filterMode(guildId: string): FilterMode {
+    return this.filterModes.get(guildId) ?? 'off';
+  }
+
+  /**
+   * Ubah filter audio server ini.
+   *
+   * Filter adalah milik player Lavalink, bukan antrean: ia menempel sampai
+   * diubah atau player dihancurkan. Kalau player belum ada, mode hanya
+   * disimpan dan diterapkan saat pemutaran dimulai (applyStoredFilters) —
+   * jadi `/filter` sebelum `/play` pertama tidak boleh dilaporkan gagal.
+   */
+  async setFilterMode(
+    guildId: string,
+    mode: FilterMode,
+  ): Promise<{ previous: FilterMode; applied: boolean }> {
+    const previous = this.filterMode(guildId);
+    this.filterModes.set(guildId, mode);
+
+    const player = this.manager.players.get(guildId);
+    if (!player) return { previous, applied: false };
+
+    await player.setFilters(filterParamsFor(mode) as FilterOptions);
+    return { previous, applied: true };
+  }
+
+  /** Terapkan filter yang tersimpan ke player yang baru dibuat (best-effort). */
+  private async applyStoredFilters(guildId: string, player: Player): Promise<void> {
+    const mode = this.filterMode(guildId);
+    if (mode === 'off') return;
+
+    const params = filterParamsFor(mode);
+    if (!isWithinSafeBounds(params)) {
+      getLogger().warn({ guildId, mode }, 'Parameter filter di luar batas aman — dilewati');
+      return;
+    }
+
+    await player.setFilters(params as FilterOptions).catch((error: unknown) => {
+      getLogger().warn({ err: error, guildId, mode }, 'Gagal menerapkan filter tersimpan');
+    });
   }
 
   /** Atur volume player; nilai dibatasi ke rentang yang diterima Discord. */
@@ -346,6 +394,7 @@ export class MusicService {
       volume,
       idleRemainingMs: this.idleTimers.get(guildId)?.remainingMs ?? null,
       loopMode: this.loopMode(guildId),
+      filterMode: this.filterMode(guildId),
     };
   }
 
@@ -556,6 +605,7 @@ export class MusicService {
     this.idleTimers.get(guildId)?.cancel();
     this.attachedPlayers.delete(guildId);
     this.loopModes.delete(guildId);
+    this.filterModes.delete(guildId);
     this.playedCycles.delete(guildId);
   }
 }

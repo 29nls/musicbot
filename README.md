@@ -157,7 +157,29 @@ menyebut field bermasalahnya.
 | `/remove <posisi>` | Hapus satu lagu dari antrean | DJ |
 | `/move <dari> <ke>` | Pindahkan posisi satu lagu dalam antrean | DJ |
 | `/seek <posisi>` | Lompat ke posisi (`90`, `1:30`, `1m30s`) | DJ |
+| `/filter <mode>` | Ubah warna suara: bassboost, nightcore, vaporwave, 8D, atau `off` | DJ |
 | `/disconnect` | Bot keluar dari voice channel, antrean dikosongkan | DJ |
+
+**Filter audio: satu mode aktif, kembali ke normal lewat `off`**
+
+`/filter <bassboost|nightcore|vaporwave|8d|off>` mengubah warna suara pemutar.
+Filter adalah **milik player Lavalink, bukan antrean** — ia menempel sampai
+diubah, termasuk menyeberang antar lagu, dan `/nowplaying` menampilkannya di
+field **Filter** supaya orang tahu kenapa suaranya beda.
+
+Tiga hal yang perlu diketahui:
+
+- **`/filter` sebelum `/play` pertama tidak dianggap gagal.** Player Lavalink
+  belum ada saat itu, jadi mode hanya tersimpan dan diterapkan saat pemutaran
+  dimulai — balasannya menyebut itu secara eksplisit.
+- **Setiap preset hanya mengatur satu kelompok parameter** (bassboost →
+  equalizer, nightcore/vaporwave → timescale, 8D → rotation), dan semuanya
+  diuji terhadap batas aman Lavalink: equalizer band 0–14, gain −0.25..1.0,
+  ditambah jendela yang bot tetapkan sendiri untuk timescale (0.5–1.5) dan
+  rotasi 8D (≤ 1 Hz). Nilai yang lebih ekstrem memang lebih keras, tapi
+  suaranya pecah — dan itu baru ketahuan setelah lagu diputar.
+- **`/disconnect` mengembalikan filter ke `off`** bersama seluruh state server;
+  `/stop` tidak — sama seperti mode loop dan volume.
 
 **`/search`: pilih dari daftar, bukan mengetik URL**
 
