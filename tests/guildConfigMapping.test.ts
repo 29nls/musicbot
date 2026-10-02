@@ -14,6 +14,10 @@ const row: GuildConfigRow = {
   goodbyeMessage: null,
   defaultVolume: 70,
   idleTimeoutSec: 120,
+  ticketPanelChannelId: null,
+  ticketCategoryId: null,
+  ticketStaffRoleId: null,
+  ticketPanelMessageId: null,
   modulesEnabled: { music: true, moderation: false, automod: true, logging: false },
   locale: 'id',
 };
@@ -30,17 +34,33 @@ describe('toDomain', () => {
     expect(config.autoroleBotId).toBeNull();
     expect(config.goodbyeMessage).toBeNull();
     expect(config.defaultVolume).toBe(70);
-    expect(config.modules).toEqual({ music: true, moderation: false, automod: true, logging: false });
+    expect(config.modules).toEqual({
+      ...DEFAULT_MODULES,
+      music: true,
+      moderation: false,
+      automod: true,
+    });
   });
 });
 
 describe('parseModules', () => {
   it('menerima objek lengkap', () => {
-    expect(parseModules({ music: false, moderation: true, automod: true, logging: true })).toEqual({
+    expect(
+      parseModules({
+        music: false,
+        moderation: true,
+        automod: true,
+        logging: true,
+        reactions: true,
+        tickets: true,
+      }),
+    ).toEqual({
       music: false,
       moderation: true,
       automod: true,
       logging: true,
+      reactions: true,
+      tickets: true,
     });
   });
 
@@ -74,7 +94,18 @@ describe('toPrismaData', () => {
       goodbyeMessage: null,
       defaultVolume: 100,
       idleTimeoutSec: 300,
-      modules: { music: true, moderation: true, automod: false, logging: false },
+      ticketPanelChannelId: null,
+      ticketCategoryId: null,
+      ticketStaffRoleId: null,
+      ticketPanelMessageId: null,
+      modules: {
+        music: true,
+        moderation: true,
+        automod: false,
+        logging: false,
+        reactions: false,
+        tickets: false,
+      },
       locale: 'id',
     };
 

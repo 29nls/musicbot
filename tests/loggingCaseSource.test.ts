@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { caseSourceFields, describeLogFilter } from '../src/modules/logging/embeds.js';
+import {
+  caseAwareFields,
+  caseSourceFields,
+  describeLogFilter,
+} from '../src/modules/logging/embeds.js';
 import type { LogSearchFilter } from '../src/modules/logging/types.js';
 import { moderationLogCategory } from '../src/modules/moderation/logging.js';
 
@@ -55,6 +59,40 @@ describe('caseSourceFields', () => {
     expect(fields.map((field) => field.name)).toContain('Kasus');
     expect(fields.some((field) => field.value.includes('Moderator lain'))).toBe(false);
     expect(fields.some((field) => field.value.includes('di luar kasus Harmony'))).toBe(false);
+  });
+});
+
+describe('caseAwareFields', () => {
+  const external = [
+    { name: 'Executor', value: `<@${MOD_ID}>`, inline: true },
+    { name: 'Alasan', value: 'spam', inline: true },
+  ];
+
+  it('membuat embed event ringkas ketika kasusnya sudah ada', () => {
+    const fields = caseAwareFields(LINK, external, MOD_ID, BOT_ID);
+
+    expect(fields.map((field) => field.name)).toEqual(['Sumber', 'Kasus', 'Moderator']);
+    // Detail & alasan aksi sudah ada di log kasus — tidak perlu diulang.
+    expect(fields.some((field) => field.name === 'Alasan')).toBe(false);
+    expect(fields.some((field) => field.name === 'Executor')).toBe(false);
+  });
+
+  it('mempertahankan field event dan menambah sumber saat aksi luar Harmony', () => {
+    const fields = caseAwareFields(null, external, MOD_ID, BOT_ID);
+
+    expect(fields.map((field) => field.name)).toEqual(['Executor', 'Alasan', 'Sumber']);
+  });
+
+  it('tidak menambah penanda sumber dua kali', () => {
+    const fields = caseAwareFields(null, external, BOT_ID, BOT_ID);
+
+    expect(fields.filter((field) => field.name === 'Sumber')).toHaveLength(1);
+  });
+
+  it('bekerja tanpa executor sama sekali', () => {
+    const fields = caseAwareFields(null, external, null, BOT_ID);
+
+    expect(fields).toHaveLength(2);
   });
 });
 

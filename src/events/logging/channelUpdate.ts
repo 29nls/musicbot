@@ -8,7 +8,13 @@ import {
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { diffOverwrites, diffValues, type OverwriteSnapshot } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
-import { changesField, caseSourceFields, compactFields, executorFields, logEmbed } from '../../modules/logging/embeds.js';
+import {
+  caseAwareFields,
+  changesField,
+  compactFields,
+  executorFields,
+  logEmbed,
+} from '../../modules/logging/embeds.js';
 import { consumeCaseLink } from '../../modules/moderation/index.js';
 import type { BotEvent } from '../../types/event.js';
 
@@ -74,9 +80,12 @@ export default {
       title: link ? '📝 Channel Diperbarui (Harmony)' : '📝 Channel Diperbarui',
       fields: compactFields([
         { name: 'Channel', value: `<#${newChannel.id}> (\`${newChannel.name}\`)` },
-        changesField(lines),
-        ...executorFields(entry),
-        ...caseSourceFields(link, entry?.executor?.id, client.user?.id),
+        ...caseAwareFields(
+          link,
+          compactFields([changesField(lines), ...executorFields(entry)]),
+          entry?.executor?.id,
+          client.user?.id,
+        ),
       ]),
     });
 

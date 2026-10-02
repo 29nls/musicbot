@@ -1,5 +1,6 @@
 import { Events, MessageFlags, type ChatInputCommandInteraction, type Interaction } from 'discord.js';
 import type { BotClient } from '../client.js';
+import { routeComponent } from '../handlers/componentRouter.js';
 import { getLogger } from '../services/logger.js';
 import { checkCooldown } from '../utils/cooldown.js';
 import { errorEmbed, warningEmbed } from '../utils/embeds.js';
@@ -7,6 +8,13 @@ import { errorEmbed, warningEmbed } from '../utils/embeds.js';
 export default {
   name: Events.InteractionCreate,
   async execute(client: BotClient, interaction: Interaction): Promise<void> {
+    // Komponen milik fitur (panel role, tombol tiket, modal tiket) ditangani
+    // router global, bukan sebagai perintah slash.
+    if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
+      await routeComponent(interaction);
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const logger = getLogger();

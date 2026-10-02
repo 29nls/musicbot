@@ -17,6 +17,10 @@ export interface GuildConfigRow {
   goodbyeMessage: string | null;
   defaultVolume: number;
   idleTimeoutSec: number;
+  ticketPanelChannelId: string | null;
+  ticketCategoryId: string | null;
+  ticketStaffRoleId: string | null;
+  ticketPanelMessageId: string | null;
   modulesEnabled: unknown;
   locale: string;
 }
@@ -35,6 +39,10 @@ export function toDomain(row: GuildConfigRow): GuildConfig {
     goodbyeMessage: row.goodbyeMessage,
     defaultVolume: row.defaultVolume,
     idleTimeoutSec: row.idleTimeoutSec,
+    ticketPanelChannelId: row.ticketPanelChannelId,
+    ticketCategoryId: row.ticketCategoryId,
+    ticketStaffRoleId: row.ticketStaffRoleId,
+    ticketPanelMessageId: row.ticketPanelMessageId,
     modules: parseModules(row.modulesEnabled),
     locale: row.locale,
   };
@@ -56,6 +64,10 @@ export function toPrismaData(config: GuildConfig) {
     goodbyeMessage: config.goodbyeMessage,
     defaultVolume: config.defaultVolume,
     idleTimeoutSec: config.idleTimeoutSec,
+    ticketPanelChannelId: config.ticketPanelChannelId,
+    ticketCategoryId: config.ticketCategoryId,
+    ticketStaffRoleId: config.ticketStaffRoleId,
+    ticketPanelMessageId: config.ticketPanelMessageId,
     modulesEnabled: { ...config.modules },
     locale: config.locale,
   };
@@ -79,5 +91,7 @@ export function parseModules(value: unknown): ModulesEnabled {
     moderation: read('moderation'),
     automod: read('automod'),
     logging: read('logging'),
+    reactions: read('reactions'),
+    tickets: read('tickets'),
   };
 }

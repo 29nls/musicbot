@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LoggingRepository, NewLogEntry } from '../src/modules/logging/repository.js';
 import { LoggingService } from '../src/modules/logging/service.js';
-import type {
-  LogCategory,
-  LogSearchFilter,
-  LogSearchResult,
-  LogSubscription,
+import type { LogStats } from '../src/modules/logging/stats.js';
+import {
+  LOG_CATEGORIES,
+  type LogCategory,
+  type LogSearchFilter,
+  type LogSearchResult,
+  type LogSubscription,
 } from '../src/modules/logging/types.js';
 import { LoggingValidationError } from '../src/modules/logging/validation.js';
 
@@ -48,6 +50,16 @@ class FakeLoggingRepository implements LoggingRepository {
 
   async search(_filter: LogSearchFilter): Promise<LogSearchResult> {
     return { rows: [], total: 0 };
+  }
+
+  // Statistik diuji terpisah di loggingStats.test.ts.
+  async stats(_filter: LogSearchFilter): Promise<LogStats> {
+    return {
+      total: 0,
+      categories: LOG_CATEGORIES.map((category) => ({ category, count: 0 })),
+      topActions: [],
+      topMembers: [],
+    };
   }
 }
 

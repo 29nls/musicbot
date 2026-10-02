@@ -22,6 +22,18 @@ export { RETENTION_MONTHS, purgeExpiredRecords, retentionCutoff } from './retent
 export type { RetentionResult } from './retention.js';
 export { formatCaseId, parseCaseNumber } from './caseNumber.js';
 export {
+  CASE_HISTORY_LIMIT,
+  CASE_LOG_LIMIT,
+  CASE_LOG_WINDOW_MS,
+  caseHistoryLine,
+  caseLogWindow,
+  caseReasonText,
+  caseTargetKind,
+  currentStateLines,
+  describeCaseStatus,
+} from './caseView.js';
+export type { CaseTargetState } from './caseView.js';
+export {
   LINKED_CASE_ACTIONS,
   clearCaseLinks,
   consumeCaseLink,
@@ -40,6 +52,8 @@ export {
 export { moderationLogCategory, sendGuildEmbed } from './logging.js';
 export { toModerationErrorEmbed } from './errors.js';
 export {
+  caseHistoryEmbed,
+  caseSummaryEmbed,
   moderationDmEmbed,
   moderationLogEmbed,
   moderationResultEmbed,

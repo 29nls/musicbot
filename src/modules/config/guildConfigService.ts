@@ -121,6 +121,10 @@ export class GuildConfigService {
       goodbyeMessage: null,
       defaultVolume: this.defaults.defaultVolume,
       idleTimeoutSec: this.defaults.idleTimeoutSec,
+      ticketPanelChannelId: null,
+      ticketCategoryId: null,
+      ticketStaffRoleId: null,
+      ticketPanelMessageId: null,
       modules: { ...this.defaults.modules },
       locale: this.defaults.locale,
     };

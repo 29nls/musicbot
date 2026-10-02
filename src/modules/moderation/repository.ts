@@ -12,6 +12,15 @@ export interface ModerationRepository {
   countWarnings(guildId: string, userId: string): Promise<number>;
   /** Catatan internal terbaru satu user (maks `MAX_NOTES_SHOWN`). */
   listNotes(guildId: string, userId: string): Promise<ModerationCase[]>;
+  /**
+   * Kasus lain dengan target yang sama, terbaru dulu — riwayat singkat untuk
+   * halaman ringkasan kasus.
+   */
+  listCasesForTarget(
+    guildId: string,
+    targetId: string,
+    options: { excludeCaseNumber?: number; take: number },
+  ): Promise<ModerationCase[]>;
   /** Hapus warning + nonaktifkan kasusnya. null kalau kasus tidak ada/bukan warn. */
   revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null>;
   /** Nonaktifkan kasus (dipakai kalau aksi Discord gagal setelah kasus dicatat). */
@@ -92,6 +101,26 @@ export class PrismaModerationRepository implements ModerationRepository {
       where: { guildId, targetId: userId, type: 'note' },
       orderBy: { createdAt: 'desc' },
       take: MAX_NOTES_SHOWN,
+    });
+
+    return rows.map(toCaseDomain);
+  }
+
+  async listCasesForTarget(
+    guildId: string,
+    targetId: string,
+    options: { excludeCaseNumber?: number; take: number },
+  ): Promise<ModerationCase[]> {
+    const rows = await this.prisma.moderationCase.findMany({
+      where: {
+        guildId,
+        targetId,
+        ...(options.excludeCaseNumber === undefined
+          ? {}
+          : { caseNumber: { not: options.excludeCaseNumber } }),
+      },
+      orderBy: [{ createdAt: 'desc' }, { caseNumber: 'desc' }],
+      take: options.take,
     });
 
     return rows.map(toCaseDomain);

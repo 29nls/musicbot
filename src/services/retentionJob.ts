@@ -1,11 +1,18 @@
 import { getEnv } from '../config/env.js';
 import { getModerationService } from '../modules/moderation/index.js';
 import type { RetentionResult } from '../modules/moderation/retention.js';
+import { getTicketService } from '../modules/tickets/index.js';
+import type { TicketRetentionResult } from '../modules/tickets/retention.js';
 import { getLogger } from './logger.js';
 
 /** Yang dibutuhkan job ini dari service moderasi (dipisah supaya bisa diuji). */
 export interface RetentionRunner {
   purgeExpired(now?: Date): Promise<RetentionResult>;
+}
+
+/** Sapuan retensi tiket — dijalankan setelah kasus, bukan menggantikannya. */
+export interface TicketRetentionRunner {
+  purgeExpired(now?: Date): Promise<TicketRetentionResult>;
 }
 
 export interface RetentionJobOptions {
@@ -39,9 +46,10 @@ const DEFAULT_HOURS = 6;
  */
 export function startRetentionJob(
   runner: RetentionRunner = getModerationService(),
-  options: RetentionJobOptions = {},
+  options: RetentionJobOptions & { ticketRunner?: TicketRetentionRunner } = {},
 ): RetentionJob {
   const logger = getLogger();
+  const ticketRunner = options.ticketRunner ?? getTicketService();
   const intervalMs = options.intervalMs ?? defaultIntervalMs();
   let running = false;
 
@@ -62,6 +70,22 @@ export function startRetentionJob(
       } else {
         logger.debug({ cutoff: result.cutoff.toISOString() }, 'Retensi: tidak ada data kedaluwarsa');
       }
+
+      // Tiket punya basis waktu sendiri (retensi dihitung sejak ditutup), jadi
+      // sapuannya terpisah — tapi tetap di jadwal yang sama supaya tidak ada
+      // cron kedua yang harus dipasang di host.
+      try {
+        const tickets = await ticketRunner.purgeExpired(now);
+        if (tickets.ticketsDeleted > 0) {
+          logger.info(
+            { cutoff: tickets.cutoff.toISOString(), tickets: tickets.ticketsDeleted },
+            'Retensi: tiket kedaluwarsa dihapus',
+          );
+        }
+      } catch (error) {
+        logger.warn({ err: error }, 'Retensi tiket gagal — kasus & peringatan tetap aman');
+      }
+
       return result;
     } catch (error) {
       logger.warn({ err: error }, 'Retensi gagal dijalankan — akan dicoba lagi nanti');

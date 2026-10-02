@@ -4,6 +4,10 @@ export interface ModulesEnabled {
   moderation: boolean;
   automod: boolean;
   logging: boolean;
+  /** Panel self-assign role (Fase 2, PRD §7.4). */
+  reactions: boolean;
+  /** Sistem tiket dasar (Fase 2, PRD §5.2). */
+  tickets: boolean;
 }
 
 /** Konfigurasi bot untuk satu server — bentuk domain, bukan bentuk baris DB. */
@@ -21,6 +25,14 @@ export interface GuildConfig {
   goodbyeMessage: string | null;
   defaultVolume: number;
   idleTimeoutSec: number;
+  /** Channel tempat tombol "Buat Tiket" dikirim. */
+  ticketPanelChannelId: string | null;
+  /** Kategori tempat channel tiket baru dibuat. */
+  ticketCategoryId: string | null;
+  /** Role staff: bisa melihat semua tiket & menutupnya. */
+  ticketStaffRoleId: string | null;
+  /** ID pesan panel tiket, supaya bisa diedit tanpa kirim ulang. */
+  ticketPanelMessageId: string | null;
   modules: ModulesEnabled;
   locale: string;
 }
@@ -37,6 +49,11 @@ export interface GuildConfigPatch {
   goodbyeMessage?: string | null;
   defaultVolume?: number;
   idleTimeoutSec?: number;
+  ticketPanelChannelId?: string | null;
+  ticketCategoryId?: string | null;
+  ticketStaffRoleId?: string | null;
+  /** Diperbarui tim ticket saja saat panel dikirim ulang. */
+  ticketPanelMessageId?: string | null;
   modules?: Partial<ModulesEnabled>;
   locale?: string;
 }
@@ -47,6 +64,8 @@ export const DEFAULT_MODULES: ModulesEnabled = {
   moderation: true,
   automod: false,
   logging: false,
+  reactions: false,
+  tickets: false,
 };
 
 export const DEFAULT_IDLE_TIMEOUT_SEC = 300;
@@ -61,4 +80,6 @@ export const MODULE_LABELS: Record<keyof ModulesEnabled, { label: string; descri
   moderation: { label: 'Moderasi', description: 'Ban, kick, timeout, warn, dan purge' },
   automod: { label: 'Automod', description: 'Anti-spam, anti-link, dan filter kata' },
   logging: { label: 'Logging', description: 'Catat event member, pesan, dan channel ke channel log' },
+  reactions: { label: 'Reaction Roles', description: 'Ambil role sendiri lewat select menu' },
+  tickets: { label: 'Tiket', description: 'Channel privat untuk permintaan support' },
 };

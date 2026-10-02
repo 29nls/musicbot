@@ -1,5 +1,5 @@
 import type { Prisma } from '../../generated/prisma/client.js';
-import type { LogSearchFilter } from './types.js';
+import type { LogRecord, LogSearchFilter } from './types.js';
 
 /**
  * Terjemahkan filter domain → klausa `where` Prisma.
@@ -17,6 +17,11 @@ export function buildLogEntryWhere(filter: LogSearchFilter): Prisma.LogEntryWher
   // Satu filter "user" berlaku dua peran: yang dikenai aksi dan yang melakukannya.
   if (filter.userId) {
     conditions.push({ OR: [{ targetId: filter.userId }, { executorId: filter.userId }] });
+  }
+
+  // Hanya satu sisi: entri yang secara khusus menilibkan target ini.
+  if (filter.targetId) {
+    conditions.push({ targetId: filter.targetId });
   }
 
   if (filter.channelId) {
@@ -51,4 +56,25 @@ export function buildLogEntryWhere(filter: LogSearchFilter): Prisma.LogEntryWher
     guildId: filter.guildId,
     ...(conditions.length > 0 ? { AND: conditions } : {}),
   };
+}
+
+/**
+ * Urutkan ulang hasil pencarian untuk halaman kasus: entri yang tertaut ke
+ * kasus itu sendiri naik ke atas, sisanya tetap terbaru lebih dulu.
+ *
+ * Murni supaya urutan ini bisa diuji tanpa database.
+ */
+export function prioritizeCaseLogs(
+  records: readonly LogRecord[],
+  caseNumber: number,
+): LogRecord[] {
+  return [...records].sort((a, b) => {
+    // `caseId` disimpan polos sebagai string supaya mudah diindeks.
+    const linked = String(caseNumber);
+    const linkedA = a.caseId === linked ? 0 : 1;
+    const linkedB = b.caseId === linked ? 0 : 1;
+    if (linkedA !== linkedB) return linkedA - linkedB;
+
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
 }

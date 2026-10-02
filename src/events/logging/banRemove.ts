@@ -2,7 +2,7 @@ import { AuditLogEvent, Events, type GuildBan } from 'discord.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import {
-  caseSourceFields,
+  caseAwareFields,
   compactFields,
   executorFields,
   logEmbed,
@@ -24,8 +24,7 @@ export default {
       fields: compactFields([
         { name: 'Member', value: `<@${ban.user.id}> (\`${ban.user.tag}\`)`, inline: true },
         { name: 'ID', value: `\`${ban.user.id}\``, inline: true },
-        ...executorFields(entry),
-        ...caseSourceFields(link, entry?.executor?.id, client.user?.id),
+        ...caseAwareFields(link, executorFields(entry), entry?.executor?.id, client.user?.id),
       ]),
     });
 

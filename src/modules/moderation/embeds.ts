@@ -2,6 +2,14 @@ import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
 import { formatCaseId } from './caseNumber.js';
 import {
+  caseHistoryLine,
+  caseReasonText,
+  caseTargetKind,
+  currentStateLines,
+  describeCaseStatus,
+  type CaseTargetState,
+} from './caseView.js';
+import {
   ACTION_LABELS,
   type ModerationAction,
   type ModerationCase,
@@ -212,6 +220,7 @@ export function notesEmbed(
 }
 
 /** Embed yang dicatat ke channel log setiap kali `/purge` dijalankan. */
+
 export function purgeLogEmbed(input: {
   moderatorId: string;
   channelId: string;
@@ -233,4 +242,73 @@ export function purgeLogEmbed(input: {
   }
 
   return embed;
+}
+
+/**
+ * Embed utama halaman kasus: aksi, target, moderator, alasan, dan statusnya.
+ *
+ * Field "Kondisi sekarang" hanya muncul untuk ban & timeout — dua aksi yang
+ * masih bisa berubah statusnya setelah dicatat.
+ */
+export function caseSummaryEmbed(
+  record: ModerationCase,
+  options: { currentState?: CaseTargetState | null } = {},
+): EmbedBuilder {
+  const meta = ACTION_LABELS[record.type];
+  const embed = new EmbedBuilder()
+    .setColor(ACTION_COLORS[record.type])
+    .setTitle(`${meta.emoji} ${meta.label} — ${formatCaseId(record.caseNumber)}`)
+    .setTimestamp(record.createdAt)
+    .addFields(
+      { name: 'Target', value: formatTarget(record.targetId, caseTargetKind(record)), inline: true },
+      { name: 'Moderator', value: `<@${record.moderatorId}>`, inline: true },
+      { name: 'Status', value: describeCaseStatus(record), inline: true },
+      { name: 'Waktu', value: `<t:${toUnix(record.createdAt)}:f> · <t:${toUnix(record.createdAt)}:R>`, inline: true },
+      { name: 'Alasan', value: caseReasonText(record) },
+    );
+
+  if (record.expiresAt) {
+    const expired = record.expiresAt.getTime() <= record.createdAt.getTime();
+    embed.addFields({
+      name: 'Berakhir',
+      value: expired
+        ? `<t:${toUnix(record.expiresAt)}:f> — *sudah lewat*`
+        : `<t:${toUnix(record.expiresAt)}:f> · <t:${toUnix(record.expiresAt)}:R>`,
+      inline: true,
+    });
+  }
+
+  const stateLines = currentStateLines(record, options.currentState ?? null);
+  if (stateLines.length > 0) {
+    embed.addFields({ name: 'Kondisi sekarang', value: stateLines.join('\n') });
+  }
+
+  return embed;
+}
+
+/** Riwayat kasus lain atas target yang sama, untuk memberi konteks. */
+export function caseHistoryEmbed(
+  target: ModerationCase,
+  history: readonly ModerationCase[],
+  total: number,
+): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(EMBED_COLORS.primary)
+    .setTitle(
+      `🗂️ Riwayat ${formatTarget(target.targetId, caseTargetKind(target))}`,
+    )
+    .setTimestamp();
+
+  if (history.length === 0) {
+    return embed.setDescription(
+      'Tidak ada kasus lain atas target ini — ini satu-satunya kasusnya.',
+    );
+  }
+
+  const lines = history.map(caseHistoryLine);
+  const note = total > history.length ? `\n\n*+${total - history.length} kasus lain tidak ditampilkan.*` : '';
+
+  return embed
+    .setDescription(`${lines.join('\n')}${note}`.slice(0, 4_000))
+    .setFooter({ text: `${total} kasus lain tercatat untuk target ini` });
 }

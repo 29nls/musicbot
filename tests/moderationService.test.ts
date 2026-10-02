@@ -87,6 +87,23 @@ class FakeModerationRepository implements ModerationRepository {
       .map((item) => ({ ...item }));
   }
 
+  async listCasesForTarget(
+    guildId: string,
+    targetId: string,
+    options: { excludeCaseNumber?: number; take: number },
+  ): Promise<ModerationCase[]> {
+    return [...this.cases.values()]
+      .filter(
+        (item) =>
+          item.guildId === guildId &&
+          item.targetId === targetId &&
+          item.caseNumber !== options.excludeCaseNumber,
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, options.take)
+      .map((item) => ({ ...item }));
+  }
+
   async revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null> {
     const found = await this.findCaseByNumber(guildId, caseNumber);
     if (!found || found.type !== 'warn') return null;

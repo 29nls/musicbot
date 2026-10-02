@@ -50,6 +50,23 @@ export class ModerationService {
     return this.repository.listNotes(guildId, userId);
   }
 
+  /** Satu kasus berdasarkan nomornya; null kalau tidak ada di server ini. */
+  async findCase(guildId: string, caseNumber: number): Promise<ModerationCase | null> {
+    return this.repository.findCaseByNumber(guildId, caseNumber);
+  }
+
+  /**
+   * Kasus lain atas target yang sama (riwayat singkat member/channel).
+   * `take` dikontrol pemanggil supaya embed tidak meledak.
+   */
+  async listTargetCases(
+    guildId: string,
+    targetId: string,
+    options: { excludeCaseNumber?: number; take: number },
+  ): Promise<ModerationCase[]> {
+    return this.repository.listCasesForTarget(guildId, targetId, options);
+  }
+
   /** Cabut warning berdasarkan nomor kasus; null kalau kasus tidak ditemukan. */
   async revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null> {
     return this.repository.revokeWarning(guildId, caseNumber);

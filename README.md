@@ -190,6 +190,7 @@ pesan jelas “Lavalink belum terhubung” alih-alih gagal diam-diam.
 | `/warn <user> <reason>` | Peringatan tersimpan | Moderate Members |
 | `/warnings <user>` | Riwayat peringatan (10 terbaru + total) | Moderate Members |
 | `/unwarn <case>` | Cabut peringatan (`#CASE-0007` atau `7`) | Moderate Members |
+| `/case <kasus>` | Halaman ringkasan satu kasus + aksi & log terkait | Moderate Members |
 | `/unban <user-id> [reason]` | Buka ban berdasarkan ID user | Ban Members |
 | `/slowmode <duration> [reason]` | Slowmode channel (`0`/`off`, `30s`, `5m`, `2h`; maks 6 jam) | Manage Channels |
 | `/lock [reason]` | Tolak `Send Messages` (teks) / `Connect` (voice) untuk @everyone | Manage Channels |
@@ -221,6 +222,37 @@ tidak ada aksi yang dijalankan.
 - `/purge` tidak membuat kasus (tidak ada target tunggal) tetapi selalu dicatat
 ke channel log. Pesan lebih tua dari 14 hari tidak bisa dihapus massal —
 jumlah yang dilewati dilaporkan.
+
+**`/case` — halaman ringkasan kasus**
+
+Satu perintah untuk meninjau satu kasus, tanpa harus mengumpulkan data dari
+beberapa tempat. Balasannya ephemeral (berisi data member) dan berisi tiga
+embed:
+
+```bash
+/case kasus:#CASE-0142
+/case kasus:142
+/case kasus:CASE 142
+```
+
+1. **Ringkasan** — target (mention member atau channel, sesuai jenis aksinya),
+   moderator, status (`✅ Aktif` / `♻️ Dicabut` / `❌ Nonaktif`), waktu, alasan,
+   dan masa berlaku. Untuk **ban** & **timeout** ada field **Kondisi sekarang**
+   yang mengecek langsung ke Discord: masih diblokir atau tidak, masih timeout
+   sampai kapan. Aksi lain tidak punya field ini karena tidak bisa dibatalkan.
+2. **Riwayat target** — 5 kasus lain atas target yang sama (warn, timeout, ban,
+   note sebelumnya) supaya moderator bisa langsung melihat pola, bukan cuma satu
+   kejadian.
+3. **Log terkait** — entri log yang menilibkan target dalam jendela **±1 jam**
+   dari waktu kasus, dengan entri yang tertaut ke kasus itu sendiri di paling
+   atas. Setiap baris punya tautan lompat ke pesan log aslinya.
+
+Kalau panel log kosong padahal kasusnya jelas ada, itu berarti logging belum
+menyala atau riwayat log sudah melewati masa simpan 30 hari — bukan berarti kasus
+tidak ada. Gunakan `/logs case:#CASE-0142` untuk melihat daftar kasus itu saja.
+
+Panel log tidak pernah menggagalkan halaman: kalau database log sedang bermasalah,
+ringkasan dan riwayat kasus tetap tampil.
 
 **Welcome, goodbye & autorole**
 
@@ -349,6 +381,8 @@ channel log dihapus atau embed-nya sudah tak terlihat.
 | `case` | `#CASE-0142` | Hanya aksi dari satu kasus moderasi Harmony |
 | `from` / `to` | `7d`, `24h`, `2026-10-01`, `02/10/2026` | Rentang waktu (relatif atau kalender) |
 | `page` | `2` | Halaman hasil (10 entri per halaman) |
+| `stats` | — | Statistik ringkas untuk periode ini, bukan daftar entri (lihat di bawah) |
+| `format` | `json` / `csv` | Ekspor hasil pencarian sebagai file (lihat di bawah) |
 
 ```bash
 /logs category:member from:7d
@@ -360,6 +394,72 @@ channel log dihapus atau embed-nya sudah tak terlihat.
 Setiap hasil menampilkan waktu, target, executor, dan **tautan lompat** ke pesan
 log aslinya (kalau masih ada). Butuh izin **Manage Server**, dan balasannya
 ephemeral karena dapat berisi data member.
+
+### `/logs … format:` — ekspor untuk arsip
+
+Tambahkan `format:json` atau `format:csv` untuk mengubah hasil pencarian menjadi
+file. Semua filter lain tetap berlaku, hasilnya dilampirkan ke balasan (ephemeral)
+**dan** diarsipkan di host bot pada `data/exports/` (ubah dengan
+`LOG_EXPORT_DIR`):
+
+```bash
+/logs format:csv from:2026-09-01 to:2026-10-01 category:member
+/logs format:json case:#CASE-0142
+/logs format:csv user:@sasha keyword:lagu
+```
+
+- **JSON** — arsip audit: memuat `generatedAt`, identitas server, **filter
+  asal**, jumlah total, dan seluruh entri. Arsipnya bisa dibaca ulang tanpa
+  harus mengingat filter-nya.
+- **CSV** — kolom tetap `timestamp, category, event_key, title, case_id,
+  executor_id, target_id, channel_id, log_channel_id, log_message_id, summary`
+  supaya aman dibuka di Excel/Sheets atau diimpor ke alat audit lain.
+- Maksimal **500 entri** terbaru. Kalau hasil lebih banyak, ringkasan
+  mengatakannya eksplisit dan menyarankan memperkecil filter.
+- Nama file memakai stempel UTC: `harmony-logs-<guildId>-<YYYYMMDD-HHmm>.csv`.
+- Nilai yang diawali `=`, `+`, `-`, atau `@` diberi awalan tanda kutip tunggal
+  supaya Excel tidak mengeksekusinya sebagai formula — ringkasan log bisa berisi
+  teks dari pesan user.
+
+Folder `data/` sudah masuk `.gitignore` dan `.dockerignore`, jadi arsip tidak
+pernah ikut ter-commit atau masuk image Docker. Kalau foldernya tidak writable,
+file tetap dikirim sebagai lampiran dan kegagalan penulisan hanya muncul di log bot.
+
+### `/logs … stats:true` — statistik ringkas
+
+Tambahkan `stats:true` untuk mengganti daftar entri dengan satu ringkasan
+periode: jumlah event per kategori, event yang paling sering muncul, dan member
+yang paling sering terlibat. Semua filter lain tetap berlaku.
+
+```bash
+/logs stats:true
+/logs stats:true from:7d
+/logs stats:true from:2026-09-01 to:2026-10-01 category:member
+/logs stats:true user:@sasha
+```
+
+Embed-nya berisi tiga bagian:
+
+- **Event per kategori** — enam kategori (member, pesan, channel, role, voice,
+  server) lengkap dengan batang proporsi terhadap kategori teramai, jumlah
+  absolut, dan persentase dari total.
+- **Aksi teratas** — 5 `eventKey` yang paling sering muncul, lengkap dengan
+  label Bahasa Indonesia (`guildMemberAdd` → “Member bergabung”,
+  `moderation.ban` → “Ban”, memakai label yang sama dengan perintah moderasi).
+- **Member paling sering terkait** — 5 member yang paling sering muncul di
+  `targetId` **atau** `executorId`, dipisahkan jadi 🎯 jadi target dan
+  ⚡ melakukan. Aksi pada diri sendiri (mis. member mengatur timeout sendiri)
+  dihitung **satu kali**, bukan dua. Target dari kategori `channel` & `role`
+  sengaja tidak ikut: `targetId` di sana berisi ID channel/role, bukan orang.
+
+Periode memakai `from`/`to` seperti biasa. Kalau `from` tidak diisi,
+statistik otomatis dibatasi ke **30 hari terakhir** — sama dengan masa simpan
+riwayat — dan embed menyebutinya eksplisit supaya angkanya tidak disalahartikan
+sebagai “sepanjang masa lalu”. Kueri agregasi berjalan di database, bukan di
+memori: bot tidak menarik ribuan baris log ke process.
+
+`stats:true` tidak bisa digabung dengan `format:` (keduanya mode tampilan yang
+berbeda); kalau keduanya dipakai, bot menolak dengan pesan yang jelas.
 
 ### Kasus moderasi & sumber aksi
 
@@ -385,6 +485,13 @@ Kalau tidak ada tautan, log ditandai jelas sebagai aksi luar Harmony:
 Sumber: 👤 Moderator lain (@mod_lain)
 ```
 
+Log kasus yang dikirim perintah (`#CASE-0142`, alasan, moderator, status DM)
+ikut mengikuti routing per kategori — jadi `/logging set member:#log-member`
+menangkap `/warn` juga, bukan hanya ban/kick/timeout. Agar tidak dobel di
+channel yang sama, embed event dari aksi Harmony dibuat ringkas: ia hanya
+mengaffirmasi event-nya dengan menautkan kasus, sementara alasan lengkapnya
+tetap ada di log kasus.
+
 Tiga kemungkinan sumber yang dibedakan: **kasus Harmony** (punya nomor kasus),
 **bot lain / bot tanpa kasus** (`🤖 Bot — di luar kasus Harmony`, mis. aksi yang
 tautannya sudah lewat 60 detik), dan **moderator manusia**.
@@ -399,11 +506,130 @@ hanya menempelkan nomor kasus pada embed kategorinya. Aksi tanpa kasus
 > yang sudah lewat sesuai kebijakan privasi Bab 12. Pencatatan juga melompat
 > kalau modul logging mati atau database offline — `/logs` akan menjelaskan
 > kondisinya. Penghapusan otomatis untuk `log_entry` belum dijadwalkan — lihat
-> bagian 8.
+> bagian 10.
 
 ---
 
-## 8. Retensi data
+## 8. Reaction Roles (M5, Fase 2)
+
+Panel self-assign role: member mengambil atau melepas role sendiri lewat
+**string select menu** pada satu pesan. Tidak ada role yang bisa diganti bot
+secara diam-diam — setiap perubahan selalu karena pilihan member.
+
+```bash
+/config set reactions:true
+
+/reactionrole post channel:#pengaturan roles:@Pemain @Penggemar
+/reactionrole add panel:3 roles:@Developer
+/reactionrole remove panel:3 roles:@Developer
+/reactionrole list
+/reactionrole delete panel:3
+```
+
+| Perintah | Fungsi |
+| --- | --- |
+| `/reactionrole post` | Kirim panel baru + select menu (maks 25 role) |
+| `/reactionrole add panel roles` | Tambah role ke panel yang ada; pesan panel diedit otomatis |
+| `/reactionrole remove panel roles` | Hapus role dari panel (opsi terakhir tidak boleh dihapus) |
+| `/reactionrole list` | Daftar panel: nomor, channel, jumlah role |
+| `/reactionrole delete panel` | Hapus panel beserta pesannya di channel |
+
+Butuh izin **Manage Server**.
+
+**Cara menulis role**: pilih lewat autocomplete `@` supaya Discord menyimpan
+mention-nya (`<@&123…>`). Role yang diketik manual sebagai `@Nama Biasa` tidak
+bisa dibaca — bot hanya menerima ID.
+
+**Yang dijamin sistem**
+
+- **Toggle**: memilih role yang sudah dimiliki akan melepaskannya. Select menu
+  tidak punya tampilan centak, jadi aturan ini ditulis di embed panel.
+- Role `@everyone`, role yang posisinya di atas bot, dan server tanpa izin
+  **Manage Roles** untuk bot ditolak **saat panel dibuat** — bukan nanti saat
+  member menyadarinya gagal.
+- Role yang dihapus dari server, atau modul dimatikan, tidak membuat select menu
+  diam-diam gagal: member dapat penjelasan dan diminta bicara ke moderator.
+- Maksimal 25 role per panel karena itulah batas opsi string select menu
+  Discord. Role lebih dari itu butuh panel terpisah.
+- Opsi terakhir tidak bisa dihapus; hapus panelnya dengan
+  `/reactionrole delete` kalau memang tidak dipakai lagi.
+
+Data panel disimpan di `reaction_role_panel` + `reaction_role_option`. Opsi
+memakai ID baris sebagai `customId`, jadi mengganti label atau urutan tidak
+mematahkan tombol yang sudah aktif.
+
+---
+
+## 9. Tiket (M5, Fase 2)
+
+Sistem tiket dasar: satu **channel privat** per tiket di bawah kategori yang
+ditentukan admin, terlihat hanya oleh pembuat tiket dan role staff.
+
+```bash
+/config set tickets:true
+/ticket setup category:#tiket staff:@Staff channel:#support
+/ticket list
+/ticket close
+/ticket panel
+```
+
+Butuh izin **Manage Server**. Semua perintah membalas ephemeral.
+
+**Alur**
+
+1. `/ticket setup` menyimpan kategori, role staff, dan channel panel, lalu
+   mengirim pesan berisi tombol **Buat Tiket**.
+2. Member menekan tombolnya → bot membuka modal singkat untuk **mengisi topik
+   tiket** (satu text input, 3–45 karakter, wajib diisi).
+3. Setelah topik dikirim → bot membuat channel `ticket-0007-sasha` yang hanya
+   bisa dilihat dan diketik oleh pembuat tiket dan staff, lalu mengirim embed
+   pembuka berisi tombol **Klaim** dan **Tutup Tiket**.
+4. Staff menekan **Klaim** → tiket ditandai ditangani staff tersebut.
+5. Staff **atau** pembuat tiket menekan **Tutup Tiket** (atau menjalankan
+   `/ticket close` di channelnya) → channel diarsipkan: diganti jadi
+   `closed-0007` dan dikunci. Isi tiket **tidak dihapus**, jadi riwayatnya masih
+   bisa dibaca staff.
+
+**Yang dijamin sistem**
+
+- Topik tiket diminta lewat modal, bukan diketik member di channel: staff tahu
+  harus menyiapkan apa sebelum member mengetik pesan pertama. Topik yang hanya
+  spasi atau terlalu pendek ditolak **sebelum** tiket tercatat, jadi tidak ada
+  tiket dengan topik kosong yang memblokir member membuka tiket baru.
+- Konfigurasi server dicek ulang saat modal dikirim, bukan hanya saat modal
+  dibuka — di antara keduanya admin bisa saja mematikan modul atau memindahkan
+  kategori tiket.
+- Satu member hanya boleh punya **satu tiket terbuka**; menekan tombol lagi
+  diberi tahu tiket yang sudah ada, bukan dibuatkan duplikat.
+- Tombol tutup memakai jalur yang sama dengan `/ticket close`, jadi database dan
+  channel tidak mungkin berbeda pendapat: satu sudah tertutup, yang lain masih
+  bisa diketik.
+- Izin `SendMessages` untuk pembuat tiket ikut dicabut saat penguncian —
+  overwrite level member mengalahkan `@everyone`, jadi hanya menolak
+  `@everyone` tidak cukup untuk mengunci channel.
+- Kalau pembuatan channel gagal, tiket yang sudah tercatat langsung ditutup
+  kembali. Tanpa itu tiket "hantu" akan memblokir member membuka tiket baru
+  selamanya.
+- Channel yang dihapus manual tidak membuat state rusak: tiketnya tetap
+  tercatat dan bisa ditutup lewat `/ticket close`.
+
+**Perintah**
+
+| Perintah | Fungsi |
+| --- | --- |
+| `/ticket setup category staff channel [description]` | Konfigurasi + kirim panel (panel lama dihapus) |
+| `/ticket panel` | Kirim ulang panel ke channel panel yang sudah diatur |
+| `/ticket list` | Tiket yang masih terbuka (20 terbaru + total) |
+| `/ticket close` | Tutup & arsipkan tiket di channel ini |
+
+Data tiket disimpan di tabel `ticket` (nomor, pembuat, subjek, status, siapa
+yang mengklaim, waktu tutup). Baris yang sudah ditutup dan lewat 12 bulan
+dihapus oleh job retensi yang sama dengan kasus moderasi — tiket yang masih
+terbuka tidak pernah dihapus diam-diam.
+
+---
+
+## 10. Retensi data
 
 PRD Bab 12 menyatakan data tidak disimpan selamanya. Yang sudah berjalan:
 
@@ -411,6 +637,7 @@ PRD Bab 12 menyatakan data tidak disimpan selamanya. Yang sudah berjalan:
 | --- | --- | --- |
 | Kasus moderasi (`moderation_case`) | 12 bulan | Job retensi |
 | Peringatan (`warning`) | 12 bulan | Job retensi |
+| Tiket tertutup (`ticket`) | 12 bulan sejak ditutup | Job retensi (dalam sapuan yang sama) |
 | Riwayat log (`log_entry`) | 30 hari (`expiresAt` sudah diisi) | **belum** ada job penghapus |
 
 Cara kerjanya:
@@ -438,7 +665,7 @@ npm run db:prune
 
 ---
 
-## 9. Struktur proyek
+## 11. Struktur proyek
 
 ```
 prisma/
@@ -451,7 +678,7 @@ src/
 │  ├─ core/                 # /ping, /help, /config, /setup         (M0–M1 ✅)
 │  ├─ music/                # /play, /queue, /nowplaying, /skip,
 │  │                        # /pause, /resume, /stop + _shared.ts   (M2 ✅)
-│  └─ admin/                # /ban … /note (M3 ✅), /automod, /logging, /logs (M4 ✅)
+│  └─ admin/                # /ban … /note, /case (M3 ✅), /automod, /logging, /logs (M4 ✅)
 │                           # _shared.ts berisi gate & alur aksi bersama
 ├─ events/                  # satu file = satu event Discord
 │  └─ logging/              # 22 event → embed 6 kategori (M4 ✅)
@@ -462,9 +689,15 @@ src/
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
 │  │                        # caseLink.ts menjembatani aksi ↔ event Discord
+│  │                        # caseView.ts = isi halaman /case
 │  ├─ automod/              # engine 7 rule + tracker state          (M4 ✅)
-│  └─ logging/              # routing channel per kategori + diff/audit helper (M4 ✅)
-│                           # searchQuery.ts, summary.ts, record.ts untuk riwayat log
+│  ├─ logging/              # routing channel per kategori + diff/audit helper (M4 ✅)
+│  │                        # searchQuery.ts, summary.ts, record.ts untuk riwayat log
+│  │                        # stats.ts = agregasi /logs stats:true (groupBy Prisma)
+│  ├─ reactionroles/        # panel self-assign role via select menu (M5 ✅)
+│  │                        # select.ts = handler saat member memilih role
+│  └─ tickets/              # tiket: channel privat, klaim, arsip (M5 ✅)
+│                           # lifecycle.ts = buat channel privat & kunci saat tutup
 ├─ services/                # logger, Prisma client, deteksi error database
 │                           # retentionJob.ts = pembersihan data berkala
 ├─ utils/                   # cooldown, embed, durasi, izin, module loader
@@ -515,7 +748,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
 ---
 
-## 10. Perintah npm
+## 12. Perintah npm
 
 | Perintah | Fungsi |
 | --- | --- |
@@ -539,7 +772,7 @@ setiap push/PR.
 
 ---
 
-## 11. Troubleshooting
+## 13. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | --- | --- |

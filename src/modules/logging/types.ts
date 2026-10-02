@@ -76,6 +76,8 @@ export interface LogSearchFilter {
   caseNumber: number | null;
   /** Satu filter "user": cocok bila jadi target ATAU executor. */
   userId: string | null;
+  /** Batasi hanya entri yang targetnya ini (dipakai halaman ringkasan kasus). */
+  targetId?: string | null;
   channelId: string | null;
   keyword: string | null;
   from: Date | null;

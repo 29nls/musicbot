@@ -1,23 +1,37 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoggingRepository, NewLogEntry } from '../src/modules/logging/repository.js';
 import { LoggingService } from '../src/modules/logging/service.js';
-import type {
-  LogCategory,
-  LogRecord,
-  LogSearchFilter,
-  LogSearchResult,
-  LogSubscription,
+import type { LogStats } from '../src/modules/logging/stats.js';
+import {
+  LOG_CATEGORIES,
+  type LogCategory,
+  type LogRecord,
+  type LogSearchFilter,
+  type LogSearchResult,
+  type LogSubscription,
 } from '../src/modules/logging/types.js';
 
 const GUILD_ID = '123456789012345678';
 const USER_ID = '222222222222222222';
 const CHANNEL_ID = '333333333333333333';
 
+/** Statistik kosong — dipakai fake yang tidak menguji agregasi. */
+function emptyStats(): LogStats {
+  return {
+    total: 0,
+    categories: LOG_CATEGORIES.map((category) => ({ category, count: 0 })),
+    topActions: [],
+    topMembers: [],
+  };
+}
+
 class FakeHistoryRepository implements LoggingRepository {
   public readonly inserted: NewLogEntry[] = [];
   public readonly attached: { id: number; messageId: string; logChannelId: string }[] = [];
   public searchFilter: LogSearchFilter | null = null;
+  public statsFilter: LogSearchFilter | null = null;
   public failInsert = false;
+  public failStats = false;
   public failAttach = false;
   public searchResult: LogSearchResult = { rows: [], total: 0 };
 
@@ -41,6 +55,12 @@ class FakeHistoryRepository implements LoggingRepository {
   async search(filter: LogSearchFilter): Promise<LogSearchResult> {
     this.searchFilter = filter;
     return this.searchResult;
+  }
+
+  async stats(filter: LogSearchFilter): Promise<LogStats> {
+    if (this.failStats) throw new Error('koneksi database terputus');
+    this.statsFilter = filter;
+    return emptyStats();
   }
 }
 
@@ -204,3 +224,46 @@ describe('LoggingService.search', () => {
     expect(repository.searchFilter).toBe(filter);
   });
 });
+
+describe('LoggingService.stats', () => {
+  it('meneruskan filter dan mengembalikan agregat repository', async () => {
+    const { repository, service } = makeService();
+    const filter: LogSearchFilter = {
+      guildId: GUILD_ID,
+      categories: ['member'],
+      caseNumber: null,
+      userId: null,
+      channelId: null,
+      keyword: null,
+      from: new Date(2026, 8, 1),
+      to: new Date(2026, 9, 2),
+      page: 1,
+      pageSize: 10,
+    };
+
+    await expect(service.stats(filter)).resolves.toEqual(emptyStats());
+    expect(repository.statsFilter).toBe(filter);
+  });
+
+  it('melempar kegagalan database supaya user melihat pesan yang benar', async () => {
+    const { repository, service } = makeService();
+    repository.failStats = true;
+
+    await expect(service.stats(makeStatsFilter())).rejects.toThrow('koneksi database terputus');
+  });
+});
+
+function makeStatsFilter(): LogSearchFilter {
+  return {
+    guildId: GUILD_ID,
+    categories: [],
+    caseNumber: null,
+    userId: null,
+    channelId: null,
+    keyword: null,
+    from: null,
+    to: null,
+    page: 1,
+    pageSize: 10,
+  };
+}

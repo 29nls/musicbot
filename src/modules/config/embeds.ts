@@ -29,6 +29,13 @@ export function renderConfigEmbed(config: GuildConfig, title = '⚙️ Konfigura
       { name: '⏱️ Auto-disconnect', value: `${config.idleTimeoutSec} detik`, inline: true },
       { name: '🧩 Modul aktif', value: moduleLines(config.modules) },
       {
+        name: '🎫 Panel tiket',
+        value: channel(config.ticketPanelChannelId),
+        inline: true,
+      },
+      { name: '🗂️ Kategori tiket', value: channel(config.ticketCategoryId), inline: true },
+      { name: '👮 Role staff tiket', value: role(config.ticketStaffRoleId), inline: true },
+      {
         name: '💬 Pesan welcome',
         value: config.welcomeMessage ? config.welcomeMessage.slice(0, 300) : notSet,
       },

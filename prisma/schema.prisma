@@ -37,8 +37,15 @@ model GuildConfig {
   defaultVolume  Int @default(100)
   idleTimeoutSec Int @default(300)
 
-  /// Modul aktif: { music, moderation, automod, logging }
-  modulesEnabled Json @default("{\"music\": true, \"moderation\": true, \"automod\": false, \"logging\": false}")
+  // Sistem tiket: channel panel, kategori channel privat, dan role staff.
+  ticketPanelChannelId String? @db.VarChar(20)
+  ticketCategoryId     String? @db.VarChar(20)
+  ticketStaffRoleId    String? @db.VarChar(20)
+  /// ID pesan panel tiket, supaya bisa diedit tanpa kirim ulang.
+  ticketPanelMessageId String? @db.VarChar(20)
+
+  /// Modul aktif: { music, moderation, automod, logging, reactions, tickets }
+  modulesEnabled Json @default("{\"music\": true, \"moderation\": true, \"automod\": false, \"logging\": false, \"reactions\": false, \"tickets\": false}")
 
   locale String @default("id") @db.VarChar(5)
 
@@ -154,4 +161,67 @@ model LogEntry {
   @@index([guildId, channelId, createdAt(sort: Desc)])
   @@index([guildId, caseId])
   @@map("log_entry")
+}
+
+/// Satu pesan panel self-assign role (Fase 2, PRD §7.4).
+/// Maksimal 25 role per panel — batas opsi string select menu Discord.
+model ReactionRolePanel {
+  id      Int      @id @default(autoincrement())
+  guildId String   @db.VarChar(20)
+  channelId String @db.VarChar(20)
+  /// ID pesan panel; null kalau pesan belum sempat terkirim.
+  messageId String? @db.VarChar(20)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  options ReactionRoleOption[]
+
+  @@index([guildId, createdAt(sort: Desc)])
+  @@map("reaction_role_panel")
+}
+
+/// Satu role yang bisa diambil member sendiri lewat select menu.
+model ReactionRoleOption {
+  id      Int @id @default(autoincrement())
+  panelId Int
+  roleId  String @db.VarChar(20)
+  /// Nama yang tampil di select menu; null = pakai nama role aslinya.
+  label      String? @db.VarChar(100)
+  /// Emoji role Discord dipakai sebagai ikon opsi kalau ada.
+  emoji      String? @db.VarChar(20)
+  description String? @db.VarChar(100)
+  position   Int      @default(0)
+
+  panel ReactionRolePanel @relation(fields: [panelId], references: [id], onDelete: Cascade)
+
+  @@unique([panelId, roleId])
+  @@index([panelId, position])
+  @@map("reaction_role_option")
+}
+
+/// Tiket support: satu channel privat per tiket (Fase 2, PRD §5.2).
+/// Ditutup berarti channel diarsipkan (dikunci & diganti namanya), bukan dihapus.
+model Ticket {
+  id          Int      @id @default(autoincrement())
+  ticketNumber Int
+  guildId     String   @db.VarChar(20)
+  /// Channel tiket; null kalau channel dihapus manual di luar bot.
+  channelId String? @db.VarChar(20)
+  openerId  String   @db.VarChar(20)
+  subject   String?  @db.VarChar(200)
+  /// open | closed
+  status    String   @db.VarChar(20)
+  /// Staff yang mengambil alih tiket ini.
+  claimedBy String?  @db.VarChar(20)
+  createdAt DateTime @default(now())
+  closedAt  DateTime?
+  closedBy  String?  @db.VarChar(20)
+  /// Retensi (Bab 12 privasi): tiket yang ditutup & lewat batas akan dihapus.
+  expiresAt DateTime?
+
+  @@unique([guildId, ticketNumber])
+  @@index([guildId, status, createdAt(sort: Desc)])
+  @@index([guildId, openerId, status])
+  @@index([guildId, status, closedAt])
+  @@map("ticket")
 }

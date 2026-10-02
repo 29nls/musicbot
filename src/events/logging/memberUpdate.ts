@@ -8,7 +8,7 @@ import { findAuditEntry } from '../../modules/logging/audit.js';
 import { diffIdSets } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import {
-  caseSourceFields,
+  caseAwareFields,
   changesField,
   compactFields,
   executorFields,
@@ -78,9 +78,12 @@ export default {
       title: link ? '⏱️ Timeout Diperbarui (Harmony)' : '📝 Member Diperbarui',
       fields: compactFields([
         { name: 'Member', value: `<@${newMember.id}> (\`${newMember.user.tag}\`)`, inline: true },
-        change,
-        ...executorFields(entry),
-        ...caseSourceFields(link, entry?.executor?.id, client.user?.id),
+        ...caseAwareFields(
+          link,
+          compactFields([change, ...executorFields(entry)]),
+          entry?.executor?.id,
+          client.user?.id,
+        ),
       ]),
     });
 

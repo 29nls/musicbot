@@ -104,9 +104,9 @@ Bot Discord serbaguna dengan **dua pilar utama**:
 - Playlist pengguna (simpan & load), playlist komunitas
 - Lirik (via API Genius/LRCLIB)
 - Filter audio: bassboost, nightcore, vaporwave, 8D
-- Reaction roles (self-assign role via reaksi/tombol)
+- Reaction roles (self-assign role via reaksi/tombol) — 🟢 *selesai di M5: panel select menu*
 - Custom commands (teks balasan buatan admin)
-- Sistem tiket (ticket) dasar
+- Sistem tiket (ticket) dasar — 🟢 *selesai di M5: channel privat + arsip, topik lewat modal*
 - Spotify metadata support (search Spotify → resolve ke sumber audio)
 - 24/7 mode di voice channel tertentu
 
@@ -174,6 +174,7 @@ Bot Discord serbaguna dengan **dua pilar utama**:
 | `/warn` | Beri peringatan (tersimpan) | Moderate Members |
 | `/warnings` | Lihat riwayat warn member | Moderate Members |
 | `/unwarn` | Hapus warn berdasarkan ID | Moderate Members |
+| `/case` | Ringkasan satu kasus: detail kasus, riwayat kasus lain atas target yang sama, dan log terkait | Moderate Members |
 | `/purge` | Hapus N pesan dengan filter | Manage Messages |
 | `/slowmode` | Atur slowmode channel | Manage Channels |
 | `/lock` / `/unlock` | Kunci/buka channel untuk @everyone | Manage Channels |
@@ -185,6 +186,7 @@ Bot Discord serbaguna dengan **dua pilar utama**:
 - **Self-moderation block:** user tidak bisa memoderasi dirinya sendiri.
 - Setiap aksi mengembalikan **ID kasus** (misal `#CASE-0142`) agar bisa dirujuk di laporan.
 - Nomor kasus yang sama ikut menempel di log kategori (Bab 7.3) sehingga aksi bot bisa dibedakan dari moderator lain: log menandai **sumber** aksi — kasus Harmony, bot lain, atau moderator manusia — dan `/logs case:#CASE-0142` bisa menelusurinya kembali.
+- `/case` menampilkan yang terjadi **sekarang**, bukan hanya yang tercatat: untuk ban dan timeout halaman ini mengecek langsung ke Discord apakah aksi masih berlaku. Keterbatasan yang diketahui: halaman kasus tidak menampilkan apakah DM ke target terkirim, karena status itu tidak disimpan di database.
 
 ### 7.2 Automod
 
@@ -217,6 +219,8 @@ Event yang dicatat, masing-masing dikirim ke channel log yang bisa dipilih per k
 
 Setiap event yang lolos juga disimpan ke tabel `log_entry` (kategori, kunci event, executor, target, channel asal, ringkasan isi embed, ID pesan log) sehingga bisa dicari ulang lewat `/logs` dengan filter kategori, user, channel, kata kunci, dan rentang tanggal. Retensi riwayat log 30 hari; kolom `expires_at` disiapkan untuk job pembersihan sesuai Bab 12.
 
+Ringkasan periode: `/logs … stats:true` menampilkan jumlah event per kategori, event yang paling sering muncul, dan member yang paling sering terlibat (sebagai target maupun executor). Tanpa `from`, periode dibatasi ke masa simpan riwayat agar angka yang ditampilkan jujur; agregasi dihitung di database lewat `groupBy`, bukan dengan menarik seluruh riwayat ke memori.
+
 ### 7.4 Welcome, Autorole & Lainnya
 
 | Fitur | Deskripsi |
@@ -224,7 +228,8 @@ Setiap event yang lolos juga disimpan ke tabel `log_entry` (kategori, kunci even
 | Welcome message | Channel + embed kustom, placeholder `{user}`, `{mention}`, `{server}`, `{count}` |
 | Goodbye message | Sama seperti welcome |
 | Autorole | Role otomatis diberikan ke member baru; bisa bedakan bot vs manusia |
-| Role button | Self-assign role lewat tombol (Fase 2) |
+| Role button | Self-assign role lewat panel select menu — 🟢 *selesai di M5 (reaction roles)* |
+| Tiket dasar | Satu channel privat per tiket, topik diminta lewat modal sebelum channel dibuat, ditutup = diarsipkan bukan dihapus — 🟢 *selesai di M5* |
 | `/setup` | Wizard interaktif: pilih channel log, welcome, role DJ, modul aktif |
 | `/config` | Lihat/ubah pengaturan server kapan saja |
 | `/help` | Daftar perintah interaktif dengan kategori |
@@ -352,10 +357,13 @@ MAX_QUEUE_SIZE=500
 | `warning` | `id` PK, `guild_id`, `user_id`, `moderator_id`, `reason`, `case_id`, `created_at` | Warn aktif & historis |
 | `user_note` | `id` PK, `guild_id`, `user_id`, `author_id`, `content`, `created_at` | Catatan internal |
 | `playlist` (Fase 2) | `id` PK, `guild_id`, `owner_id`, `name`, `tracks` (JSON), `is_public` | Playlist pengguna |
+| `reaction_role_panel` | `id` PK, `guild_id`, `channel_id`, `message_id`, `created_at`, `updated_at` | Satu pesan panel self-assign role |
+| `reaction_role_option` | `id` PK, `panel_id`, `role_id`, `label`, `emoji`, `description`, `position` | Role yang bisa diambil member; ikut terhapus bersama panel |
+| `ticket` | `id` PK, `ticket_number`, `guild_id`, `channel_id`, `opener_id`, `subject`, `status`, `claimed_by`, `closed_at`, `closed_by`, `expires_at` | Tiket support; ditutup = channel diarsipkan, bukan dihapus |
 | `guild_log_subscription` | `guild_id`, `category`, `channel_id` | Routing log per kategori |
 | `log_entry` | `id` PK, `guild_id`, `category`, `event_key`, `title`, `summary`, `executor_id`, `target_id`, `channel_id`, `log_channel_id`, `log_message_id`, `case_id`, `created_at`, `expires_at` | Riwayat log agar bisa dicari `/logs`; `case_id` mengikat aksi bot ke kasus moderasinya |
 
-**Retensi data:** kasus moderasi disimpan 12 bulan; riwayat log 30 hari (`expires_at`); lagu/statistik playback disimpan agregat (tanpa data pribadi). Lihat Bab 12 (Privasi).
+**Retensi data:** kasus moderasi & tiket yang sudah ditutup disimpan 12 bulan; riwayat log 30 hari (`expires_at`); lagu/statistik playback disimpan agregat (tanpa data pribadi). Lihat Bab 12 (Privasi).
 
 ---
 
@@ -386,7 +394,7 @@ Bagian ini **tidak boleh dilewati** — inilah yang menumbangkan Groovy & Rythm.
 | **YouTube ToS** | Streaming dari YouTube berisiko; mitigasi: sediakan konfigurasi node alternatif (misal sumber yang punya izin), tanggapan cepat atas takedown, dan siap menonaktifkan sumber tertentu lewat flag konfigurasi |
 | **DMCA / Takedown** | Sediakan alamat kontak & jalur permintaan takedown; dokumentasikan prosedur menghapus sumber dalam < 48 jam |
 | **Privasi pengguna** | Simpan user ID, guild ID, dan riwayat moderasi saja — **tidak ada** data pribadi lain. Sediakan perintah `/privacy` yang menjelaskan data apa yang disimpan dan perintah `/data-delete` untuk permintaan penghapusan |
-| **Retensi data** | Kasus moderasi & peringatan disimpan **12 bulan** lalu dihapus otomatis oleh job berkala di dalam proses bot (dapat dimatikan lewat `RETENTION_SWEEP_HOURS=0` dan dijalankan dari cron). Riwayat log 30 hari. Nomor kasus tidak bergantung pada jumlah baris, jadi penghapusan tidak merusak penomoran |
+| **Retensi data** | Kasus moderasi, peringatan, dan tiket yang sudah ditutup disimpan **12 bulan** lalu dihapus otomatis oleh job berkala di dalam proses bot (dapat dimatikan lewat `RETENTION_SWEEP_HOURS=0` dan dijalankan dari cron). Riwayat log 30 hari. Nomor kasus tidak bergantung pada jumlah baris, jadi penghapusan tidak merusak penomoran |
 | **Kebijakan privasi & ToS bot** | Wajib dipublikasikan (halaman sederhana) sebelum bot publik |
 | **Verifikasi Discord** | Untuk > 100 server perlu verifikasi bot; siapkan deskripsi, kebijakan privasi, dan penjelasan permission |
 
@@ -416,7 +424,7 @@ Bagian ini **tidak boleh dilewati** — inilah yang menumbangkan Groovy & Rythm.
 | **M2 — Music MVP** | 2 minggu | Lavalink terpasang, `/play`, `/queue`, `/skip`, `/pause`, `/stop`, `/nowplaying`, loop, volume | Bisa memutar & mengelola antrean 20 lagu berturut-turut tanpa error — 🟢 *inti selesai: klien shoukaku + Lavalink v4, antrean per-server (batas `MAX_QUEUE_SIZE`), `/play` `/queue` `/nowplaying` `/skip` `/pause` `/resume` `/stop`, izin role DJ, auto-disconnect via `idleTimeoutSec`. Sisa: `/volume`, `/loop`, `/seek`, `/shuffle`, `/disconnect`* |
 | **M3 — Admin MVP** | 2 minggu | Moderation commands + case system + welcome + autorole | Semua AC US-04 & US-05 lolos — 🟢 *selesai: seluruh perintah Bab 7.1 (`/ban` `/unban` `/kick` `/timeout` `/warn` `/warnings` `/unwarn` `/slowmode` `/lock` `/unlock` `/note` `/purge`) dengan ID kasus (`#CASE-0142`), anti-hierarki (self/bot/owner/posisi role), DM target + log channel (best-effort), tabel `moderation_case` & `warning`, welcome/goodbye + autorole dari konfigurasi server, 115 tes unit* |
 | **M4 — Automod & Logging** | 1 minggu | Rule engine automod + logging 6 kategori | Uji simulasi spam/link/badword lolos — 🟢 *selesai: automod 7 rule (spam, invite, link, badword, mention, caps, duplicate) dengan ambang & whitelist, tabel `automod_rule`, `/automod show\|toggle\|threshold\|badword\|whitelist`, aksi hapus / catat peringatan (masuk sistem kasus) / timeout 10 menit, pengecualian channel/role/bot/Manage Messages; logging 6 kategori (member, pesan, channel, role, voice, server) lewat 22 event ke embed berwarna dengan executor dari audit log, routing per kategori `/logging show\|set\|reset` dengan fallback `logChannelId` dan tabel `guild_log_subscription`, riwayat log tersimpan di `log_entry` dengan perintah `/logs` (filter kategori/user/channel/kata kunci/kasus/rentang tanggal) dan tertaut ke ID kasus moderasi, sepenuhnya best-effort; 250 tes unit* |
-| **M5 — Hardening & Beta** | 1 minggu | Test coverage, rate limit, dokumentasi, kebijakan privasi, deploy 5 server beta | Error rate < 1% selama 1 minggu beta |
+| **M5 — Hardening & Beta** | 1 minggu | Test coverage, rate limit, dokumentasi, kebijakan privasi, deploy 5 server beta | Error rate < 1% selama 1 minggu beta — 🟡 *berjalan: dua fitur Fase 2 masuk lebih dulu (`/reactionrole` panel self-assign via select menu, `/ticket` channel privat dengan penutupan berbasis arsip) karena keduanya memakai komponen persisten yang belum pernah ada di bot ini dan jadi risiko utama untuk rate limit nanti. Sisa: test coverage, rate limit, dokumentasi lengkap, kebijakan privasi, deploy 5 server beta* |
 | **M6 — Rilis Publik v1.0** | 3 hari | Listing bot publik, halaman bantuan, kanal dukungan | Bot tayang di top.gg / discords.com |
 
 **Total estimasi: ~8 minggu** untuk 1 developer paruh waktu. Kalau kamu bekerja sendiri sambil belajar TypeScript, kalikan 1,5–2x.
@@ -479,7 +487,7 @@ Bagian ini **tidak boleh dilewati** — inilah yang menumbangkan Groovy & Rythm.
 ### 18.2 Prioritas Fitur (MoSCoW)
 - **Must:** play/queue/skip/stop, ban/kick/timeout/warn, logging dasar, welcome, slash command, config per-server
 - **Should:** loop/shuffle/seek, automod, autorole, purge lanjutan, health check
-- **Could:** playlist, lyrics, filter audio, reaction roles, ticket, dashboard
+- **Could:** playlist, lyrics, filter audio, dashboard (reaction roles & ticket sudah masuk M5)
 - **Won't (v1):** ekonomi, leveling, game, monetisasi, sharding
 
 ### 18.3 Referensi
@@ -494,8 +502,14 @@ Bagian ini **tidak boleh dilewati** — inilah yang menumbangkan Groovy & Rythm.
 
 | Versi | Tanggal | Perubahan | Penulis |
 | --- | --- | --- | --- |
+| v1.0 | 2 Okt 2026 | Topik tiket lewat modal: tombol **Buat Tiket** tidak lagi langsung membuat channel, melainkan membuka modal satu text input (customId `ticket:subject`, wajib, 3–45 karakter sesuai batas *short* input Discord). Alasannya praktis — staff tahu harus menyiapkan apa sebelum member mengetik pesan pertama, dan member tidak perlu mengulang cerita di channel yang salah. Aturan topsik dipisah ke `validation.ts` yang murni (`parseTicketSubject`: spasi diratakan, minimal 3, dipotong 45) sehingga penolakan terjadi **sebelum** tiket tercatat dan tidak ada tiket bertopik kosong yang memblokir member membuka tiket baru; `missingTicketConfig` dipindah ke sana agar dipakai bersama tombol dan submit. Konfigurasi server dicek ulang saat modal dikirim, bukan hanya saat modal dibuka, karena di antara keduanya admin bisa saja mematikan modul atau memindahkan kategori. `openTicket()` kini menerima service lewat DI supaya alur buat-channel-birim-embed bisa diuji tanpa database, dan router komponen gaining filter `kinds` karena `ticket:subject` dan `ticket:create` sama-sama berawalan `ticket:`. 13 tes baru (total 445) | Buffy |
+| v1.0 | 2 Okt 2026 | M5 dimulai: reaction roles + sistem tiket dasar (Fase 2, §5.2 & §7.4). **Reaction roles** — panel self-assign lewat string select menu (batas 25 opsi Discord), tabel `reaction_role_panel` + `reaction_role_option` dengan `customId` berbasis ID baris, `/reactionrole post\|add\|remove\|list\|delete`, toggle (pilih lagi untuk melepas), validasi role di atas bot / @everyone / tanpa izin Manage Roles sudah dilakukan saat panel dibuat, router komponen baru `componentRouter.ts`. **Tiket** — channel privat per tiket (izin ditulis eksplisit agar kategori yang menyinkronkan izin tidak membocorkan channel), tabel `ticket` dengan nomor monoton, satu tiket terbuka per member, tombol Klaim (khusus staff) dan Tutup (staff **atau** pembuat), penutupan = arsip: channel diganti nama `closed-NNNN` lalu dikunci **tanpa** menghapus isi, jalur tutup dipakai bersama oleh tombol dan `/ticket close`, tiket hantu langsung ditutup bila pembuatan channel gagal, retensi 12 bulan disapu di job yang sama dengan kasus moderasi. 40 tes baru (total 432) | Buffy |
+| v1.0 | 2 Okt 2026 | Halaman ringkasan kasus `/case`: satu perintah menampilkan tiga embed — detail kasus (target, moderator, status aktif/dicabut/nonaktif, alasan, masa berlaku), riwayat 5 kasus lain atas target yang sama, dan log terkait dalam jendela ±1 jam dengan entri tertaut kasusnya di urutan teratas. Ban & timeout dicek langsung ke Discord untuk tahu apakah aksi masih berlaku. Helper baris entri log diekstrak jadi `logRecordSummary` supaya `/logs` dan `/case` menampilkan entri dengan format sama; filter `targetId` (opsional) & `prioritizeCaseLogs` ditambahkan ke query builder, 37 tes baru (total 363) | Buffy |
+| v1.0 | 2 Okt 2026 | Statistik ringkas di `/logs`: opsi `stats:true` menampilkan jumlah event per kategori, aksi teratas (eventKey teratas dengan label Bahasa Indonesia), dan member paling sering terkait sebagai target maupun executor, untuk satu periode (tanpa `from` dibatasi ke masa simpan 30 hari dan dinyatakan eksplisit). Agregasi lewat `groupBy` Prisma di database — 4 query paralel, ditambah tabel silang target × executor hanya bila ada user yang muncul di kedua sisi supaya aksi pada diri sendiri tidak terhitung dua kali. Target dari kategori `channel` & `role` disaring (kolom `targetId` mereka berisi ID channel/role, bukan member). Modul `stats.ts` murni (agregasi + label + batang) diuji tanpa database, 34 tes baru (total 326) | Buffy |
 | v1.0 | 2 Okt 2026 | Draft awal | (isi nama) |
 | v1.0 | 2 Okt 2026 | M0 dieksekusi: scaffold proyek (TypeScript strict + ESLint + Vitest), validasi env dengan zod, loader perintah/event otomatis, `/ping` + `/help`, Docker Compose (bot + Lavalink v4 + PostgreSQL + Redis), CI GitHub Actions | Buffy |
+| v1.0 | 2 Okt 2026 | Ekspor log untuk arsip/audit: `/logs … format:json\|csv` membangun file dari hasil pencarian yang difilter (maks 500 entri), JSON memuat filter asal + metadata arsip, CSV ber kolom tetap dengan quoting RFC 4180 dan proteksi formula (`=`, `+`, `-`, `@`), file dilampirkan ke balasan sekaligus diarsipkan ke `data/exports/` (best-effort, `LOG_EXPORT_DIR`), nama file bertimestamp UTC, 20 tes baru (total 292) | Buffy |
+| v1.0 | 2 Okt 2026 | Log kasus ikut routing per kategori (`deliverCaseLog`): `/warn` — yang tidak memicu event Discord — sekarang masuk ke channel hasil `/logging set …`, bukan hanya channel log global; embed event dari aksi Harmony dibuat ringkas (fokus ke tautan kasus) supaya tidak dobel di channel yang sama, 272 tes unit | Buffy |
 | v1.0 | 2 Okt 2026 | Job retensi data: penghapusan otomatis kasus & peringatan yang lewat 12 bulan (`retention.ts` murni + `ModerationService.purgeExpired` + repository `deleteExpired*`), dijadwalkan di dalam proses bot (`retentionJob.ts`, timer `unref`, latch anti-tumpang-tindih, gagal = peringatan bukan crash), interval lewat `RETENTION_SWEEP_HOURS` (0 = mati), skrip sekali-jalan `npm run db:prune` untuk cron luar, 18 tes baru (total 268) | Buffy |
 | v1.0 | 2 Okt 2026 | Log tertaut ke kasus moderasi: registry tautan singkat (`caseLink.ts`, TTL 60 detik) diisi perintah sebelum aksi Discord dieksekusi, lalu dipakai event `guildBanAdd`/`guildBanRemove`/`guildMemberRemove`/`guildMemberUpdate`/`channelUpdate` untuk menampilkan `Sumber` + `Kasus #CASE-…`; aksi dari bot lain atau moderator manusia ditandai eksplisit; kasus menjadi satu baris riwayat tunggal (event tidak mencatat ulang) dan `/logs case:` bisa mencarinya, kolom `case_id` + index baru, 250 tes unit | Buffy |
 | v1.0 | 2 Okt 2026 | Riwayat log + `/logs`: tabel `log_entry` (kategori, kunci event, executor, target, channel asal, ringkasan isi embed, ID pesan log, `expiresAt` retensi 30 hari), `dispatchLog` menyimpan entri sebelum mengirim lalu menempelkan ID pesan untuk tautan lompat, pencarian dengan filter kategori/user/channel/kata kunci/rentang tanggal (relatif `7d` atau kalender) + halaman, builder `where` murni yang bisa dites, env minimal untuk tes lewat `tests/setup.ts`, 225 tes unit | Buffy |

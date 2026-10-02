@@ -9,5 +9,6 @@ coverage
 !.env.example
 lavalink
 tests
+data
 *.md
 *.log

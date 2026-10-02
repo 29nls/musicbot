@@ -7,7 +7,7 @@ import {
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import {
-  caseSourceFields,
+  caseAwareFields,
   compactFields,
   executorFields,
   logEmbed,
@@ -38,8 +38,7 @@ export default {
         { name: 'Member', value: `<@${member.id}> (\`${member.user.tag}\`)`, inline: true },
         { name: 'ID', value: `\`${member.id}\``, inline: true },
         joinedAt ? { name: 'Bergabung', value: relativeTime(joinedAt), inline: true } : null,
-        ...executorFields(kickEntry),
-        ...caseSourceFields(link, kickEntry?.executor?.id, client.user?.id),
+        ...caseAwareFields(link, executorFields(kickEntry), kickEntry?.executor?.id, client.user?.id),
       ]),
     });
 

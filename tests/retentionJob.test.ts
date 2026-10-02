@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RetentionResult } from '../src/modules/moderation/retention.js';
-import { startRetentionJob, type RetentionJob, type RetentionRunner } from '../src/services/retentionJob.js';
+import type { TicketRetentionResult } from '../src/modules/tickets/retention.js';
+import {
+  startRetentionJob,
+  type RetentionJob,
+  type RetentionRunner,
+  type TicketRetentionRunner,
+} from '../src/services/retentionJob.js';
 
 const NOW = new Date(2026, 9, 2, 12, 0, 0);
 
@@ -24,6 +30,22 @@ class FakeRunner implements RetentionRunner {
       });
     }
 
+    if (this.error) throw this.error;
+    void now;
+    return this.result;
+  }
+}
+
+class FakeTicketRunner implements TicketRetentionRunner {
+  public calls = 0;
+  public result: TicketRetentionResult = {
+    cutoff: new Date(2025, 9, 2, 12, 0, 0),
+    ticketsDeleted: 0,
+  };
+  public error: Error | null = null;
+
+  async purgeExpired(now: Date = new Date()): Promise<TicketRetentionResult> {
+    this.calls += 1;
     if (this.error) throw this.error;
     void now;
     return this.result;
@@ -135,5 +157,28 @@ describe('startRetentionJob', () => {
 
     // Vitest tidak erreicht event loop; yang dicek adalah jumlah handle aktif.
     expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it('menyapu tiket retensi di jadwal yang sama', async () => {
+    const runner = new FakeRunner();
+    const ticketRunner = new FakeTicketRunner();
+    ticketRunner.result = { cutoff: new Date(2025, 9, 2), ticketsDeleted: 4 };
+    job = startRetentionJob(runner, { intervalMs: 60_000, ticketRunner });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ticketRunner.calls).toBe(1);
+  });
+
+  it('kegagalan retensi tiket tidak menggagalkan sapuan kasus', async () => {
+    const runner = new FakeRunner();
+    const ticketRunner = new FakeTicketRunner();
+    ticketRunner.error = new Error('tabel ticket belum ada');
+    job = startRetentionJob(runner, { intervalMs: 60_000, ticketRunner });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(runner.calls).toBe(1);
+    expect(ticketRunner.calls).toBe(1);
   });
 });

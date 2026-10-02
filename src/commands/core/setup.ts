@@ -154,6 +154,8 @@ function readModules(values: string[]): ModulesEnabled {
     moderation: values.includes('moderation'),
     automod: values.includes('automod'),
     logging: values.includes('logging'),
+    reactions: values.includes('reactions'),
+    tickets: values.includes('tickets'),
   };
 }
 

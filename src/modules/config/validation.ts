@@ -27,6 +27,8 @@ const modulesSchema = z
     moderation: z.boolean(),
     automod: z.boolean(),
     logging: z.boolean(),
+    reactions: z.boolean(),
+    tickets: z.boolean(),
   })
   .partial();
 
@@ -50,6 +52,10 @@ export const guildConfigPatchSchema = z.object({
     .min(MIN_IDLE_TIMEOUT_SEC, `minimal ${MIN_IDLE_TIMEOUT_SEC} detik`)
     .max(MAX_IDLE_TIMEOUT_SEC, `maksimal ${MAX_IDLE_TIMEOUT_SEC} detik`)
     .optional(),
+  ticketPanelChannelId: snowflakeOrNull.optional(),
+  ticketCategoryId: snowflakeOrNull.optional(),
+  ticketStaffRoleId: snowflakeOrNull.optional(),
+  ticketPanelMessageId: snowflakeOrNull.optional(),
   modules: modulesSchema.optional(),
   locale: z.string().min(2).max(5).optional(),
 });

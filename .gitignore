@@ -17,6 +17,9 @@ logs/
 lavalink/logs/
 lavalink/plugins/
 
+# Arsip ekspor log (/logs … format:) — jangan ikut ter-commit
+data/
+
 # Editor & OS
 .DS_Store
 Thumbs.db

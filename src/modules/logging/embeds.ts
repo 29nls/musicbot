@@ -1,6 +1,16 @@
 import { EmbedBuilder, type GuildAuditLogsEntry } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
 import { formatCaseId } from '../moderation/caseNumber.js';
+import {
+  STATS_TOP_ACTIONS,
+  STATS_TOP_MEMBERS,
+  eventKeyEmoji,
+  eventKeyLabel,
+  formatShare,
+  statsBar,
+  type LogStats,
+  type LogStatsPeriod,
+} from './stats.js';
 import { CATEGORY_META, type LogCategory, type LogRecord, type LogSearchFilter } from './types.js';
 
 export interface LogField {
@@ -149,6 +159,25 @@ export function caseSourceFields(
   ];
 }
 
+/**
+ * Field untuk event yang mungkin berasal dari kasus Harmony.
+ *
+ * Aksi bot: field dibuat ringkas dan fokus ke tautan kasus, karena alasan,
+ * moderator, dan detail aksi sudah ada di log kasus yang dikirim perintah —
+ * mengulangnya di sini hanya membuat dua embed bertele-tele di channel yang sama.
+ * Aksi luar Harmony: field event tetap lengkap, ditambah penanda sumber.
+ */
+export function caseAwareFields(
+  link: LogCaseSource | null,
+  externalFields: LogField[],
+  executorId: string | null | undefined,
+  botUserId: string | null | undefined,
+): LogField[] {
+  if (link) return caseSourceFields(link, null, null);
+
+  return [...externalFields, ...caseSourceFields(null, executorId, botUserId)];
+}
+
 /** Sebut target sesuai jenisnya: member, channel, atau role. */
 function targetMention(record: LogRecord): string | null {
   if (!record.targetId) return null;
@@ -163,6 +192,48 @@ export interface LogResultsOptions {
   page: number;
   pageSize: number;
   total: number;
+}
+
+export interface LogRecordSummary {
+  /** Judul siap pakai: emoji kategori + judul entri. */
+  title: string;
+  lines: string[];
+}
+
+/**
+ * Baris ringkas satu entri riwayat: waktu, event, target, kasus, executor,
+ * channel, dan tautan lompat ke pesan log aslinya.
+ *
+ * Dipakai bersama oleh `/logs` dan halaman ringkasan kasus supaya dua tempat
+ * menampilkan entri yang sama dengan cara yang sama.
+ */
+export function logRecordSummary(record: LogRecord, guildId: string): LogRecordSummary {
+  const meta = CATEGORY_META[record.category];
+  const timestamp = Math.floor(record.createdAt.getTime() / 1_000);
+  const lines = [`⏱️ <t:${timestamp}:f> · \`${record.eventKey}\``];
+
+  const target = targetMention(record);
+  if (target) lines.push(target);
+  if (record.caseId && Number.isInteger(Number(record.caseId))) {
+    lines.push(`🤖 Harmony · Kasus \`${formatCaseId(Number(record.caseId))}\``);
+  }
+  if (record.executorId) lines.push(`Oleh: <@${record.executorId}>`);
+  if (record.channelId && record.category !== 'channel') {
+    lines.push(`Channel: <#${record.channelId}>`);
+  }
+
+  // Hanya kategori pesan yang menampilkan isi — di kategori lain nilai field
+  // sudah berupa daftar perubahan yang jauh lebih panjang.
+  if (record.category === 'message' && record.summary) {
+    lines.push(`> ${truncate(record.summary, 140)}`);
+  }
+
+  if (record.logChannelId && record.logMessageId) {
+    const url = `https://discord.com/channels/${guildId}/${record.logChannelId}/${record.logMessageId}`;
+    lines.push(`[Lompat ke pesan log](${url})`);
+  }
+
+  return { title: truncate(`${meta.emoji} ${record.title}`, MAX_FIELD_NAME_LENGTH), lines };
 }
 
 /**
@@ -186,35 +257,8 @@ export function logResultsEmbed(
     .setFooter({ text: `Halaman ${page} · entri ${first}–${last} dari ${total}` });
 
   for (const record of records) {
-    const meta = CATEGORY_META[record.category];
-    const timestamp = Math.floor(record.createdAt.getTime() / 1_000);
-    const lines = [`⏱️ <t:${timestamp}:f> · \`${record.eventKey}\``];
-
-    const target = targetMention(record);
-    if (target) lines.push(target);
-    if (record.caseId && Number.isInteger(Number(record.caseId))) {
-      lines.push(`🤖 Harmony · Kasus \`${formatCaseId(Number(record.caseId))}\``);
-    }
-    if (record.executorId) lines.push(`Oleh: <@${record.executorId}>`);
-    if (record.channelId && record.category !== 'channel') {
-      lines.push(`Channel: <#${record.channelId}>`);
-    }
-
-    // Hanya kategori pesan yang menampilkan isi — di kategori lain nilai field
-    // sudah berupa daftar perubahan yang jauh lebih panjang.
-    if (record.category === 'message' && record.summary) {
-      lines.push(`> ${truncate(record.summary, 140)}`);
-    }
-
-    if (record.logChannelId && record.logMessageId) {
-      const url = `https://discord.com/channels/${guildId}/${record.logChannelId}/${record.logMessageId}`;
-      lines.push(`[Lompat ke pesan log](${url})`);
-    }
-
-    embed.addFields({
-      name: truncate(`${meta.emoji} ${record.title}`, MAX_FIELD_NAME_LENGTH),
-      value: lines.join('\n'),
-    });
+    const summary = logRecordSummary(record, guildId);
+    embed.addFields({ name: summary.title, value: summary.lines.join('\n') });
   }
 
   if (total > page * pageSize) {
@@ -225,4 +269,142 @@ export function logResultsEmbed(
   }
 
   return embed;
+}
+
+export interface LogStatsEmbedOptions {
+  filter: LogSearchFilter;
+  period: LogStatsPeriod;
+  /** Berapa banyak baris per daftar; default mengikuti konstanta modul. */
+  topActions?: number;
+  topMembers?: number;
+}
+
+/**
+ * Embed statistik `/logs … stats:true`: sebaran per kategori, event yang paling
+ * sering muncul, dan member yang paling sering terlibat.
+ *
+ * Baris ringkas (bukan satu field per entri) supaya periode yang ramai pun
+ * tetap muat di satu embed.
+ */
+export function logStatsEmbed(stats: LogStats, options: LogStatsEmbedOptions): EmbedBuilder {
+  const { filter, period } = options;
+  const topActions = options.topActions ?? STATS_TOP_ACTIONS;
+  const topMembers = options.topMembers ?? STATS_TOP_MEMBERS;
+
+  const from = `<t:${Math.floor(period.from.getTime() / 1_000)}:f>`;
+  const to = `<t:${Math.floor(period.to.getTime() / 1_000)}:f>`;
+
+  const embed = new EmbedBuilder()
+    .setColor(EMBED_COLORS.primary)
+    .setTitle('📊 Statistik Log')
+    .setTimestamp()
+    .setFooter({ text: `${stats.total} event · ${from} – ${to}` });
+
+  const periodNote = period.defaulted
+    ? '\n\n_Periode default: seluruh masa simpan riwayat. Batonai `from:` untuk mempersempit._'
+    : '';
+  embed.setDescription(`${describeLogFilter(filter)}\n\n**Periode:** ${from} – ${to}${periodNote}`);
+
+  embed.addFields({
+    name: 'Event per kategori',
+    value: categoryLines(stats),
+  });
+
+  embed.addFields(
+    {
+      name: `Aksi teratas (${Math.min(topActions, stats.topActions.length)})`,
+      value: actionLines(stats, topActions),
+    },
+    {
+      name: `Member paling sering terkait (${Math.min(topMembers, stats.topMembers.length)})`,
+      value: memberLines(stats, topMembers),
+    },
+  );
+
+  return embed;
+}
+
+/** Enam kategori, lengkap dengan batang proporsi terhadap kategori teramai. */
+function categoryLines(stats: LogStats): string {
+  const max = Math.max(...stats.categories.map((item) => item.count));
+
+  return stats.categories
+    .map((item) => {
+      const meta = CATEGORY_META[item.category];
+      return `${meta.emoji} ${meta.label} \`${statsBar(item.count, max)}\` **${item.count}** (${formatShare(item.count, stats.total)})`;
+    })
+    .join('\n');
+}
+
+function actionLines(stats: LogStats, limit: number): string {
+  if (stats.topActions.length === 0) return 'Tidak ada event pada periode ini.';
+
+  return stats.topActions
+    .slice(0, limit)
+    .map((item, index) => {
+      const emoji = eventKeyEmoji(item.eventKey);
+      const label = eventKeyLabel(item.eventKey);
+      return `\`${index + 1}.\` ${emoji} **${label}** — ${item.count} event \`${item.eventKey}\``;
+    })
+    .join('\n');
+}
+
+function memberLines(stats: LogStats, limit: number): string {
+  if (stats.topMembers.length === 0) {
+    return 'Tidak ada member yang tercatat pada periode ini.';
+  }
+
+  return stats.topMembers
+    .slice(0, limit)
+    .map((item, index) => {
+      const roles = [
+        item.asTarget > 0 ? `🎯 ${item.asTarget} jadi target` : null,
+        item.asExecutor > 0 ? `⚡ ${item.asExecutor} melakukan` : null,
+      ].filter((line): line is string => line !== null);
+
+      return `\`${index + 1}.\` <@${item.userId}> — **${item.count}** event · ${roles.join(' · ')}`;
+    })
+    .join('\n');
+}
+
+export interface LogEntriesEmbedOptions {
+  title: string;
+  guildId: string;
+  /** Jumlah total yang cocok, dipakai untuk catatan kalau terpotong. */
+  total: number;
+  /** Kaki embed, mis. cara melihat daftar lengkapnya. */
+  footer?: string;
+}
+
+/**
+ * Daftar entri log tanpa chrome paginasi — dipakai di halaman ringkasan kasus,
+ * di mana daftar log adalah salah satu bagian, bukan keseluruhan halaman.
+ */
+export function logEntriesEmbed(
+  records: readonly LogRecord[],
+  options: LogEntriesEmbedOptions,
+): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(EMBED_COLORS.primary)
+    .setTitle(options.title)
+    .setTimestamp();
+
+  if (options.footer) embed.setFooter({ text: options.footer });
+
+  if (records.length === 0) {
+    return embed.setDescription('Tidak ada entri log yang tercatat.');
+  }
+
+  const blocks = records.map((record) => {
+    const summary = logRecordSummary(record, options.guildId);
+    return `**${summary.title}**\n${summary.lines.join('\n')}`;
+  });
+
+  const hidden = options.total - records.length;
+  const note =
+    hidden > 0
+      ? `\n\n*+${hidden} entri lain tidak ditampilkan — pakai \`/logs\` untuk melihat semuanya.*`
+      : '';
+
+  return embed.setDescription(truncate(`${blocks.join('\n\n')}${note}`, 4_000));
 }

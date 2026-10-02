@@ -148,6 +148,10 @@ describe('GuildConfigService', () => {
       goodbyeMessage: null,
       defaultVolume: 100,
       idleTimeoutSec: 300,
+      ticketPanelChannelId: null,
+      ticketCategoryId: null,
+      ticketStaffRoleId: null,
+      ticketPanelMessageId: null,
       modules: DEFAULT_MODULES,
       locale: 'id',
     });

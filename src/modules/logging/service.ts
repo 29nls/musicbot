@@ -1,6 +1,7 @@
 import { getLogger } from '../../services/logger.js';
 import type { LoggingRepository } from './repository.js';
 import { clampLogSummary } from './summary.js';
+import type { LogStats } from './stats.js';
 import {
   DEFAULT_LOG_RETENTION_DAYS,
   type LogCategory,
@@ -133,6 +134,16 @@ export class LoggingService {
   /** Pencarian riwayat log. Sengaja melempar error agar user melihat pesan DB offline. */
   async search(filter: LogSearchFilter): Promise<LogSearchResult> {
     return this.repository.search(filter);
+  }
+
+  /**
+   * Statistik ringkas riwayat log untuk satu periode.
+   *
+   * Sama seperti `search`, kegagalan dilempar — statistik bukan jalur
+   * best-effort, jadi pesan error ke user tetap akurat.
+   */
+  async stats(filter: LogSearchFilter): Promise<LogStats> {
+    return this.repository.stats(filter);
   }
 
   private async getChannelMap(guildId: string): Promise<Map<LogCategory, string>> {

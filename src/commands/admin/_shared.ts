@@ -8,7 +8,7 @@ import {
   type User,
 } from 'discord.js';
 import { getGuildConfigService, type GuildConfig } from '../../modules/config/index.js';
-import { recordLogEntry } from '../../modules/logging/index.js';
+import { recordLogEntry, resolveLogTarget } from '../../modules/logging/index.js';
 import {
   checkModerationHierarchy,
   getModerationService,
@@ -41,6 +41,7 @@ export const ADMIN_PERMISSIONS = {
   warn: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   warnings: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   unwarn: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
+  case: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   note: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   slowmode: { bit: PermissionFlagsBits.ManageChannels, label: 'Manage Channels' },
   lock: { bit: PermissionFlagsBits.ManageChannels, label: 'Manage Channels' },
@@ -257,12 +258,7 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
     dmSent,
   });
 
-  const logged = await sendGuildEmbed(ctx.guild, ctx.config.logChannelId, caseEmbed);
-
-  // Kasus ini adalah catatan utama-nya, jadi riwayat log disimpan di sini.
-  // Event Discord yang menyusul (jika ada) hanya menempelkan nomor kasus pada
-  // embed kategorinya tanpa mencatat baris kedua.
-  await recordCaseHistory(ctx.guild, options.action, caseEmbed, {
+  const logged = await deliverCaseLog(ctx, options.action, caseEmbed, {
     targetId: options.targetId,
     channelId: options.targetKind === 'channel' ? options.targetId : null,
     moderatorId: interaction.user.id,
@@ -285,25 +281,44 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
 }
 
 /**
- * Simpan embed kasus ke riwayat log supaya bisa dicari lewat `/logs`.
- * Best-effort: kegagalan pencatatan tidak boleh membatalkan aksi moderasi.
+ * Kirim log kasus ke channel log lalu simpan ke riwayat untuk `/logs`.
+ *
+ * Kalau modul logging menyala, channel tujuan mengikuti routing per kategori
+ * (`/logging set member:#log-member`) dengan `logChannelId` sebagai cadangan.
+ * Modul mati atau konfigurasi tak terbaca tetap kirim ke `logChannelId` seperti
+ * sebelumnya — catatan moderasi tidak boleh hilang diam-diam.
+ *
+ * Mengembalikan `false` kalau embed benar-benar tidak terkirim, supaya pemanggil
+ * bisa memberi catatan ke user.
  */
-async function recordCaseHistory(
-  guild: Guild,
+export async function deliverCaseLog(
+  ctx: AdminContext,
   action: ModerationAction,
   embed: EmbedBuilder,
   meta: { targetId: string; channelId: string | null; moderatorId: string; caseNumber: number },
-): Promise<void> {
+): Promise<boolean> {
   const category = moderationLogCategory(action);
-  if (!category) return;
+  const target = category
+    ? await resolveLogTarget(ctx.guild, category).catch(() => null)
+    : null;
+  const channelId = target?.enabled ? target.channelId : ctx.config.logChannelId;
 
-  await recordLogEntry(guild, category, embed, {
-    eventKey: `moderation.${action}`,
-    targetId: meta.targetId,
-    channelId: meta.channelId,
-    executorId: meta.moderatorId,
-    caseNumber: meta.caseNumber,
-  }).catch(() => undefined);
+  const logged = await sendGuildEmbed(ctx.guild, channelId, embed);
+
+  // Kasus ini adalah catatan utama aksi, jadi riwayat log disimpan di sini.
+  // Event Discord yang menyusul hanya menempelkan nomor kasus pada embed
+  // kategorinya tanpa mencatat baris kedua.
+  if (category) {
+    await recordLogEntry(ctx.guild, category, embed, {
+      eventKey: `moderation.${action}`,
+      targetId: meta.targetId,
+      channelId: meta.channelId,
+      executorId: meta.moderatorId,
+      caseNumber: meta.caseNumber,
+    }).catch(() => undefined);
+  }
+
+  return logged;
 }
 
 export interface ModerationRunOptions {
