@@ -40,6 +40,24 @@ export interface LoggingRepository {
   search(filter: LogSearchFilter): Promise<LogSearchResult>;
   /** Agregasi riwayat log untuk `/logs … stats:true`. */
   stats(filter: LogSearchFilter): Promise<LogStats>;
+  /**
+   * Hapus entri log yang sudah lewat retensi; mengembalikan jumlah baris.
+   *
+   * Yang dibandingkan adalah `expiresAt`, bukan `createdAt` — setiap entri
+   * sudah membawa tanggal kedaluwarsanya sendiri sejak ditulis.
+   */
+  deleteExpiredLogs(cutoff: Date): Promise<number>;
+  /**
+   * Hapus riwayat log yang menyebut user, sebagai target maupun pelaku.
+   *
+   * Log **dihapus, bukan dianonimkan** — berbeda dari kasus moderasi. Isinya
+   * ringkasan event yang bisa memuat potongan percakapan, umurnya hanya 30
+   * hari, dan tidak ada satu pun moderator yang membutuhkannya sebagai bukti:
+   * yang jadi bukti adalah kasusnya, yang tetap ada setelah anonimasi.
+   */
+  deleteAboutUser(guildId: string, userId: string, pseudonym: string): Promise<number>;
+  /** Berapa entri log yang menyebut user, sebagai target maupun pelaku. */
+  countAboutUser(guildId: string, userId: string, pseudonym: string): Promise<number>;
 }
 
 export class PrismaLoggingRepository implements LoggingRepository {
@@ -85,6 +103,28 @@ export class PrismaLoggingRepository implements LoggingRepository {
     await this.prisma.logEntry.updateMany({
       where: { id },
       data: { logMessageId: messageId, logChannelId },
+    });
+  }
+
+  async deleteExpiredLogs(cutoff: Date): Promise<number> {
+    const result = await this.prisma.logEntry.deleteMany({
+      where: { expiresAt: { not: null, lt: cutoff } },
+    });
+
+    return result.count;
+  }
+
+  async deleteAboutUser(guildId: string, userId: string, pseudonym: string): Promise<number> {
+    const result = await this.prisma.logEntry.deleteMany({
+      where: { guildId, ...userMentionedWhere(userId, pseudonym) },
+    });
+
+    return result.count;
+  }
+
+  async countAboutUser(guildId: string, userId: string, pseudonym: string): Promise<number> {
+    return this.prisma.logEntry.count({
+      where: { guildId, ...userMentionedWhere(userId, pseudonym) },
     });
   }
 
@@ -193,6 +233,19 @@ function andWhere(
   ...extra: Prisma.LogEntryWhereInput[]
 ): Prisma.LogEntryWhereInput {
   return { AND: [base, ...extra] };
+}
+
+/**
+ * Entri log yang menyebut user sebagai target atau sebagai pelaku.
+ *
+ * Pseudonim ikut dicocokkan supaya permintaan penghapusan yang kedua tetap
+ * menemukan baris yang dianonimkan pada permintaan pertama, bukan melaporkan
+ * "tidak ada data" untuk data yang memang masih ada.
+ */
+function userMentionedWhere(userId: string, pseudonym: string): Prisma.LogEntryWhereInput {
+  const ids = [userId, pseudonym];
+
+  return { OR: [{ targetId: { in: ids } }, { executorId: { in: ids } }] };
 }
 
 /** Ratakan hasil `groupBy` Prisma menjadi pasangan kunci → jumlah. */

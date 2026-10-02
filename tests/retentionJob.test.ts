@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LogRetentionResult } from '../src/modules/logging/retention.js';
 import type { RetentionResult } from '../src/modules/moderation/retention.js';
 import type { TicketRetentionResult } from '../src/modules/tickets/retention.js';
 import {
   startRetentionJob,
+  type LogRetentionRunner,
   type RetentionJob,
   type RetentionRunner,
   type TicketRetentionRunner,
@@ -59,7 +61,31 @@ class FakeTicketRunner implements TicketRetentionRunner {
  * koneksi database, jadi durasi tiap sapuan tergantung koneksi — membuat
  * assertion "berapa kali terpanggil" jadi soal timing, bukan soal logika job.
  */
+class FakeLogRunner implements LogRetentionRunner {
+  public calls = 0;
+  public result: LogRetentionResult = {
+    cutoff: new Date(2026, 9, 2, 12, 0, 0),
+    logs: 0,
+  };
+  public error: Error | null = null;
+
+  async purgeExpired(now: Date = new Date()): Promise<LogRetentionResult> {
+    this.calls += 1;
+    if (this.error) throw this.error;
+    void now;
+    return this.result;
+  }
+}
+
+/**
+ * Ticket & log runner yang dipakai semua tes di bawah.
+ *
+ * Tanpa ini `startRetentionJob` memakai service sungguhan yang mencoba koneksi
+ * database, jadi durasi tiap sapuan tergantung koneksi — membuat assertion
+ * "berapa kali terpanggil" jadi soal timing, bukan soal logika job.
+ */
 const tickets = new FakeTicketRunner();
+const logs = new FakeLogRunner();
 
 let job: RetentionJob | undefined;
 
@@ -67,6 +93,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
   tickets.calls = 0;
+  logs.calls = 0;
+  logs.error = null;
+  logs.result = { cutoff: new Date(2026, 9, 2, 12, 0, 0), logs: 0 };
 });
 
 afterEach(() => {
@@ -78,7 +107,7 @@ afterEach(() => {
 describe('startRetentionJob', () => {
   it('menjalankan satu sapuan saat start', async () => {
     const runner = new FakeRunner();
-    job = startRetentionJob(runner, { ticketRunner: tickets, intervalMs: 60_000 });
+    job = startRetentionJob(runner, { ticketRunner: tickets, logRunner: logs, intervalMs: 60_000 });
 
     await vi.advanceTimersByTimeAsync(0);
 
@@ -87,7 +116,7 @@ describe('startRetentionJob', () => {
 
   it('melewati sapuan awal ketika runOnStart dimatikan', async () => {
     const runner = new FakeRunner();
-    job = startRetentionJob(runner, { ticketRunner: tickets, intervalMs: 60_000, runOnStart: false });
+    job = startRetentionJob(runner, { ticketRunner: tickets, logRunner: logs, intervalMs: 60_000, runOnStart: false });
 
     await vi.advanceTimersByTimeAsync(0);
     expect(runner.calls).toBe(0);
@@ -98,7 +127,7 @@ describe('startRetentionJob', () => {
 
   it('menjalankan ulang sesuai interval', async () => {
     const runner = new FakeRunner();
-    job = startRetentionJob(runner, { ticketRunner: tickets, intervalMs: 60_000, runOnStart: false });
+    job = startRetentionJob(runner, { ticketRunner: tickets, logRunner: logs, intervalMs: 60_000, runOnStart: false });
 
     await vi.advanceTimersByTimeAsync(180_000);
 
@@ -108,7 +137,7 @@ describe('startRetentionJob', () => {
   it('tidak menjalankan dua sapuan bersamaan', async () => {
     const runner = new FakeRunner();
     runner.release = () => undefined; // tahan sapuan pertama
-    job = startRetentionJob(runner, { ticketRunner: tickets, intervalMs: 60_000 });
+    job = startRetentionJob(runner, { ticketRunner: tickets, logRunner: logs, intervalMs: 60_000 });
 
     // Dua tick interval lewat selagi sapuan pertama masih jalan.
     await vi.advanceTimersByTimeAsync(120_000);
@@ -127,7 +156,7 @@ describe('startRetentionJob', () => {
   it('kegagalan tidak melempar keluar dan dicatat sebagai peringatan', async () => {
     const runner = new FakeRunner();
     runner.error = new Error('database mati');
-    job = startRetentionJob(runner, { ticketRunner: tickets, intervalMs: 60_000, runOnStart: false });
+    job = startRetentionJob(runner, { ticketRunner: tickets, logRunner: logs, intervalMs: 60_000, runOnStart: false });
 
     await expect(job.runOnce()).resolves.toBeNull();
   });
@@ -135,14 +164,14 @@ describe('startRetentionJob', () => {
   it('mengembalikan hasil sapuan yang berhasil', async () => {
     const runner = new FakeRunner();
     runner.result = { cutoff: new Date(2025, 9, 2), warnings: 4, cases: 7 };
-    job = startRetentionJob(runner, { ticketRunner: tickets, intervalMs: 60_000, runOnStart: false });
+    job = startRetentionJob(runner, { ticketRunner: tickets, logRunner: logs, intervalMs: 60_000, runOnStart: false });
 
     await expect(job.runOnce()).resolves.toEqual(runner.result);
   });
 
   it('intervalMs 0 mematikan penjadwalan tanpa mematikan sapuan manual', async () => {
     const runner = new FakeRunner();
-    job = startRetentionJob(runner, { ticketRunner: tickets, intervalMs: 0, runOnStart: false });
+    job = startRetentionJob(runner, { ticketRunner: tickets, logRunner: logs, intervalMs: 0, runOnStart: false });
 
     await vi.advanceTimersByTimeAsync(600_000);
     expect(runner.calls).toBe(0);
@@ -154,7 +183,7 @@ describe('startRetentionJob', () => {
   it('stop() membatalkan jadwal berikutnya', async () => {
     const runner = new FakeRunner();
     const stopped = startRetentionJob(runner, {
-      ticketRunner: tickets,
+      ticketRunner: tickets, logRunner: logs,
       intervalMs: 60_000,
       runOnStart: false,
     });
@@ -167,7 +196,7 @@ describe('startRetentionJob', () => {
 
   it('timer tidak menahan proses tetap hidup', () => {
     const runner = new FakeRunner();
-    job = startRetentionJob(runner, { ticketRunner: tickets, intervalMs: 60_000, runOnStart: false });
+    job = startRetentionJob(runner, { ticketRunner: tickets, logRunner: logs, intervalMs: 60_000, runOnStart: false });
 
     // Vitest tidak erreicht event loop; yang dicek adalah jumlah handle aktif.
     expect(vi.getTimerCount()).toBe(1);
@@ -177,22 +206,46 @@ describe('startRetentionJob', () => {
     const runner = new FakeRunner();
     const ticketRunner = new FakeTicketRunner();
     ticketRunner.result = { cutoff: new Date(2025, 9, 2), ticketsDeleted: 4 };
-    job = startRetentionJob(runner, { intervalMs: 60_000, ticketRunner });
+    job = startRetentionJob(runner, { intervalMs: 60_000, ticketRunner, logRunner: logs });
 
     await vi.advanceTimersByTimeAsync(0);
 
     expect(ticketRunner.calls).toBe(1);
   });
 
+  it('menyapu riwayat log di jadwal yang sama, setelah kasus & tiket', async () => {
+    const runner = new FakeRunner();
+    const ticketRunner = new FakeTicketRunner();
+    job = startRetentionJob(runner, { intervalMs: 60_000, ticketRunner, logRunner: logs });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(logs.calls).toBe(1);
+  });
+
   it('kegagalan retensi tiket tidak menggagalkan sapuan kasus', async () => {
     const runner = new FakeRunner();
     const ticketRunner = new FakeTicketRunner();
     ticketRunner.error = new Error('tabel ticket belum ada');
-    job = startRetentionJob(runner, { intervalMs: 60_000, ticketRunner });
+    job = startRetentionJob(runner, { intervalMs: 60_000, ticketRunner, logRunner: logs });
 
     await vi.advanceTimersByTimeAsync(0);
 
     expect(runner.calls).toBe(1);
     expect(ticketRunner.calls).toBe(1);
+  });
+
+  it('kegagalan retensi log tidak menggagalkan sapuan kasus', async () => {
+    // Janji "log dihapus setelah 30 hari" tidak boleh diam-diam gagal: yang
+    // penting kegagalan itu terlihat di log, bukan ikut menutupi laporan kasus.
+    const runner = new FakeRunner();
+    const ticketRunner = new FakeTicketRunner();
+    logs.error = new Error('tabel log belum ada');
+    job = startRetentionJob(runner, { intervalMs: 60_000, ticketRunner, logRunner: logs });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(runner.calls).toBe(1);
+    expect(logs.calls).toBe(1);
   });
 });

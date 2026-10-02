@@ -65,6 +65,19 @@ export interface ModerationRepository {
     moderatorId: string,
     recentSince: Date,
   ): Promise<ModeratorTotals>;
+  /**
+   * Lepas identitas target dari kasus & peringatannya, sisakan jejak auditnya.
+   *
+   * `pseudonym` ikut dicocokkan supaya permintaan kedua mendeteksi baris yang
+   * sudah dianonimkan — dengan begitu menjalankan `/data-delete` dua kali
+   * harmless, bukan membuat identitas kedua untuk orang yang sama.
+   */
+  anonymizeTarget(
+    guildId: string,
+    userId: string,
+    pseudonym: string,
+    reasonMarker: string,
+  ): Promise<{ cases: number; warnings: number }>;
 }
 
 export class PrismaModerationRepository implements ModerationRepository {
@@ -319,5 +332,43 @@ export class PrismaModerationRepository implements ModerationRepository {
       lastCaseAt: aggregate._max.createdAt,
       recentCount,
     };
+  }
+
+  /**
+   * Anonimkan target atas permintaan penghapusan data.
+   *
+   * Yang dibuang adalah **isi dan identitasnya**: ID target diganti pseudonim,
+   * alasan diganti penanda. Yang tetap disimpan adalah kerangka kasusnya — tipe
+   * aksi, kapan, moderator mana, masih aktif atau tidak.
+   *
+   * Alasannya bukan compulsi menghapus: moderator sering butuh tahu bahwa
+   * suatu member pernah diberi peringatan tiga kali lalu di-ban, dan menghapus
+   * jejaknya sepenuhnya membuat keputusan berikutnya tanpa konteks. Yang tidak
+   * bisa dipertahankan adalah mengaitkan semua itu kembali ke orangnya.
+   *
+   * `reason` ditimpa juga untuk kasus `note`, karena isinya disimpan di kolom
+   * yang sama — tanpa ini catatan internal yang paling bersifat pribadi justru
+   * akan selamat dari permintaan penghapusan.
+   */
+  async anonymizeTarget(
+    guildId: string,
+    userId: string,
+    pseudonym: string,
+    reasonMarker: string,
+  ): Promise<{ cases: number; warnings: number }> {
+    const ids = [userId, pseudonym];
+
+    const [cases, warnings] = await Promise.all([
+      this.prisma.moderationCase.updateMany({
+        where: { guildId, targetId: { in: ids } },
+        data: { targetId: pseudonym, reason: reasonMarker },
+      }),
+      this.prisma.warning.updateMany({
+        where: { guildId, userId: { in: ids } },
+        data: { userId: pseudonym, reason: reasonMarker },
+      }),
+    ]);
+
+    return { cases: cases.count, warnings: warnings.count };
   }
 }

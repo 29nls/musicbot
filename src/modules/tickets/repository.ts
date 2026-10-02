@@ -1,7 +1,13 @@
-import type { Prisma, PrismaClient } from '../../generated/prisma/client.js';
+import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import { toDomain } from './mapping.js';
 import type { TicketTranscript } from './transcript.js';
 import type { CreateTicketInput, Ticket } from './types.js';
+
+/** Jumlah tiket satu pembuka, dan berapa di antaranya yang punya transkrip. */
+export interface TicketOpenerCount {
+  tickets: number;
+  transcripts: number;
+}
 
 /** Kontrak penyimpanan tiket — bisa diganti fake di tes. */
 export interface TicketRepository {
@@ -25,6 +31,22 @@ export interface TicketRepository {
   deleteExpired(cutoff: Date): Promise<number>;
   /** Tempelkan transkrip ke tiket yang sudah ditutup. */
   attachTranscript(ticketId: number, transcript: TicketTranscript): Promise<void>;
+  /** Berapa tiket yang dibuka user ini, dan berapa di antaranya punya transkrip. */
+  countByOpener(guildId: string, openerId: string): Promise<TicketOpenerCount>;
+  /**
+   * Anonimkan tiket yang dibuka user atas permintaan penghapusan data.
+   *
+   * Transkrip **dihapus**, bukan dianonimkan: isinya percakapan mentah yang
+   * tidak bisa dilepas identitasnya tanpa jadi tidak berguna, dan justru
+   * bagian inilah yang paling dekat dengan data pribadi. Baris tiketnya tetap
+   * ada sebagai catatan bahwa tiket pernah dibuat dan bagaimana ditutupnya.
+   */
+  anonymizeOpener(
+    guildId: string,
+    openerId: string,
+    pseudonym: string,
+    subjectMarker: string,
+  ): Promise<TicketOpenerCount>;
 }
 
 export class PrismaTicketRepository implements TicketRepository {
@@ -194,5 +216,52 @@ async findAnyByChannel(guildId: string, channelId: string): Promise<Ticket | nul
       // sudah divalidasi di `transcript.ts` sebelum sampai sini.
       data: { transcript: transcript as unknown as Prisma.InputJsonValue },
     });
+  }
+
+  /**
+   * Jumlah tiket & transkrip milik satu pembuka.
+   *
+   * Baris diambil lengkap (hanya kolom transkrip) alih-alih dua aggregate,
+   * karena memeriksa "apakah JSON ini null" jauh lebih andal di sisi
+   * TypeScript daripada memfilter null di dalam JSON lewat Prisma. Jumlah tiket
+   * per orang kecil, jadi biayanya tidak sebanding dengan query yang rapuh.
+   */
+  async countByOpener(guildId: string, openerId: string): Promise<TicketOpenerCount> {
+    const rows = await this.prisma.ticket.findMany({
+      where: { guildId, openerId },
+      select: { transcript: true },
+    });
+
+    return {
+      tickets: rows.length,
+      transcripts: rows.filter((row) => row.transcript !== null).length,
+    };
+  }
+
+  async anonymizeOpener(
+    guildId: string,
+    openerId: string,
+    pseudonym: string,
+    subjectMarker: string,
+  ): Promise<TicketOpenerCount> {
+    const ids = [openerId, pseudonym];
+    const rows = await this.prisma.ticket.findMany({
+      where: { guildId, openerId: { in: ids } },
+      select: { id: true, transcript: true },
+    });
+    const transcripts = rows.filter((row) => row.transcript !== null).length;
+
+    if (rows.length === 0) return { tickets: 0, transcripts: 0 };
+
+    const result = await this.prisma.ticket.updateMany({
+      where: { id: { in: rows.map((row) => row.id) } },
+      data: {
+        openerId: pseudonym,
+        subject: subjectMarker,
+        transcript: Prisma.DbNull,
+      },
+    });
+
+    return { tickets: result.count, transcripts };
   }
 }

@@ -1,4 +1,5 @@
 import { getLogger } from '../../services/logger.js';
+import { purgeExpiredLogs, type LogRetentionResult } from './retention.js';
 import type { LoggingRepository } from './repository.js';
 import { clampLogSummary } from './summary.js';
 import type { LogStats } from './stats.js';
@@ -144,6 +145,18 @@ export class LoggingService {
    */
   async stats(filter: LogSearchFilter): Promise<LogStats> {
     return this.repository.stats(filter);
+  }
+
+  /**
+   * Bersihkan riwayat log yang lewat retensi 30 hari (PRD Bab 12).
+   *
+   * Error dilempar, bukan ditelan: yang best-effort di modul ini adalah
+   * penulisan & pengiriman log. Menyembunyikan kegagalan di sini membuat
+   * janji "log dihapus setelah 30 hari" terlihat tetap berjalan padahal tidak,
+   * dan data yang seharusnya hilang adalah yang paling sulit disadari.
+   */
+  async purgeExpired(now = new Date()): Promise<LogRetentionResult> {
+    return purgeExpiredLogs(this.repository, now);
   }
 
   private async getChannelMap(guildId: string): Promise<Map<LogCategory, string>> {

@@ -61,6 +61,20 @@ class FakeLoggingRepository implements LoggingRepository {
       topMembers: [],
     };
   }
+
+  // Penghapusan retensi diuji di logRetention.test.ts.
+  async deleteExpiredLogs(_cutoff: Date): Promise<number> {
+    return 0;
+  }
+
+  // Anonimisasi & inventaris data diuji di privacyData.test.ts.
+  async deleteAboutUser(): Promise<number> {
+    return 0;
+  }
+
+  async countAboutUser(): Promise<number> {
+    return 0;
+  }
 }
 
 function makeService(cacheTtlMs = 60_000): {

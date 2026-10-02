@@ -589,11 +589,11 @@ hanya menempelkan nomor kasus pada embed kategorinya. Aksi tanpa kasus
 (moderator lain, Discord) tetap dicatat utuh dari sisi event.
 
 > Retensi riwayat log adalah **30 hari** (`DEFAULT_LOG_RETENTION_DAYS`): setiap
-> entri diisi `expiresAt` saat disimpan supaya job pembersihan bisa menghapus
-> yang sudah lewat sesuai kebijakan privasi Bab 12. Pencatatan juga melompat
-> kalau modul logging mati atau database offline — `/logs` akan menjelaskan
-> kondisinya. Penghapusan otomatis untuk `log_entry` belum dijadwalkan — lihat
-> bagian 10.
+> entri diisi `expiresAt` saat disimpan, dan job retensi menghapusnya kalau
+> tanggal itu sudah lewat. Pencatatan juga melompat kalau modul logging mati
+> atau database offline — `/logs` akan menjelaskan kondisinya. Baris dengan
+> `expiresAt` kosong **tidak** ikut terhapus, karena tidak pernah menetapkan
+> batas; menghapusnya butuh keputusan eksplisit, bukan disimpulkan.
 
 ---
 
@@ -820,7 +820,7 @@ PRD Bab 12 menyatakan data tidak disimpan selamanya. Yang sudah berjalan:
 | Peringatan (`warning`) | 12 bulan | Job retensi |
 | Tiket tertutup (`ticket`) | 12 bulan sejak ditutup | Job retensi (dalam sapuan yang sama) |
 | Transkrip percakapan tiket | ikut tiketnya (12 bulan) | Job retensi, **di operasi yang sama** |
-| Riwayat log (`log_entry`) | 30 hari (`expiresAt` sudah diisi) | **belum** ada job penghapus |
+| Riwayat log (`log_entry`) | 30 hari (`expiresAt` per baris) | Job retensi (sapuan terakhir) |
 
 Cara kerjanya:
 
@@ -846,8 +846,14 @@ Untuk server yang lebih suka membersihkan dari cron luar, setel
 
 ```bash
 npm run db:prune
-# {"cutoff":"2025-10-02T12:00:00.000Z","casesDeleted":12,"warningsDeleted":7}
+# {"cutoff":"2025-10-02T12:00:00.000Z","casesDeleted":12,"warningsDeleted":7,"logsDeleted":340}
 ```
+
+Riwayat log disapu paling akhir, di try/catch sendiri: retensinya jauh lebih
+pendek (30 hari) dan volumenya jauh lebih besar, jadi menggagalkan penghapusan
+kasus karena satu query log lambat akan membuat bot menyimpan data yang sudah
+dijanjikan dihapus. `logsDeleted` bernilai `null` kalau sapuan log gagal — lebih
+baik menyatakan tidak diketahui daripada melaporkan angka nol yang terlalu optimistis.
 
 Ada job kedua yang terpisah: `panelExpiryJob.ts` menonaktifkan panel reaction
 role yang lewat masa hidup setiap `PANEL_EXPIRY_SWEEP_MINUTES` (default 15 menit).
@@ -859,7 +865,66 @@ penjadwalan dimatikan.
 
 ---
 
-## 11. Struktur proyek
+## 11. Privasi & permintaan penghapusan data (Bab 12)
+
+### `/privacy` — data yang disimpan tentangmu
+
+Satu perintah, jawaban yang bisa diverifikasi sendiri: berapa kasus moderasi,
+berapa peringatan yang masih berlaku, berapa catatan internal, berapa tiket,
+dan berapa entri log yang menyebut kamu **di server ini**. Angka nol pun
+ditampilkan — "0 catatan" itu informasi, bukan baris yang layak disembunyikan
+supaya embed terlihat ramping. Ditambah masa simpan tiap kelompok data dan
+daftar hal yang tidak pernah disimpan (isi voice, isi pesan, data di luar
+Discord).
+
+Tanpa opsi `user`, perintahnya untuk dirimu sendiri. Dengan `user:<member>`,
+butuh izin **Moderate Members** — sama persis dengan `/case`, karena membaca
+inventaris orang lain setara dengan membaca kasusnya.
+
+### `/data-delete` — meminta data pribvim dihapus
+
+Dua langkah: jalankan tanpa `confirm:true` untuk melihat proyeksi dampaknya,
+lalu ulangi dengan `confirm:true` untuk mengeksekusi. Ini satu-satunya perintah
+di bot yang menghapus milik orang, jadi harus dibaca pemohon dulu sebelum
+berjalan — bukan dilaporkan sesudahnya.
+
+Yang bot lakukan per member, per server:
+
+| Data | Yang dilakukan |
+| --- | --- |
+| Kasus moderasi & catatan internal | ID target diganti pseudonim (`anon:…`), isi alasan/catatan diganti penanda |
+| Peringatan | Sama seperti kasusnya (baris peringatan ikut dilepas) |
+| Tiket | ID pembuka diganti pseudonim, topik diganti penanda, **transkrip dihapus** |
+| Entri log | **Dihapus seluruhnya** (sebagai target maupun pelaku) |
+| Rekaman Discord | Tidak menyentuh — bot tidak memiliki data di luar database-nya sendiri |
+
+Yang **tidak** dihapus: kerangka kasusnya — tipe aksi, kapan terjadi, moderator
+mana yang bertindak, masih aktif atau tidak. Alasannya bukan sekadar mengganti
+kata di PRD: moderator sering perlu tahu bahwa seorang member pernah diberi
+peringatan tiga kali lalu di-ban, dan menghapus jejaknya sepenuhnya membuat
+keputusan berikutnya berjalan tanpa konteks. Yang tidak bisa dipertahankan
+adalah mengaitkan semua itu kembali ke orangnya. Embed hasilnya menyatakan ini
+dengan eksplisit supaya tidak ada yang mengira permintaannya sudah tuntas.
+
+Tindakan yang **kamu** lakukan sebagai moderator tidak ikut berubah — itu
+catatan tanggung jawabmu di server ini. Permintaan atas nama orang lain butuh
+izin **Manage Server** (bukan Moderate Members: menghapus bersifat merusak),
+dan selalu dicatat ke channel log server dengan pelaku dan targetnya terlihat.
+
+**Pengulangan aman.** Pseudonim dihitung stabil dari `guildId:userId`, dan
+pencarian selalu ikut mencocokkan pseudonim itu. Jadi menjalankan `/data-delete`
+dua kali tidak akan membuat identitas kedua untuk orang yang sama, dan
+permintaan kedua tetap menemukan baris yang sudah dianonimkan alih-alih
+melaporkan "tidak ada data" padahal datanya masih ada.
+
+Kalau ada modul yang gagal di tengah, perintahnya **melempar** dan bilang
+terbuka — bukan melaporkan "selesai" sementara masih ada data yang bisa
+ditelusuri. Dua modul yang sudah berhasil tidak dibatalkan, jadi jalankan lagi
+untuk menyelesaikan sisanya.
+
+---
+
+## 12. Struktur proyek
 
 ```
 prisma/
@@ -946,7 +1011,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
 ---
 
-## 12. Perintah npm
+## 13. Perintah npm
 
 | Perintah | Fungsi |
 | --- | --- |
@@ -960,7 +1025,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 | `npm run db:deploy` | Terapkan migrasi yang sudah ada (produksi/CI) |
 | `npm run db:generate` | Generate Prisma Client dari schema |
 | `npm run db:studio` | Buka Prisma Studio untuk melihat isi database |
-| `npm run db:prune` | Sekali jalan: hapus kasus & peringatan yang lewat retensi (cron) |
+| `npm run db:prune` | Sekali jalan: hapus kasus, peringatan & riwayat log yang lewat retensi (cron) |
 | `npm run typecheck` | TypeScript strict tanpa emit — mencakup `src/` dan `tests/` |
 | `npm run lint` / `lint:fix` | ESLint |
 | `npm test` / `test:watch` | Vitest |
@@ -970,7 +1035,7 @@ setiap push/PR.
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | --- | --- |

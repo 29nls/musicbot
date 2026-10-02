@@ -236,6 +236,11 @@ class FakeModerationRepository implements ModerationRepository {
       recentCount: owned.filter((item) => item.createdAt >= recentSince).length,
     };
   }
+
+  /** Anonimasi diuji di privacyData.test.ts; di sini hanya menjaga kontrak fake. */
+  async anonymizeTarget(): Promise<{ cases: number; warnings: number }> {
+    return { cases: 0, warnings: 0 };
+  }
 }
 
 describe('ModerationService.moderatorProfile', () => {

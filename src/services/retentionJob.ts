@@ -1,4 +1,6 @@
 import { getEnv } from '../config/env.js';
+import { getLoggingService } from '../modules/logging/index.js';
+import type { LogRetentionResult } from '../modules/logging/retention.js';
 import { getModerationService } from '../modules/moderation/index.js';
 import type { RetentionResult } from '../modules/moderation/retention.js';
 import { getTicketService } from '../modules/tickets/index.js';
@@ -13,6 +15,17 @@ export interface RetentionRunner {
 /** Sapuan retensi tiket — dijalankan setelah kasus, bukan menggantikannya. */
 export interface TicketRetentionRunner {
   purgeExpired(now?: Date): Promise<TicketRetentionResult>;
+}
+
+/**
+ * Sapuan retensi riwayat log — dijalankan terakhir.
+ *
+ * Dipisah dari kasus karena retensinya jauh lebih pendek (30 hari vs 12 bulan)
+ * dan volumenya jauh lebih besar, jadi mengalahkannya di jalur yang sama
+ * berarti satu query lambat menahan penghapusan yang lain.
+ */
+export interface LogRetentionRunner {
+  purgeExpired(now?: Date): Promise<LogRetentionResult>;
 }
 
 export interface RetentionJobOptions {
@@ -46,10 +59,14 @@ const DEFAULT_HOURS = 6;
  */
 export function startRetentionJob(
   runner: RetentionRunner = getModerationService(),
-  options: RetentionJobOptions & { ticketRunner?: TicketRetentionRunner } = {},
+  options: RetentionJobOptions & {
+    ticketRunner?: TicketRetentionRunner;
+    logRunner?: LogRetentionRunner;
+  } = {},
 ): RetentionJob {
   const logger = getLogger();
   const ticketRunner = options.ticketRunner ?? getTicketService();
+  const logRunner = options.logRunner ?? getLoggingService();
   const intervalMs = options.intervalMs ?? defaultIntervalMs();
   let running = false;
 
@@ -84,6 +101,18 @@ export function startRetentionJob(
         }
       } catch (error) {
         logger.warn({ err: error }, 'Retensi tiket gagal — kasus & peringatan tetap aman');
+      }
+
+      try {
+        const logs = await logRunner.purgeExpired(now);
+        if (logs.logs > 0) {
+          logger.info(
+            { cutoff: logs.cutoff.toISOString(), logs: logs.logs },
+            'Retensi: riwayat log kedaluwarsa dihapus',
+          );
+        }
+      } catch (error) {
+        logger.warn({ err: error }, 'Retensi log gagal — kasus & peringatan tetap aman');
       }
 
       return result;

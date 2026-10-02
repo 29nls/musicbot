@@ -12,6 +12,7 @@ import {
 } from '../src/modules/logging/types.js';
 
 const GUILD_ID = '123456789012345678';
+const OTHER_GUILD_ID = '987654321098765432';
 const USER_ID = '222222222222222222';
 const CHANNEL_ID = '333333333333333333';
 
@@ -33,6 +34,7 @@ class FakeHistoryRepository implements LoggingRepository {
   public failInsert = false;
   public failStats = false;
   public failAttach = false;
+  public failDeleteExpired = false;
   public searchResult: LogSearchResult = { rows: [], total: 0 };
 
   async list(): Promise<LogSubscription[]> {
@@ -61,6 +63,28 @@ class FakeHistoryRepository implements LoggingRepository {
     if (this.failStats) throw new Error('koneksi database terputus');
     this.statsFilter = filter;
     return emptyStats();
+  }
+
+  /** Sungguhan dihapus supaya retensi bisa diuji tanpa database. */
+  async deleteExpiredLogs(cutoff: Date): Promise<number> {
+    if (this.failDeleteExpired) throw new Error('koneksi database terputus');
+    const before = this.inserted.length;
+
+    for (let index = this.inserted.length - 1; index >= 0; index -= 1) {
+      const entry = this.inserted[index];
+      if (entry?.expiresAt && entry.expiresAt < cutoff) this.inserted.splice(index, 1);
+    }
+
+    return before - this.inserted.length;
+  }
+
+  // Anonimisasi & inventaris data diuji di privacyData.test.ts.
+  async deleteAboutUser(): Promise<number> {
+    return 0;
+  }
+
+  async countAboutUser(): Promise<number> {
+    return 0;
   }
 }
 
@@ -267,3 +291,68 @@ function makeStatsFilter(): LogSearchFilter {
     pageSize: 10,
   };
 }
+
+describe('LoggingService.purgeExpired', () => {
+  const DAY_MS = 86_400_000;
+
+  async function recordAt(service: LoggingService, guildId = GUILD_ID): Promise<void> {
+    await service.record(guildId, {
+      category: 'member',
+      eventKey: 'guildMemberJoin',
+      title: '📥 Member Join',
+      targetId: USER_ID,
+    });
+  }
+
+  it('entri baru belum ikut terhapus', async () => {
+    const { repository, service } = makeService();
+    await recordAt(service);
+
+    const result = await service.purgeExpired();
+
+    expect(result.logs).toBe(0);
+    expect(repository.inserted).toHaveLength(1);
+  });
+
+  it('entri yang lewat 30 hari dihapus', async () => {
+    const { repository, service } = makeService();
+    await recordAt(service);
+
+    // Maju tepat 31 hari: dengan begitu yang diuji batasnya (30 hari), bukan
+    // sekadar "cukup lama".
+    vi.setSystemTime(new Date(NOW.getTime() + 31 * DAY_MS));
+    const result = await service.purgeExpired();
+
+    expect(result.logs).toBe(1);
+    expect(repository.inserted).toHaveLength(0);
+  });
+
+  it('entri belum genap 30 hari tetap disimpan', async () => {
+    const { repository, service } = makeService();
+    await recordAt(service);
+
+    vi.setSystemTime(new Date(NOW.getTime() + 29 * DAY_MS));
+
+    expect((await service.purgeExpired()).logs).toBe(0);
+    expect(repository.inserted).toHaveLength(1);
+  });
+
+  it('hanya menyentuh guild yang disapu', async () => {
+    const { service } = makeService();
+    await recordAt(service, GUILD_ID);
+    await recordAt(service, OTHER_GUILD_ID);
+
+    expect((await service.purgeExpired()).logs).toBe(0);
+    expect((await service.purgeExpired(new Date(NOW.getTime() + 31 * DAY_MS))).logs).toBe(2);
+  });
+
+  it('kegagalan database dilempar, bukan ditelan jadi nol', async () => {
+    // Kalau kegagalan ini disembunyikan, janji "log dihapus setelah 30 hari"
+    // akan terlihat tetap berjalan padahal tidak.
+    const { repository, service } = makeService();
+    await recordAt(service);
+    repository.failDeleteExpired = true;
+
+    await expect(service.purgeExpired(new Date(NOW.getTime() + 31 * DAY_MS))).rejects.toThrow();
+  });
+});

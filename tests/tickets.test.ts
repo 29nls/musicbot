@@ -17,7 +17,7 @@ import {
   ticketChannelName,
 } from '../src/modules/tickets/naming.js';
 import { purgeExpiredTickets, ticketRetentionCutoff } from '../src/modules/tickets/retention.js';
-import type { TicketRepository } from '../src/modules/tickets/repository.js';
+import type { TicketOpenerCount, TicketRepository } from '../src/modules/tickets/repository.js';
 import type { TicketTranscript } from '../src/modules/tickets/transcript.js';
 import { TicketService } from '../src/modules/tickets/service.js';
 import {
@@ -192,6 +192,38 @@ class FakeTicketRepository implements TicketRepository {
     }
 
     return due.length;
+  }
+
+  async countByOpener(guildId: string, openerId: string): Promise<TicketOpenerCount> {
+    const owned = this.rows.filter(
+      (item) => item.guildId === guildId && item.openerId === openerId,
+    );
+
+    return {
+      tickets: owned.length,
+      transcripts: owned.filter((item) => item.transcript !== null).length,
+    };
+  }
+
+  async anonymizeOpener(
+    guildId: string,
+    openerId: string,
+    pseudonym: string,
+    subjectMarker: string,
+  ): Promise<TicketOpenerCount> {
+    const ids = [openerId, pseudonym];
+    const due = this.rows.filter(
+      (item) => item.guildId === guildId && ids.includes(item.openerId),
+    );
+    const transcripts = due.filter((item) => item.transcript !== null).length;
+
+    for (const item of due) {
+      item.openerId = pseudonym;
+      item.subject = subjectMarker;
+      item.transcript = null;
+    }
+
+    return { tickets: due.length, transcripts };
   }
 }
 
