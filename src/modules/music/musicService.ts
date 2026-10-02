@@ -4,9 +4,11 @@ import { getLogger } from '../../services/logger.js';
 import type { GuildConfig } from '../config/index.js';
 import { DEFAULT_IDLE_TIMEOUT_SEC } from '../config/types.js';
 import { IdleTimer } from './idleTimer.js';
+import { cycleResetOn, planAdvance, type LoopMode } from './loop.js';
 import { clampVolume } from './permissions.js';
 import { MusicQueue } from './queue.js';
 import { buildSearchIdentifier } from './search.js';
+import type { RandomSource } from './shuffle.js';
 import { toTrackInfo } from './track.js';
 import type { PlayOutcome, QueueSnapshot, SearchOutcome, TrackInfo } from './types.js';
 
@@ -22,7 +24,12 @@ export interface MusicServiceOptions {
   getConfig: (guildId: string) => Promise<GuildConfig>;
   node: MusicNodeOptions;
   maxQueueSize: number;
+  /** Batas lagu yang diingat untuk mode loop antrean. */
+  maxLoopHistory?: number;
 }
+
+/** Batas default riwayat siklus; cukup untuk satu antrean panjang. */
+const DEFAULT_MAX_LOOP_HISTORY = 100;
 
 export interface PlayRequest {
   guildId: string;
@@ -30,6 +37,15 @@ export interface PlayRequest {
   requesterId: string;
   voiceChannelId: string;
   shardId: number;
+}
+
+/** Permintaan untuk lagu yang sudah di-resolve (dipakai `/search`). */
+export interface EnqueueRequest {
+  guildId: string;
+  tracks: readonly TrackInfo[];
+  voiceChannelId: string;
+  shardId: number;
+  playlistName?: string;
 }
 
 /**
@@ -47,6 +63,16 @@ export class MusicService {
   private readonly currents = new Map<string, TrackInfo>();
   private readonly idleTimers = new Map<string, IdleTimer>();
   private readonly attachedPlayers = new Map<string, Player>();
+  private readonly loopModes = new Map<string, LoopMode>();
+  /**
+   * Lagu-lagu yang sudah diputar dalam satu siklus, urut.
+   *
+   * Disimpan hanya untuk mode `queue`: itulah satu-satunya cara memutar ulang
+   * antrean tanpa memuat ulang dari Lavalink, karena antrean sendiri hanya
+   * berisi lagu yang belum diputar. Dibatasi agar server yang antreannya terus
+   * berjalan tidak menahan referensi lagu selamanya.
+   */
+  private readonly playedCycles = new Map<string, TrackInfo[]>();
 
   constructor(client: Client, private readonly options: MusicServiceOptions) {
     const { node } = options;
@@ -123,16 +149,33 @@ export class MusicService {
 
   /** Alur `/play`: cari → join voice → putar atau antrekan. */
   async play(request: PlayRequest): Promise<PlayOutcome> {
-    const { guildId, query, requesterId, voiceChannelId, shardId } = request;
+    const { guildId, query, requesterId } = request;
 
     const found = await this.resolve(query);
     if (found.kind === 'empty') return { kind: 'empty' };
     if (found.kind === 'error') return { kind: 'error', message: found.message };
     if (found.kind === 'unavailable') return { kind: 'unavailable' };
 
-    const tracks = found.tracks.map((track) => toTrackInfo(track, requesterId));
-    const queue = this.queueFor(guildId);
+    return this.enqueue({
+      guildId,
+      tracks: found.tracks.map((track) => toTrackInfo(track, requesterId)),
+      voiceChannelId: request.voiceChannelId,
+      shardId: request.shardId,
+      playlistName: found.playlistName,
+    });
+  }
 
+  /**
+   * Masukkan lagu yang **sudah di-resolve** ke antrean atau ke pemutaran.
+   *
+   * Dipisah dari `play` karena `/search` sudah punya track-nya di tangan
+   * (hasil select menu), jadi tidak perlu memanggil Lavalink sekali lagi.
+   */
+  async enqueue(request: EnqueueRequest): Promise<PlayOutcome> {
+    const { guildId, tracks, voiceChannelId, shardId, playlistName } = request;
+    if (tracks.length === 0) return { kind: 'empty' };
+
+    const queue = this.queueFor(guildId);
     const player = await this.ensurePlayer(guildId, voiceChannelId, shardId);
     const config = await this.options.getConfig(guildId);
 
@@ -150,7 +193,7 @@ export class MusicService {
         started: true,
         position: queue.size,
         skipped: rest.length - accepted,
-        playlistName: found.playlistName,
+        playlistName,
       };
     }
 
@@ -163,7 +206,7 @@ export class MusicService {
       started: false,
       position: queue.size,
       skipped: tracks.length - accepted,
-      playlistName: found.playlistName,
+      playlistName,
     };
   }
 
@@ -173,18 +216,17 @@ export class MusicService {
     const player = this.manager.players.get(guildId);
     if (!player) return { skipped, next: null };
 
-    const next = this.queueFor(guildId).shift();
+    // `/skip` selalu benar-benar melewati: kalau mode `track` ikut dipatuhi di
+    // sini, tombol skip jadi tidak melakukan apa pun, dan itu bukan yang biasa
+    // orang maksudkan saat menekan tombol.
+    const next = await this.advanceToNext(guildId, player, skipped, { respectTrackLoop: false });
 
-    if (next) {
-      await this.startTrack(guildId, player, next);
-      return { skipped, next };
+    if (!next) {
+      await player.stopTrack().catch(() => undefined);
+      await this.scheduleIdleDisconnect(guildId);
     }
 
-    this.currents.delete(guildId);
-    await player.stopTrack().catch(() => undefined);
-    await this.scheduleIdleDisconnect(guildId);
-
-    return { skipped, next: null };
+    return { skipped, next };
   }
 
   async setPaused(guildId: string, paused: boolean): Promise<boolean> {
@@ -195,6 +237,63 @@ export class MusicService {
     return true;
   }
 
+  /** Mode loop server ini; default `off`. */
+  loopMode(guildId: string): LoopMode {
+    return this.loopModes.get(guildId) ?? 'off';
+  }
+
+  /**
+   * Ubah mode loop server ini.
+   *
+   * Memindahkan `track` → `queue` (atau sebaliknya) mempertahankan riwayat
+   * siklus: orang yang baru menyalakan loop antrean di tengah lagu kelima tetap
+   * mendapat seluruh siklus, bukan cuma lagu yang tersisa.
+   */
+  setLoopMode(guildId: string, mode: LoopMode): LoopMode {
+    const previous = this.loopMode(guildId);
+    this.loopModes.set(guildId, mode);
+
+    if (cycleResetOn(mode, previous) === 'clear') {
+      this.playedCycles.delete(guildId);
+    }
+
+    return previous;
+  }
+
+  /** Atur volume player; nilai dibatasi ke rentang yang diterima Discord. */
+  async setVolume(guildId: string, level: number): Promise<number> {
+    const player = this.manager.players.get(guildId);
+    const volume = clampVolume(level);
+    if (!player) return volume;
+
+    await player.setGlobalVolume(volume);
+    return volume;
+  }
+
+  /** Lompat ke posisi tertentu (ms) pada lagu yang sedang diputar. */
+  async seek(guildId: string, positionMs: number): Promise<boolean> {
+    const player = this.manager.players.get(guildId);
+    if (!player) return false;
+
+    await player.seekTo(Math.max(Math.trunc(positionMs), 0));
+    return true;
+  }
+
+  /** Acak antrean; mengembalikan jumlah lagu yang diacak. */
+  shuffle(guildId: string, random: RandomSource = Math.random): number {
+    return this.queueFor(guildId).shuffle(random);
+  }
+
+  /** Hapus satu lagu dari antrean; undefined kalau posisinya di luar jangkauan. */
+  removeFromQueue(guildId: string, position: number): TrackInfo | undefined {
+    return this.queueFor(guildId).remove(position);
+  }
+
+  /** Pindahkan satu lagu dalam antrean; null kalau salah satu posisi salah. */
+  moveInQueue(guildId: string, from: number, to: number): TrackInfo | null {
+    return this.queueFor(guildId).move(from, to);
+  }
+
   /** Hentikan pemutaran dan bersihkan antrean (bot tetap di voice channel). */
   async stop(guildId: string): Promise<TrackInfo | null> {
     const stopped = this.currents.get(guildId) ?? null;
@@ -202,6 +301,9 @@ export class MusicService {
 
     this.queueFor(guildId).clear();
     this.currents.delete(guildId);
+    // Siklus ikut dibuang: setelah `/stop` tidak ada lagi lagu yang diputar dalam
+    // siklus ini, dan memegangnya hanya menahan referensi tanpa guna.
+    this.playedCycles.delete(guildId);
 
     if (player) await player.stopTrack().catch(() => undefined);
     await this.scheduleIdleDisconnect(guildId);
@@ -243,6 +345,7 @@ export class MusicService {
       positionMs: player?.position ?? 0,
       volume,
       idleRemainingMs: this.idleTimers.get(guildId)?.remainingMs ?? null,
+      loopMode: this.loopMode(guildId),
     };
   }
 
@@ -309,16 +412,67 @@ export class MusicService {
       logger.warn({ guildId, track: event.track.info.title }, 'Lagu gagal dimuat — lanjut ke berikutnya');
     }
 
-    const next = this.queueFor(guildId).shift();
-    if (next) {
-      await this.startTrack(guildId, player, next).catch((error: unknown) => {
-        logger.error({ err: error, guildId }, 'Gagal memutar lagu berikutnya');
-      });
+    const next = await this.advanceToNext(guildId, player, this.currents.get(guildId) ?? null);
+    if (next) return;
+
+    this.currents.delete(guildId);
+    await player.stopTrack().catch(() => undefined);
+    await this.scheduleIdleDisconnect(guildId);
+  }
+
+  /**
+   * Moves to whatever should play after `finished`; null means nothing left.
+   *
+   * Tiga mode loop menentukan keputusan ini:
+   * - `track`: replay the same song. The one exception is `/skip`, which asks to
+   *   be passed for good.
+   * - `queue`: when the queue runs dry, push the songs already played in this
+   *   cycle back to the back of the queue and start a new cycle.
+   * - `off`: pure FIFO.
+   *
+   * The songs already played are pushed to the history *before* the queue is
+   * checked for refilling, so the song that just ended is the first to play in
+   * the new cycle — otherwise the loop would skip its opening song.
+   */
+  private async advanceToNext(
+    guildId: string,
+    player: Player,
+    finished: TrackInfo | null,
+    options: { respectTrackLoop?: boolean } = {},
+  ): Promise<TrackInfo | null> {
+    const queue = this.queueFor(guildId);
+    const plan = planAdvance({
+      mode: this.loopMode(guildId),
+      finished,
+      queue: queue.toArray(),
+      cycle: this.playedCycles.get(guildId) ?? [],
+      respectTrackLoop: options.respectTrackLoop,
+    });
+
+    if (plan.action === 'stop') {
+      this.playedCycles.delete(guildId);
+      return null;
+    }
+
+    if (plan.action === 'play') {
+      queue.clear();
+      queue.add(plan.queue);
+      this.rememberCycle(guildId, plan.cycle);
+    }
+
+    await this.startTrack(guildId, player, plan.track);
+    return plan.track;
+  }
+
+  /** Simpan riwayat siklus, dipotong agar tidak menahan lagu tanpa batas. */
+  private rememberCycle(guildId: string, cycle: TrackInfo[]): void {
+    if (cycle.length === 0) {
+      this.playedCycles.delete(guildId);
       return;
     }
 
-    this.currents.delete(guildId);
-    await this.scheduleIdleDisconnect(guildId);
+    const limit = this.options.maxLoopHistory ?? DEFAULT_MAX_LOOP_HISTORY;
+    this.playedCycles.set(guildId, cycle.slice(-limit));
   }
 
   private async startTrack(guildId: string, player: Player, track: TrackInfo): Promise<void> {
@@ -401,5 +555,7 @@ export class MusicService {
     this.currents.delete(guildId);
     this.idleTimers.get(guildId)?.cancel();
     this.attachedPlayers.delete(guildId);
+    this.loopModes.delete(guildId);
+    this.playedCycles.delete(guildId);
   }
 }

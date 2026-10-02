@@ -29,6 +29,16 @@ export function resetCooldown(key: string): void {
   buckets.delete(key);
 }
 
+/**
+ * Jumlah bucket yang sedang disimpan.
+ *
+ * Dipakai tes untuk membuktikan map tidak tumbuh tanpa batas, dan berguna kalau
+ * nanti ada perintah `/stats` yang ingin menampilkan beban rate limit.
+ */
+export function cooldownBucketCount(): number {
+  return buckets.size;
+}
+
 function pruneExpired(now: number): void {
   for (const [key, expiresAt] of buckets) {
     if (expiresAt <= now) buckets.delete(key);

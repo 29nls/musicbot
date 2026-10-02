@@ -2,7 +2,17 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'lavalink/**', 'src/generated/**'] },
+  {
+    // `tools/` berisi skrip Node sekali pakai (pemeriksa karakter), bukan bagian dari build bot.
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'lavalink/**',
+      'src/generated/**',
+      'tools/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

@@ -14,7 +14,8 @@ export default {
     ),
   category: 'music',
   guildOnly: true,
-  cooldownSeconds: 3,
+  // PRD §6.2: "User spam /play (> 5/menit) → Cooldown 10 detik dengan pesan sisa waktu".
+  cooldownSeconds: 10,
   async execute(interaction, _client) {
     await interaction.deferReply();
 

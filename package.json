@@ -17,6 +17,7 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "deploy": "tsx src/deploy-commands.ts",
     "deploy:prod": "node dist/deploy-commands.js",
     "db:generate": "prisma generate",
@@ -39,6 +40,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.4",
+    "@vitest/coverage-v8": "^5.0.3",
     "dotenv": "^18.0.5",
     "eslint": "^10.11.0",
     "pino-pretty": "^13.1.3",

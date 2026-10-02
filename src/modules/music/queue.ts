@@ -1,3 +1,4 @@
+import { shuffleTracks, type RandomSource } from './shuffle.js';
 import { totalDurationMs } from './track.js';
 import type { TrackInfo } from './types.js';
 
@@ -47,6 +48,36 @@ export class MusicQueue {
     if (index < 0 || index >= this.tracks.length) return undefined;
 
     return this.tracks.splice(index, 1)[0];
+  }
+
+  /**
+   * Pindahkan lagu dari satu posisi ke posisi lain (1-based, seperti tampilannya).
+   *
+   * Mengembalikan null kalau salah satu posisi di luar jangkauan; memindahkan ke
+   * posisi yang sama dianggap tidak berubah, bukan kegagalan.
+   */
+  move(from: number, to: number): TrackInfo | null {
+    const fromIndex = Math.trunc(from) - 1;
+    const toIndex = Math.trunc(to) - 1;
+
+    if (fromIndex < 0 || fromIndex >= this.tracks.length) return null;
+    if (toIndex < 0 || toIndex >= this.tracks.length) return null;
+    if (fromIndex === toIndex) return this.tracks[fromIndex] ?? null;
+
+    const [moved] = this.tracks.splice(fromIndex, 1);
+    if (!moved) return null;
+
+    this.tracks.splice(toIndex, 0, moved);
+    return moved;
+  }
+
+  /** Acak urutan antrean; mengembalikan jumlah lagu yang diacak. */
+  shuffle(random: RandomSource = Math.random): number {
+    const shuffled = shuffleTracks(this.tracks, random);
+    this.tracks.length = 0;
+    this.tracks.push(...shuffled);
+
+    return this.tracks.length;
   }
 
   clear(): void {

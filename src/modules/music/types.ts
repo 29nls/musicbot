@@ -1,3 +1,5 @@
+import type { LoopMode } from './loop.js';
+
 /** Satu lagu dalam bentuk yang dipakai bot (bukan bentuk mentah Lavalink). */
 export interface TrackInfo {
   /** Data base64 dari Lavalink — ini yang dikirim balik saat memutar. */
@@ -22,6 +24,8 @@ export interface QueueSnapshot {
   volume: number;
   /** Sisa waktu sebelum bot keluar otomatis (ms); null kalau tidak aktif. */
   idleRemainingMs: number | null;
+  /** Mode loop yang sedang aktif; selalu ada, default `off`. */
+  loopMode: LoopMode;
 }
 
 /** Hasil pencarian ke Lavalink — sengaja tidak membocorkan tipe internal library. */

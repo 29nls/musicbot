@@ -1,10 +1,15 @@
 import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
 import { formatDuration } from '../../utils/duration.js';
+import { loopModeLabel } from './loop.js';
+import { formatSeconds } from './searchSession.js';
 import { describeTrack, formatTrackDuration, progressBar } from './track.js';
 import type { PlayOutcome, QueueSnapshot, TrackInfo } from './types.js';
 
 const MAX_QUEUE_LINES = 10;
+
+/** Batas baris hasil pencarian pada satu embed. */
+const MAX_SEARCH_LINES = 5;
 
 type AddedOutcome = Extract<PlayOutcome, { kind: 'added' }>;
 
@@ -31,6 +36,7 @@ export function nowPlayingEmbed(track: TrackInfo, snapshot: QueueSnapshot): Embe
         inline: true,
       },
       { name: 'Diputar sejak', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
+      { name: 'Loop', value: loopModeLabel(snapshot.loopMode), inline: true },
     )
     .setTimestamp();
 
@@ -39,6 +45,11 @@ export function nowPlayingEmbed(track: TrackInfo, snapshot: QueueSnapshot): Embe
 
   if (snapshot.idleRemainingMs !== null) {
     embed.setFooter({ text: `Keluar otomatis dalam ${formatDuration(snapshot.idleRemainingMs)}` });
+  } else if (snapshot.loopMode !== 'off') {
+    // Loop yang aktif diberi catatan sendiri: kalau bot nanti keluar otomatis,
+    // footer "keluar otomatis" akan hilang, jadi mode loop tidak boleh hanya
+    // muncul di situ.
+    embed.setFooter({ text: `Loop: ${loopModeLabel(snapshot.loopMode)}` });
   }
 
   return embed;
@@ -59,7 +70,7 @@ export function queueEmbed(snapshot: QueueSnapshot): EmbedBuilder {
 
   if (upcoming.length > 0) {
     embed.addFields({
-      name: `Berikutnya — ${snapshot.upcoming.length} lagu • ${formatDuration(snapshot.upcomingDurationMs)}`,
+      name: `Berikutnya — ${upcoming.length} lagu • ${formatDuration(snapshot.upcomingDurationMs)}`,
       value: upcoming
         .map((track, index) => `\`${index + 1}.\` ${describeTrack(track)} \`${formatTrackDuration(track)}\``)
         .join('\n'),
@@ -109,3 +120,44 @@ export function addedToQueueEmbed(outcome: AddedOutcome): EmbedBuilder {
 
   return embed;
 }
+
+/**
+ * Embed hasil `/search`.
+ *
+ * Daftar di sini sengaja sama dengan isi select menu, jadi user yang memilih
+ * lewat voiceover atau reader layar tetap tahu persis apa yang bisa dipilih.
+ */
+export function searchResultsEmbed(input: {
+  query: string;
+  tracks: readonly TrackInfo[];
+}): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(EMBED_COLORS.music)
+    .setTitle('🔍 Hasil pencarian')
+    .setTimestamp();
+
+  const query = input.query.trim();
+  embed.setDescription(
+    query
+      ? `Hasil untuk \`${query}\` — pilih satu dari menu di bawah.`
+      : 'Pilih satu dari menu di bawah.',
+  );
+
+  const shown = input.tracks.slice(0, MAX_SEARCH_LINES);
+
+  if (shown.length > 0) {
+    embed.addFields({
+      name: `${shown.length} hasil teratas`,
+      value: shown
+        .map((track, index) => `\`${index + 1}.\` ${describeTrack(track, 76)} \`${formatSeconds(track.durationMs)}\``)
+        .join('\n'),
+    });
+  }
+
+  embed.setFooter({ text: 'Menu berlaku 15 menit. Pilih satu untuk langsung diputar.' });
+
+  const [first] = shown;
+  if (first?.artworkUrl) embed.setThumbnail(first.artworkUrl);
+
+  return embed;
+}

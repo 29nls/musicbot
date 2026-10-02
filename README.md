@@ -145,11 +145,62 @@ menyebut field bermasalahnya.
 | Perintah | Fungsi | Izin |
 | --- | --- | --- |
 | `/play <query>` | Cari lalu putar, atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya | Semua (harus di voice channel) |
+| `/search <query>` | Cari 5 hasil teratas, pilih satu lewat select menu untuk langsung diputar | Semua (harus di voice channel) |
 | `/queue` | Lagu yang sedang diputar + 10 lagu berikutnya | Semua |
 | `/nowplaying` | Embed lagu aktif: progress bar, volume, sisa antrean | Semua |
 | `/skip` | Lewati lagu sekarang | DJ |
 | `/pause` / `/resume` | Jeda / lanjutkan pemutaran | DJ |
 | `/stop` | Hentikan dan bersihkan antrean (bot tetap di voice channel) | DJ |
+| `/volume <0–200>` | Atur volume; 0 = bisukan. Di atas 100 berarti penguatan suara | DJ |
+| `/loop <off\|track\|queue>` | Ulangi satu lagu / seluruh antrean | DJ |
+| `/shuffle` | Acak urutan antrean | DJ |
+| `/remove <posisi>` | Hapus satu lagu dari antrean | DJ |
+| `/move <dari> <ke>` | Pindahkan posisi satu lagu dalam antrean | DJ |
+| `/seek <posisi>` | Lompat ke posisi (`90`, `1:30`, `1m30s`) | DJ |
+| `/disconnect` | Bot keluar dari voice channel, antrean dikosongkan | DJ |
+
+**`/search`: pilih dari daftar, bukan mengetik URL**
+
+`/search <kata kunci>` mencari lewat YouTube lalu menampilkan **5 hasil teratas**
+dalam string select menu. Memilih satu akan memutar lagu itu (atau menambahkannya
+ke antrean kalau sudah ada yangberbunyi sedang berbunyi).
+
+Dua hal yang perlu diketahui:
+
+- **Hasilnya dikirim ephemeral** dan berlaku **15 menit**. Pilihannya private,
+  jadi tidak ada yang perlu dilihat member lain dan tidak ada yang ditulis ke
+  database.
+- **Session-nya disimpan di memori satu proses**, sama seperti antrean. Kalau bot
+  restart di tengah memilih, menunya akan menjawab “sudah tidak berlaku” dan
+  menyuruh mengulang `/search` — bukan gagal diam-diam. Konsekuensi yang sama:
+  **sharding belum boleh diaktifkan** sebelum store ini pindah ke Redis.
+
+Yang membuat menu ini tidak bisa dipalsukan: `customId` milik Discord ikut
+terkirim ke siapa pun yang menyalin payload interaksi, jadi isinya harus
+dianggap terbaca publik. Karena itu **nilai opsi hanya indeks (`0`, `1`, …),
+bukan data lagu** — session-nya ditunjuk lewat token acak 8 karakter hex, dan
+hanya orang yang menjalankan `/search` itu yang boleh memakainya. Satu pilihan
+sekali: session dibuang saat dipakai, jadi klik ganda tidak menambahkan lagu
+dua kali.
+**Loop: tiga mode, tiga perilaku berbeda**
+
+| Mode | Saat lagu selesai |
+| --- | --- |
+| `off` | Lanjut ke lagu berikutnya; berhenti kalau antrean habis |
+| `track` | Lagu yang sama diputar ulang |
+| `queue` | Lanjut seperti biasa; kalau antrean habis, satu putaran diulang dari awal |
+
+Yang perlu diketahui soal implementasi `queue`: bot menyimpan **lagu-lagu yang
+sudah diputar dalam satu putaran** (dibatasi 100 lagu) supaya bisa mengulang
+tanpa memuat ulang dari Lavalink — antrean sendiri hanya berisi lagu yang belum
+diputar. Karena lagu yang baru selesai dicatat di **akhir** riwayat, satu putaran
+diulang persis dalam urutan semula: lagu terakhir berbunyi lagi paling akhir,
+bukan di awal. `/skip` selalu benar-benar melewati, bahkan saat `track` aktif —
+kalau tidak, tombol skip jadi tidak melakukan apa pun. `/stop` dan `/disconnect`
+membuang riwayat itu; jejaknya tidak berguna setelah tidak ada yang diputar.
+
+Loop disimpan **per server di memori**, sama seperti antrean: restart bot
+mengosongkan antrean dan mengembalikan loop ke `off`.
 
 **Aturan yang berlaku**
 
@@ -941,11 +992,12 @@ src/
 │                           # _shared.ts berisi gate & alur aksi bersama
 ├─ events/                  # satu file = satu event Discord
 │  └─ logging/              # 22 event → embed 6 kategori (M4 ✅)
-├─ handlers/                # loader perintah & event (auto-discovery)
+├─ handlers/                # loader perintah, event, & router komponen (auto-discovery)
 ├─ modules/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
+│  │                        # searchSession.ts = state /search, searchSelect.ts = pilihannya
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
 │  │                        # caseLink.ts menjembatani aksi ↔ event Discord
 │  │                        # caseView.ts = isi halaman /case
@@ -1009,6 +1061,44 @@ jalankan `npm run deploy` supaya Discord mengenalinya.
 `src/events/<nama>.ts` dengan `name` dari `Events.*` discord.js. Loader otomatis
 mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
+### Rate limit
+
+Dua lapis, keduanya in-memory per proses bot (§16 PRD):
+
+| Lapis | Kunci | Default | Konfigurasi |
+| --- | --- | --- | --- |
+| Slash command | `user:nama-perintah` | per perintah | `cooldownSeconds` pada file perintah |
+| Komponen (tombol/select/modal) | `user + jenis + prefix fitur` | 3 detik | `cooldownSeconds` pada handler di [componentRouter.ts](src/handlers/componentRouter.ts) |
+
+Prinsipnya sama untuk keduanya: klik/ketikan berulang yang cepat dibalas pesan
+privat berisi sisa detik dan **tidak pernah sampai ke handler** — spam tombol
+tiket tidak mengubah database, spam select menu tidak mengirim puluhan
+panggilan ke Discord API. Yang penting soal kunci komponen: ia memakai
+**awalan fitur, bukan customId penuh**. Token `/search` berubah di setiap
+pencarian; kalau customId penuh yang dipakai, setiap klik mendapat bucket
+kosong dan rate limit-nya tidak pernah berbunyi.
+
+Tombol tiket diberi 5 detik (membuat/menutup channel itu mahal), select menu
+reaction role dan pencarian 3 detik. Perintah tanpa `cooldownSeconds` tidak
+dikenai apa-apa; `/play` memakai 10 detik sesuai PRD §6.2.
+
+Kedua lapis disimpan di memori satu proses, sama seperti antrean musik:
+restart bot mengosongkan semuanya, dan **sharding belum boleh diaktifkan**
+sebelum store ini pindah ke Redis — batasan yang sama dan sengaja ditulis
+berulang, bukan disembunyikan.
+
+### Cakupan tes
+
+`npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
+yang tidak di-commit). Angka baseline saat hardening M5: **~43% statements**.
+
+Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
+fungsi `execute` 40 perintah, repository Prisma, dan barrel `index.ts` — yang
+sengaja dibuat tipis dan hanya bisa diuji dengan Discord/Postgres yang hidup.
+Logika inti justru tercover tinggi: mesin automod, mapping & hierarki
+moderasi, agregasi log, loop/posisi/shuffle musik, privasi, dan validasi
+tiket semuanya di atas 90%. Menaikkan angka global dengan mem-bypass lapisan
+lem lewat mock besar akan menguji mock itu sendiri, bukan bot.
 ---
 
 ## 13. Perintah npm
@@ -1029,6 +1119,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 | `npm run typecheck` | TypeScript strict tanpa emit — mencakup `src/` dan `tests/` |
 | `npm run lint` / `lint:fix` | ESLint |
 | `npm test` / `test:watch` | Vitest |
+| `npm run test:coverage` | Vitest + laporan coverage v8 (teks + HTML di `coverage/`) |
 
 CI (`.github/workflows/ci.yml`) menjalankan lint → typecheck → test → build di
 setiap push/PR.

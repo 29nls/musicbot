@@ -6,18 +6,18 @@ import {
   type Guild,
   type GuildMember,
 } from 'discord.js';
-import { getEnv } from '../../config/env.js';
 import { getGuildConfigService, type GuildConfig } from '../../modules/config/index.js';
 import {
-  addedToQueueEmbed,
   canControlMusic,
   getMusicService,
   isInSameVoiceChannel,
   type MusicService,
-  type PlayOutcome,
 } from '../../modules/music/index.js';
 import { getLogger } from '../../services/logger.js';
-import { errorEmbed, warningEmbed } from '../../utils/embeds.js';
+import { errorEmbed } from '../../utils/embeds.js';
+
+// Dipindah ke modul musik supaya handler komponen `/search` bisa memakainya juga.
+export { renderPlayOutcome } from '../../modules/music/render.js';
 
 export interface MusicContext {
   guild: Guild;
@@ -191,25 +191,4 @@ export async function handleMusicFailure(
     interaction,
     errorEmbed('Terjadi kesalahan saat memproses perintah musik. Detailnya sudah dicatat di log bot.'),
   );
-}
-
-/** Hasil `/play` → embed yang siap dikirim. */
-export function renderPlayOutcome(outcome: PlayOutcome): EmbedBuilder {
-  switch (outcome.kind) {
-    case 'added':
-      return addedToQueueEmbed(outcome);
-    case 'empty':
-      return errorEmbed('Tidak ada hasil untuk pencarian itu. Coba kata kunci lain atau kirim URL.');
-    case 'error':
-      return errorEmbed(`Lagu ini tidak bisa dimuat: ${outcome.message}`);
-    case 'queue-full':
-      return warningEmbed(
-        `Antrean sudah penuh (batas ${getEnv().MAX_QUEUE_SIZE} lagu). Tunggu sampai ada lagu yang selesai.`,
-      );
-    case 'unavailable':
-    default:
-      return errorEmbed(
-        'Lavalink belum terhubung, jadi lagu tidak bisa diputar. Cek `docker compose logs lavalink`.',
-      );
-  }
 }
