@@ -30,6 +30,7 @@ function record(overrides: Partial<ModerationCase> = {}): ModerationCase {
     createdAt: CREATED_AT,
     expiresAt: null,
     active: true,
+    dmStatus: null,
     ...overrides,
   };
 }

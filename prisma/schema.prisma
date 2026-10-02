@@ -68,11 +68,17 @@ model ModerationCase {
   createdAt   DateTime @default(now())
   expiresAt   DateTime?
   active      Boolean  @default(true)
+  /// Hasil pengiriman DM ke target: sent | failed.
+  /// null = aksi ini memang tidak mengirim DM (slowmode/lock/unlock/note), atau
+  /// kasusnya dibuat sebelum kolom ini ada — dua hal itu dibedakan lewat
+  /// NOTIFIABLE_ACTIONS di sisi aplikasi.
+  dmStatus    String?  @db.VarChar(20)
 
   warnings Warning[]
 
   @@unique([guildId, caseNumber])
   @@index([guildId, targetId, createdAt])
+  @@index([guildId, moderatorId, createdAt(sort: Desc)])
   @@index([guildId, createdAt])
   @@map("moderation_case")
 }
@@ -225,6 +231,10 @@ model Ticket {
   closedBy  String?  @db.VarChar(20)
   /// Retensi (Bab 12 privasi): tiket yang ditutup & lewat batas akan dihapus.
   expiresAt DateTime?
+  /// Isi percakapan channel tiket, diambil saat ditutup (lihat §12 privasi).
+  /// Disimpan sebagai JSON di baris yang sama supaya ikut hilang bersama tiket —
+  /// tidak ada data percakapan yatim yang tertinggal setelah retensi berjalan.
+  transcript Json?
 
   @@unique([guildId, ticketNumber])
   @@index([guildId, status, createdAt(sort: Desc)])

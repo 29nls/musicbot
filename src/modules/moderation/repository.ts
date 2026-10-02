@@ -1,6 +1,11 @@
 import type { PrismaClient } from '../../generated/prisma/client.js';
 import { toCaseDomain, toWarningDomain } from './mapping.js';
-import { MAX_NOTES_SHOWN, type CreateCaseInput, type CreateWarningInput, type ModerationCase, type WarningRecord } from './types.js';
+import {
+  CHANNEL_TARGET_ACTIONS,
+  type ModeratorActionRow,
+  type ModeratorTotals,
+} from './modProfile.js';
+import { MAX_NOTES_SHOWN, MODERATION_ACTIONS, type CreateCaseInput, type CreateWarningInput, type DmStatus, type ModerationCase, type WarningRecord } from './types.js';
 
 /** Kontrak penyimpanan moderasi — bisa diganti fake di tes. */
 export interface ModerationRepository {
@@ -25,10 +30,29 @@ export interface ModerationRepository {
   revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null>;
   /** Nonaktifkan kasus (dipakai kalau aksi Discord gagal setelah kasus dicatat). */
   setCaseActive(guildId: string, caseNumber: number, active: boolean): Promise<void>;
+  /** Catat hasil pengiriman DM ke target. */
+  setCaseDmStatus(guildId: string, caseNumber: number, dmStatus: DmStatus): Promise<void>;
   /** Hapus peringatan yang lebih tua dari `cutoff`; mengembalikan jumlah baris. */
   deleteExpiredWarnings(cutoff: Date): Promise<number>;
   /** Hapus kasus yang lebih tua dari `cutoff`; peringatan ikut terhapus (Cascade). */
   deleteExpiredCases(cutoff: Date): Promise<number>;
+  /** Kasus milik satu moderator, terbaru dulu. */
+  listCasesByModerator(
+    guildId: string,
+    moderatorId: string,
+    take: number,
+  ): Promise<ModerationCase[]>;
+  /** Sebaran kasus per moderator menurut jenis & status aktif. */
+  countByTypeAndActive(
+    guildId: string,
+    moderatorId: string,
+  ): Promise<ModeratorActionRow[]>;
+  /** Angka besar profil moderator (total, rentang waktu, target unik, aktivitas terkini). */
+  summarizeModerator(
+    guildId: string,
+    moderatorId: string,
+    recentSince: Date,
+  ): Promise<ModeratorTotals>;
 }
 
 export class PrismaModerationRepository implements ModerationRepository {
@@ -151,6 +175,17 @@ export class PrismaModerationRepository implements ModerationRepository {
     });
   }
 
+  /**
+   * Syarat `dmStatus: null` membuat penulisan ini idempoten: kalau dipanggil
+   * dua kali untuk kasus yang sama, hasil DM yang sudah tercatat tidak ditimpa.
+   */
+  async setCaseDmStatus(guildId: string, caseNumber: number, dmStatus: DmStatus): Promise<void> {
+    await this.prisma.moderationCase.updateMany({
+      where: { guildId, caseNumber, dmStatus: null },
+      data: { dmStatus },
+    });
+  }
+
   async deleteExpiredWarnings(cutoff: Date): Promise<number> {
     const result = await this.prisma.warning.deleteMany({ where: { createdAt: { lt: cutoff } } });
     return result.count;
@@ -161,5 +196,87 @@ export class PrismaModerationRepository implements ModerationRepository {
       where: { createdAt: { lt: cutoff } },
     });
     return result.count;
+  }
+
+  async listCasesByModerator(
+    guildId: string,
+    moderatorId: string,
+    take: number,
+  ): Promise<ModerationCase[]> {
+    const rows = await this.prisma.moderationCase.findMany({
+      where: { guildId, moderatorId },
+      orderBy: [{ createdAt: 'desc' }, { caseNumber: 'desc' }],
+      take,
+    });
+
+    return rows.map(toCaseDomain);
+  }
+
+  /**
+   * Sebaran jenis & status dalam satu `groupBy`.
+   *
+   * Menghitung di database, bukan dengan memuat semua kasus lalu dihitung di
+   * memori: moderator yang aktif bisa punya ribuan kasus, dan memuat semuanya
+   * hanya untuk membuat diagram batang akan menahan memory serta membuang
+   * waktu baca yang tidak perlu.
+   */
+  async countByTypeAndActive(
+    guildId: string,
+    moderatorId: string,
+  ): Promise<ModeratorActionRow[]> {
+    const rows = await this.prisma.moderationCase.groupBy({
+      by: ['type', 'active'],
+      where: { guildId, moderatorId },
+      _count: { _all: true },
+    });
+
+    return rows.map((row) => ({
+      type: row.type,
+      active: row.active,
+      count: row._count._all,
+    }));
+  }
+
+  /**
+   * Angka besar profil moderator.
+   *
+   * Target unik dihitung dengan `groupBy targetId`, bukan `distinct` +
+   * `count`, supaya database tetap bisa menjadikannya groupBy di atas indeks
+   * yang sama. Aksi terhadap channel dikecualikan: ID channel bukan orang,
+   * dan menghitungnya akan membuat "jumlah orang" terlihat lebih besar.
+   */
+  async summarizeModerator(
+    guildId: string,
+    moderatorId: string,
+    recentSince: Date,
+  ): Promise<ModeratorTotals> {
+    const where = { guildId, moderatorId };
+    const userActions = MODERATION_ACTIONS.filter(
+      (type) => !CHANNEL_TARGET_ACTIONS.includes(type),
+    );
+
+    const [aggregate, distinctTargets, recentCount] = await Promise.all([
+      this.prisma.moderationCase.aggregate({
+        where,
+        _count: { _all: true },
+        _min: { createdAt: true },
+        _max: { createdAt: true },
+      }),
+      this.prisma.moderationCase.groupBy({
+        by: ['targetId'],
+        where: { ...where, type: { in: [...userActions] } },
+      }),
+      this.prisma.moderationCase.count({ where: { ...where, createdAt: { gte: recentSince } } }),
+    ]);
+
+    const total = aggregate._count._all;
+
+    return {
+      total,
+      uniqueTargets: distinctTargets.length,
+      firstCaseAt: aggregate._min.createdAt,
+      lastCaseAt: aggregate._max.createdAt,
+      recentCount,
+    };
   }
 }

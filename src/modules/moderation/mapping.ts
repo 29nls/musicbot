@@ -1,4 +1,9 @@
-import { isModerationAction, type ModerationCase, type WarningRecord } from './types.js';
+import {
+  isDmStatus,
+  isModerationAction,
+  type ModerationCase,
+  type WarningRecord,
+} from './types.js';
 
 /**
  * Bentuk baris DB yang dibutuhkan pemetaan. Didefinisikan lokal (bukan impor
@@ -15,6 +20,7 @@ export interface ModerationCaseRow {
   createdAt: Date;
   expiresAt: Date | null;
   active: boolean;
+  dmStatus: string | null;
 }
 
 export interface WarningRow {
@@ -34,6 +40,10 @@ export function toCaseDomain(row: ModerationCaseRow): ModerationCase {
     // Baris dengan tipe tak dikenal (data lama/rusak) diperlakukan sebagai warn
     // supaya tampilan tidak error — tipe hanya dipakai untuk label.
     type: isModerationAction(row.type) ? row.type : 'warn',
+    // Nilai dm_status yang tak dikenal diperlakukan sama dengan "tidak ada":
+    // menampilkan status terkirim yang tidak pernah terjadi akan lebih buruk
+    // daripada mencibirkan takbir pada kasus lama.
+    dmStatus: row.dmStatus && isDmStatus(row.dmStatus) ? row.dmStatus : null,
   };
 }
 

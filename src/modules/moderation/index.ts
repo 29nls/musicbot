@@ -31,8 +31,30 @@ export {
   caseTargetKind,
   currentStateLines,
   describeCaseStatus,
+  dmDeliveryLine,
 } from './caseView.js';
 export type { CaseTargetState } from './caseView.js';
+export {
+  CHANNEL_TARGET_ACTIONS,
+  MODERATOR_ACTIVE_WINDOW_DAYS,
+  MODERATOR_PROFILE_RECENT_LIMIT,
+  actionBar,
+  actionShare,
+  buildModeratorProfile,
+  casesPerTarget,
+  moderatorActionLines,
+  moderatorCaseLine,
+  moderatorFailedTotal,
+  moderatorOverviewLines,
+  moderatorRevokedTotal,
+  moderatorTargetKind,
+} from './modProfile.js';
+export type {
+  ModeratorActionRow,
+  ModeratorActionStat,
+  ModeratorProfile,
+  ModeratorTotals,
+} from './modProfile.js';
 export {
   LINKED_CASE_ACTIONS,
   clearCaseLinks,
@@ -54,6 +76,8 @@ export { toModerationErrorEmbed } from './errors.js';
 export {
   caseHistoryEmbed,
   caseSummaryEmbed,
+  moderatorProfileEmbed,
+  moderatorRecentCasesEmbed,
   moderationDmEmbed,
   moderationLogEmbed,
   moderationResultEmbed,
@@ -66,6 +90,8 @@ export {
 export type { TargetKind } from './embeds.js';
 export {
   ACTION_LABELS,
+  DM_STATUSES,
+  isDmStatus,
   MAX_NOTES_SHOWN,
   MAX_PURGE_COUNT,
   MAX_REASON_LENGTH,
@@ -76,6 +102,7 @@ export {
 export type {
   CreateCaseInput,
   CreateWarningInput,
+  DmStatus,
   ModerationAction,
   ModerationCase,
   NotifiableAction,

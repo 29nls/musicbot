@@ -42,6 +42,7 @@ export const ADMIN_PERMISSIONS = {
   warnings: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   unwarn: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   case: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
+  modprofile: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   note: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   slowmode: { bit: PermissionFlagsBits.ManageChannels, label: 'Manage Channels' },
   lock: { bit: PermissionFlagsBits.ManageChannels, label: 'Manage Channels' },
@@ -222,6 +223,13 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
         expiresAt,
       }),
     );
+
+    // Dicatat di kasusnya supaya `/case` bisa menampilkan apakah targetnya
+    // benar-benar diberi tahu — termasuk saat DM-nya tertutup, yang kalau tidak
+    // tercatat akan terlihat seperti tidak ada yang tahu.
+    await ctx.moderation
+      .recordDmStatus(ctx.guildId, created.caseNumber, dmSent ? 'sent' : 'failed')
+      .catch(() => undefined);
   }
 
   if (options.execute) {

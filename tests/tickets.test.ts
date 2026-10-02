@@ -6,7 +6,7 @@ import {
   ticketOpenedEmbed,
   ticketPanelEmbed,
 } from '../src/modules/tickets/embeds.js';
-import { openTicket } from '../src/modules/tickets/lifecycle.js';
+import { openTicket, closeAndArchive } from '../src/modules/tickets/lifecycle.js';
 import { buildTicketSubjectModal } from '../src/modules/tickets/modal.js';
 import { missingTicketConfig, parseTicketSubject } from '../src/modules/tickets/validation.js';
 import type { GuildConfig } from '../src/modules/config/index.js';
@@ -18,6 +18,7 @@ import {
 } from '../src/modules/tickets/naming.js';
 import { purgeExpiredTickets, ticketRetentionCutoff } from '../src/modules/tickets/retention.js';
 import type { TicketRepository } from '../src/modules/tickets/repository.js';
+import type { TicketTranscript } from '../src/modules/tickets/transcript.js';
 import { TicketService } from '../src/modules/tickets/service.js';
 import {
   MODAL_SUBJECT_MAX_LENGTH,
@@ -53,6 +54,7 @@ function row(overrides: Partial<TicketRow> = {}): TicketRow {
     closedAt: null,
     closedBy: null,
     expiresAt: null,
+    transcript: null,
     ...overrides,
   };
 }
@@ -64,6 +66,8 @@ function ticket(overrides: Partial<Ticket> = {}): Ticket {
 class FakeTicketRepository implements TicketRepository {
   public readonly rows: Ticket[] = [];
   public deleteCutoff: Date | null = null;
+  /** Disetel untuk menguji jalur best-effort saat penyimpanan transkrip gagal. */
+  public transcriptError: Error | null = null;
   private nextId = 1;
   private counter = 0;
 
@@ -80,6 +84,23 @@ class FakeTicketRepository implements TicketRepository {
     this.rows.push(created);
 
     return { ...created };
+  }
+
+  async findByNumber(guildId: string, ticketNumber: number): Promise<Ticket | null> {
+    const found = this.rows.find(
+      (item) => item.guildId === guildId && item.ticketNumber === ticketNumber,
+    );
+
+    return found ? { ...found } : null;
+  }
+
+  async findAnyByChannel(guildId: string, channelId: string): Promise<Ticket | null> {
+    const matches = this.rows.filter(
+      (item) => item.guildId === guildId && item.channelId === channelId,
+    );
+    const found = matches.sort((a, b) => b.ticketNumber - a.ticketNumber)[0];
+
+    return found ? { ...found } : null;
   }
 
   async attachChannel(ticketId: number, channelId: string): Promise<void> {
@@ -153,10 +174,24 @@ class FakeTicketRepository implements TicketRepository {
     return { ...found };
   }
 
+  async attachTranscript(ticketId: number, transcript: TicketTranscript): Promise<void> {
+    if (this.transcriptError) throw this.transcriptError;
+
+    const found = this.rows.find((item) => item.id === ticketId);
+    if (found) found.transcript = transcript;
+  }
+
   async deleteExpired(cutoff: Date): Promise<number> {
     this.deleteCutoff = cutoff;
 
-    return this.rows.filter((item) => item.status === 'closed' && item.closedAt !== null && item.closedAt < cutoff).length;
+    const due = this.rows.filter(
+      (item) => item.status === 'closed' && item.closedAt !== null && item.closedAt < cutoff,
+    );
+    for (const item of due) {
+      this.rows.splice(this.rows.indexOf(item), 1);
+    }
+
+    return due.length;
   }
 }
 
@@ -565,5 +600,195 @@ describe('openTicket', () => {
     // Tiket hantu sudah tertutup, jadi member boleh mencoba membuka tiket lagi.
     const retry = await openTicket(service, makeGuild(false).guild, input);
     expect(retry.ok).toBe(true);
+  });
+});
+
+describe('closeAndArchive & transkrip', () => {
+  interface FakeTicketChannel {
+    id: string;
+    isTextBased(): boolean;
+    isDMBased(): boolean;
+    messages: { fetch: () => Promise<Map<string, unknown>> };
+    setName(name: string): Promise<unknown>;
+    permissionOverwrites: { edit: () => Promise<unknown> };
+    sent: unknown[];
+    send(payload: unknown): Promise<unknown>;
+  }
+
+  /**
+   * Channel tiket tiruan yang mencatat urutan kejadian.
+   *
+   * `events` dipakai untuk membuktikan transkrip diambil **sebelum** channel
+   * diarsipkan — bukan sesudahnya.
+   */
+  function makeClosedGuild(messageCount: number): {
+    guild: Guild;
+    events: string[];
+  } {
+    const events: string[] = [];
+    // Discord mengirim pesan terbaru lebih dulu, jadi Map tiruan ini disusun
+    // terbalik — kalau tidak, pengujiannya tidak menguji apa pun soal urutan.
+    const messages = new Map(
+      Array.from({ length: messageCount }, (_, i) => messageCount - 1 - i).map((i) => [
+        String(1_000_000_000_000_000_000n + BigInt(i)),
+        {
+          id: String(1_000_000_000_000_000_000n + BigInt(i)),
+          type: 0,
+          content: `pesan ${i}`,
+          createdAt: new Date(NOW.getTime() + i * 1_000),
+          author: { id: OPENER_ID, displayName: 'Sasha Putri' },
+          attachments: [],
+        },
+      ]),
+    );
+
+    const channel: FakeTicketChannel = {
+      id: CHANNEL_ID,
+      isTextBased: () => true,
+      isDMBased: () => false,
+      messages: {
+        fetch: () => {
+          events.push('baca-pesan');
+
+          return Promise.resolve(messages as unknown as Map<string, unknown>);
+        },
+      },
+      setName: () => {
+        events.push('ganti-nama');
+
+        return Promise.resolve();
+      },
+      permissionOverwrites: {
+        edit: () => {
+          events.push('kunci');
+
+          return Promise.resolve();
+        },
+      },
+      sent: [],
+      send(payload: unknown) {
+        return Promise.resolve(payload);
+      },
+    };
+
+    const guild = {
+      id: GUILD_ID,
+      roles: { everyone: { id: GUILD_ID } },
+      channels: {
+        fetch: () => Promise.resolve(channel),
+        cache: new Map([[CHANNEL_ID, channel]]),
+      },
+    } as unknown as Guild;
+
+    // `archiveTicketChannel` menulis lewat `channel.guild`, jadi channel tiruan
+    // butuh arah balik ke guild-nya.
+    (channel as unknown as { guild: Guild }).guild = guild;
+
+    return { guild, events };
+  }
+
+  async function seedClosedTicket(): Promise<{
+    repository: FakeTicketRepository;
+    service: TicketService;
+  }> {
+    const { repository, service } = makeService();
+    const opened = await service.open(
+      { guildId: GUILD_ID, openerId: OPENER_ID, subject: 'Bantuan' },
+      NOW,
+    );
+    await service.attachChannel(opened.ticket.id, CHANNEL_ID);
+
+    return { repository, service };
+  }
+
+  it('transkrip diambil lalu disimpan di tiket yang ditutup', async () => {
+    const { repository, service } = await seedClosedTicket();
+    const { guild } = makeClosedGuild(3);
+
+    const result = await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW);
+
+    expect(result?.transcriptSaved).toBe(true);
+    expect(repository.rows[0]?.transcript?.messageCount).toBe(3);
+    expect(repository.rows[0]?.transcript?.messages[0]?.content).toBe('pesan 0');
+  });
+
+  it('transkrip diambil SEBELUM channel diarsipkan', async () => {
+    const { service } = await seedClosedTicket();
+    const { guild, events } = makeClosedGuild(2);
+
+    await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW);
+
+    // Urutan ini yang menjamin bot masih punya akses baca saat pesan diambil.
+    expect(events.indexOf('baca-pesan')).toBeLessThan(events.indexOf('ganti-nama'));
+  });
+
+  it('kegagalan menyimpan transkrip tidak menggagalkan penutupan', async () => {
+    const { repository, service } = await seedClosedTicket();
+    repository.transcriptError = new Error('Database tidak bisa dihubungi');
+    const { guild } = makeClosedGuild(2);
+
+    const result = await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW);
+
+    expect(result).not.toBeNull();
+    expect(result?.ticket.status).toBe('closed');
+    expect(result?.transcriptSaved).toBe(false);
+  });
+
+  it('channel yang hilang ditutup tanpa transkrip, bukan menggagalkan', async () => {
+    const { service } = await seedClosedTicket();
+    const guild = {
+      id: GUILD_ID,
+      channels: { fetch: () => Promise.reject(new Error('Unknown Channel')) },
+    } as unknown as Guild;
+
+    const result = await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW);
+
+    expect(result?.ticket.status).toBe('closed');
+    expect(result?.channel).toBeNull();
+    expect(result?.transcriptSaved).toBe(false);
+  });
+
+  it('tiket yang sudah tertutup tidak ditutup dua kali', async () => {
+    const { service } = await seedClosedTicket();
+    const { guild } = makeClosedGuild(1);
+    await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW);
+
+    expect(await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW)).toBeNull();
+  });
+
+  it('findAnyByChannel menemukan tiket yang sudah ditutup', async () => {
+    const { service } = await seedClosedTicket();
+    const { guild } = makeClosedGuild(1);
+    await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW);
+
+    // Channel tiket sudah diarsipkan, tapi di sinilah transkrip dibuka.
+    const found = await service.findAnyByChannel(GUILD_ID, CHANNEL_ID);
+
+    expect(found?.status).toBe('closed');
+    expect(found?.transcript?.messageCount).toBe(1);
+  });
+
+  it('findByNumber menemukan tiket tertutup', async () => {
+    const { service } = await seedClosedTicket();
+    const { guild } = makeClosedGuild(1);
+    await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW);
+
+    const found = await service.findByNumber(GUILD_ID, 1);
+
+    expect(found?.status).toBe('closed');
+    expect(found?.transcript).not.toBeNull();
+  });
+
+  it('transkrip hilang bersama tiketnya saat retensi berjalan', async () => {
+    const { service } = await seedClosedTicket();
+    const { guild } = makeClosedGuild(1);
+    await closeAndArchive(service, guild, CHANNEL_ID, STAFF_ID, NOW);
+
+    // Retensi menghapus baris tiket; karena transkrip disimpan di baris yang
+    // sama, tidak ada data percakapan yang bisa tertinggal.
+    const purged = await service.purgeExpired(new Date('2028-01-01T00:00:00.000Z'));
+
+    expect(purged.ticketsDeleted).toBe(1);
+    expect(await service.findByNumber(GUILD_ID, 1)).toBeNull();
   });
 });

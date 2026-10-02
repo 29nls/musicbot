@@ -14,6 +14,7 @@ describe('toCaseDomain', () => {
       createdAt: new Date('2026-10-02T00:00:00.000Z'),
       expiresAt: null,
       active: true,
+      dmStatus: null,
     });
 
     expect(domain.type).toBe('ban');
@@ -33,6 +34,7 @@ describe('toCaseDomain', () => {
       createdAt: new Date(),
       expiresAt: null,
       active: false,
+      dmStatus: null,
     });
 
     expect(domain.type).toBe('warn');

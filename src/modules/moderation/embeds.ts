@@ -7,8 +7,16 @@ import {
   caseTargetKind,
   currentStateLines,
   describeCaseStatus,
+  dmDeliveryLine,
   type CaseTargetState,
 } from './caseView.js';
+import {
+  moderatorActionLines,
+  moderatorCaseLine,
+  moderatorOverviewLines,
+  moderatorTargetKind,
+  type ModeratorProfile,
+} from './modProfile.js';
 import {
   ACTION_LABELS,
   type ModerationAction,
@@ -283,7 +291,70 @@ export function caseSummaryEmbed(
     embed.addFields({ name: 'Kondisi sekarang', value: stateLines.join('\n') });
   }
 
+  // Hanya untuk aksi yang memang mengirim DM; aksi channel & `/note` tidak
+  // punya baris sama sekali, bukan baris yang menyatakan "tidak dikirim".
+  const dmLine = dmDeliveryLine(record);
+  if (dmLine) {
+    embed.addFields({ name: 'Notifikasi', value: dmLine, inline: true });
+  }
+
   return embed;
+}
+
+/**
+ * Halaman profil moderator: angka besar, sebaran jenis aksi, dan kasus terbaru.
+ *
+ * Alasan kasus sengaja tidak ikut ditampilkan di sini: daftar ini bisa jadi
+ * puluhan baris, dan alasan tanpa konteks (alasan lengkapnya ada di `/case`)
+ * membuat embed ramai tanpa menambah informasi yang bisa dipakai.
+ */
+export function moderatorProfileEmbed(
+  profile: ModeratorProfile,
+  options: { displayName: string } = { displayName: '' },
+): EmbedBuilder {
+  const name = options.displayName || `<@${profile.moderatorId}>`;
+  const embed = new EmbedBuilder()
+    .setColor(EMBED_COLORS.primary)
+    .setTitle(`🛡️ Profil Moderator — ${name}`)
+    .setDescription(moderatorOverviewLines(profile).join('\n'))
+    .addFields({
+      name: 'Sebaran aksi',
+      value: moderatorActionLines(profile).slice(0, 1_024),
+      inline: false,
+    })
+    .setFooter({ text: 'Hanya kasus yang tercatat Harmony · data lama dihapus setelah 12 bulan' })
+    .setTimestamp();
+
+  return embed;
+}
+
+/** Daftar kasus terbaru milik moderator — kasus lengkapnya ada di `/case`. */
+export function moderatorRecentCasesEmbed(profile: ModeratorProfile): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(EMBED_COLORS.primary)
+    .setTitle('🗂️ Kasus Terbaru')
+    .setTimestamp();
+
+  if (profile.recentCases.length === 0) {
+    return embed.setDescription(
+      'Belum ada kasus yang tercatat untuk moderator ini di server ini.',
+    );
+  }
+
+  const lines = profile.recentCases.map((record) =>
+    moderatorCaseLine(record, moderatorTargetKind(record.type)),
+  );
+  const hidden = profile.totals.total - profile.recentCases.length;
+  const detailHint = ' · `/case kasus:NNN` untuk detailnya';
+
+  return embed
+    .setDescription(lines.join('\n'))
+    .setFooter({
+      text:
+        hidden > 0
+          ? `${profile.recentCases.length} terbaru dari ${profile.totals.total} kasus${detailHint}`
+          : `${profile.recentCases.length} kasus terbaru${detailHint}`,
+    });
 }
 
 /** Riwayat kasus lain atas target yang sama, untuk memberi konteks. */

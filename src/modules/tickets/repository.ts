@@ -1,5 +1,6 @@
-import type { PrismaClient } from '../../generated/prisma/client.js';
+import type { Prisma, PrismaClient } from '../../generated/prisma/client.js';
 import { toDomain } from './mapping.js';
+import type { TicketTranscript } from './transcript.js';
 import type { CreateTicketInput, Ticket } from './types.js';
 
 /** Kontrak penyimpanan tiket — bisa diganti fake di tes. */
@@ -9,6 +10,10 @@ export interface TicketRepository {
   attachChannel(ticketId: number, channelId: string): Promise<void>;
   findOpenByOpener(guildId: string, openerId: string): Promise<Ticket | null>;
   findByChannel(guildId: string, channelId: string): Promise<Ticket | null>;
+  /** Cari lewat nomor tiket, terbuka maupun tertutup. */
+  findByNumber(guildId: string, ticketNumber: number): Promise<Ticket | null>;
+  /** Cari lewat channel tanpa memfilter status — untuk transkrip tiket tertutup. */
+  findAnyByChannel(guildId: string, channelId: string): Promise<Ticket | null>;
   listOpen(guildId: string, take: number): Promise<Ticket[]>;
   countOpen(guildId: string): Promise<number>;
   claim(guildId: string, channelId: string, staffId: string): Promise<Ticket | null>;
@@ -18,6 +23,8 @@ export interface TicketRepository {
   closeById(ticketId: number, closedBy: string, now: Date, expiresAt: Date): Promise<Ticket | null>;
   /** Hapus tiket yang lewat retensi; hanya baris yang sudah ditutup. */
   deleteExpired(cutoff: Date): Promise<number>;
+  /** Tempelkan transkrip ke tiket yang sudah ditutup. */
+  attachTranscript(ticketId: number, transcript: TicketTranscript): Promise<void>;
 }
 
 export class PrismaTicketRepository implements TicketRepository {
@@ -70,6 +77,27 @@ export class PrismaTicketRepository implements TicketRepository {
   async findByChannel(guildId: string, channelId: string): Promise<Ticket | null> {
     const row = await this.prisma.ticket.findFirst({
       where: { guildId, channelId, status: 'open' },
+    });
+
+    return row ? toDomain(row) : null;
+  }
+
+  async findByNumber(guildId: string, ticketNumber: number): Promise<Ticket | null> {
+    const row = await this.prisma.ticket.findUnique({
+      where: { guildId_ticketNumber: { guildId, ticketNumber } },
+    });
+
+    return row ? toDomain(row) : null;
+  }
+
+  /**
+ * Tanpa syarat `status: 'open'` supaya channel yang sudah diarsipkan masih bisa
+ * dicari — justru di channel itulah STAFF dan pembuat tiket membuka transkripnya.
+ */
+async findAnyByChannel(guildId: string, channelId: string): Promise<Ticket | null> {
+    const row = await this.prisma.ticket.findFirst({
+      where: { guildId, channelId },
+      orderBy: { ticketNumber: 'desc' },
     });
 
     return row ? toDomain(row) : null;
@@ -149,5 +177,22 @@ export class PrismaTicketRepository implements TicketRepository {
     });
 
     return result.count;
+  }
+
+  /**
+   * Tempelkan transkrip ke tiket yang sudah ditutup.
+   *
+   * `updateMany` dengan syarat `status: 'closed'` supaya transkrip tidak pernah
+   * nempel ke tiket yang masih terbuka — kalau lifecycle berubah urutannya,
+   * kegagalan di sini lebih baik daripada transkrip yang tidak pernah terisi.
+   */
+  async attachTranscript(ticketId: number, transcript: TicketTranscript): Promise<void> {
+    await this.prisma.ticket.updateMany({
+      where: { id: ticketId, status: 'closed' },
+      // Prisma menuntut `InputJsonValue`; interface TypeScript tidak punya index
+      // signature jadi tidak langsung dianggap objek JSON yang valid. Isinya
+      // sudah divalidasi di `transcript.ts` sebelum sampai sini.
+      data: { transcript: transcript as unknown as Prisma.InputJsonValue },
+    });
   }
 }

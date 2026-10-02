@@ -4,6 +4,7 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
   type Guild,
+  type GuildMember,
   type GuildTextBasedChannel,
 } from 'discord.js';
 import { getGuildConfigService } from '../../modules/config/index.js';
@@ -12,10 +13,14 @@ import {
   buildCreateButton,
   closeAndArchive,
   getTicketService,
+  isStaff,
   missingTicketConfig,
+  renderTranscriptText,
   ticketListEmbed,
   ticketPanelEmbed,
+  ticketTranscriptEmbed,
   toTicketErrorEmbed,
+  type Ticket,
 } from '../../modules/tickets/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
@@ -63,17 +68,29 @@ export default {
       sub
         .setName('close')
         .setDescription('Tutup & arsipkan tiket yang sedang dibuka di channel ini'),
+    ).addSubcommand((sub) =>
+      sub
+        .setName('panel')
+        .setDescription('Kirim ulang panel tiket ke channel panel'),
     )
     .addSubcommand((sub) =>
-      sub.setName('panel').setDescription('Kirim ulang panel tiket ke channel panel'),
+      sub
+        .setName('transcript')
+        .setDescription('Baca transkrip percakapan tiket (staff atau pembuat tiketnya)')
+        .addIntegerOption((option) =>
+          option
+            .setName('ticket')
+            .setDescription('Nomor tiket. Kosongkan untuk memakai tiket di channel ini.')
+            .setMinValue(1),
+        ),
     ),
   category: 'admin',
   guildOnly: true,
   cooldownSeconds: 5,
   async execute(interaction) {
-    if (!interaction.inCachedGuild() || !canManageGuild(interaction)) {
+    if (!interaction.inCachedGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        embeds: [warningEmbed('Perintah ini hanya bisa dipakai di server.')],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -81,6 +98,19 @@ export default {
 
     const guildId = interaction.guildId;
     const guild = interaction.guild;
+    const sub = interaction.options.getSubcommand(true);
+
+    // `transcript` sengaja dikecualikan: pembuat tiket boleh membaca transkrip
+    // tiketnya sendiri, dan mereka tidak punya izin Manage Server. Kalau gate-nya
+    // dipasang di sini, member bahkan tidak akan melihat perintahnya.
+    if (sub !== 'transcript' && !canManageGuild(interaction)) {
+      await interaction.reply({
+        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
@@ -99,7 +129,10 @@ export default {
         return;
       }
 
-      const sub = interaction.options.getSubcommand(true);
+      if (sub === 'transcript') {
+        await showTranscript(interaction, guildId, config);
+        return;
+      }
 
       if (sub === 'list') {
         const summary = await getTicketService().listOpen(guildId, TICKET_LIST_LIMIT);
@@ -197,6 +230,86 @@ async function postPanel(
  * dan channel tidak pernah bertentangan: satu sudah tertutup, yang lain masih
  * bisa diketik.
  */
+/**
+ * `/ticket transcript` — tampilkan isi percakapan tiket.
+ *
+ * Yang boleh membaca: staff tiket, atau member yang membuka tiket itu sendiri.
+ * Aturan ini ditegakkan di sini, bukan hanya lewat `setDefaultMemberPermissions`,
+ * karena pemilik tiket memang tidak punya izin admin sama sekali.
+ */
+async function showTranscript(
+  interaction: Interaction,
+  guildId: string,
+  config: Awaited<ReturnType<ConfigService['get']>>,
+): Promise<void> {
+  const ticket = await resolveTicket(interaction, guildId);
+  if (!ticket) {
+    await interaction.editReply({
+      embeds: [
+        warningEmbed(
+          'Tiket tidak ditemukan. Jalankan di dalam channel tiketnya, atau sebut nomornya ' +
+            'lewat `/ticket transcript ticket:7`.',
+        ),
+      ],
+    });
+    return;
+  }
+
+  const isOwner = ticket.openerId === interaction.user.id;
+  if (!isOwner && !isStaff(interaction.member as GuildMember | null, config)) {
+    await interaction.editReply({
+      embeds: [
+        warningEmbed(
+          'Transkrip ini hanya bisa dibaca staff tiket atau member yang membukanya.',
+        ),
+      ],
+    });
+    return;
+  }
+
+  const transcript = ticket.transcript;
+  if (!transcript) {
+    await interaction.editReply({
+      embeds: [
+        warningEmbed(
+          'Transkrip untuk tiket ini tidak tersedia. Bisa jadi tiketnya ditutup sebelum ' +
+            'fitur transkrip ada, channelnya sudah dihapus manual, atau pembacaan pesannya gagal.',
+          '📄 Transkrip Tidak Tersedia',
+        ),
+      ],
+    });
+    return;
+  }
+
+  const text = renderTranscriptText(ticket, transcript);
+  await interaction.editReply({
+    embeds: [ticketTranscriptEmbed(ticket, transcript)],
+    files: [
+      {
+        attachment: Buffer.from(text, 'utf8'),
+        name: transcriptFileName(ticket),
+      },
+    ],
+  });
+}
+
+/** Tiket yang dimaksud: dari nomor opsional, atau dari channel tempat perintah dipanggil. */
+async function resolveTicket(interaction: Interaction, guildId: string): Promise<Ticket | null> {
+  const ticketNumber = interaction.options.getInteger('ticket');
+  const service = getTicketService();
+
+  if (ticketNumber !== null) return service.findByNumber(guildId, ticketNumber);
+
+  return service.findAnyByChannel(guildId, interaction.channelId);
+}
+
+/** `transkrip-tiket-0007.txt` — nomor tiket dipadatkan supaya rapi saat diunduh. */
+function transcriptFileName(ticket: Ticket): string {
+  const number = ticket.ticketNumber.toString().padStart(4, '0');
+
+  return `transkrip-tiket-${number}.txt`;
+}
+
 async function closeFromCommand(interaction: Interaction, guild: Guild): Promise<void> {
   const ticket = await getTicketService().findOpenByChannel(guild.id, interaction.channelId);
   if (!ticket) {
@@ -210,7 +323,12 @@ async function closeFromCommand(interaction: Interaction, guild: Guild): Promise
     return;
   }
 
-  const result = await closeAndArchive(guild, interaction.channelId, interaction.user.id);
+  const result = await closeAndArchive(
+    getTicketService(),
+    guild,
+    interaction.channelId,
+    interaction.user.id,
+  );
   if (!result) {
     await interaction.editReply({ embeds: [warningEmbed('Tiket ini sudah ditutup.')] });
     return;

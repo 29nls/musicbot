@@ -6,6 +6,11 @@ import {
   type MessageActionRowComponentBuilder,
 } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
+import {
+  MAX_TRANSCRIPT_MESSAGES,
+  transcriptPreviewLines,
+  type TicketTranscript,
+} from './transcript.js';
 import { formatTicketId, ticketButtonId, type Ticket } from './types.js';
 
 const toUnix = (date: Date): number => Math.floor(date.getTime() / 1_000);
@@ -116,6 +121,54 @@ export function ticketListEmbed(tickets: readonly Ticket[], total: number): Embe
   return embed
     .setDescription(truncate(`${lines.join('\n\n')}${note}`, 4_000))
     .setFooter({ text: `${total} tiket terbuka` });
+}
+
+/**
+ * Ringkasan transkrip + cuplikan isi.
+ *
+ * Cuplikan memakai pesan **terakhir**, bukan yang pertama: saat member membuka
+ * transkrip, yang dia cari hampir selalu bagian terakhirnya. Isi lengkap ada di
+ * file teks yang dilampirkan, jadi yang dipotong di sini tidak ada yang hilang.
+ */
+export function ticketTranscriptEmbed(
+  ticket: Ticket,
+  transcript: TicketTranscript,
+): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(EMBED_COLORS.primary)
+    .setTitle(`📄 Transkrip Tiket ${formatTicketId(ticket.ticketNumber)}`)
+    .addFields(
+      {
+        name: 'Tiket',
+        value: [
+          ticket.subject ?? '*tanpa subjek*',
+          `Pembuat: <@${ticket.openerId}>`,
+          ticket.closedAt ? `Ditutup: <t:${toUnix(ticket.closedAt)}:f>` : 'Status: masih terbuka',
+        ].join('\n'),
+        inline: false,
+      },
+      {
+        name: 'Isi',
+        value: `${transcript.messageCount} pesan tersimpan`,
+        inline: true,
+      },
+    )
+    .setTimestamp();
+
+  if (transcript.truncated) {
+    embed.addFields({
+      name: '⚠️ Dipotong',
+      value: `Hanya ${MAX_TRANSCRIPT_MESSAGES} pesan terakhir yang tersimpan.`,
+      inline: false,
+    });
+  }
+
+  return embed.setDescription(
+    truncate(
+      `**${transcript.messages.length} pesan terakhir**\n${transcriptPreviewLines(transcript)}`,
+      4_000,
+    ),
+  );
 }
 
 function truncate(value: string, max: number): string {

@@ -1,5 +1,7 @@
+import { getLogger } from '../../services/logger.js';
 import { purgeExpiredTickets, type TicketRetentionResult } from './retention.js';
 import type { TicketRepository } from './repository.js';
+import type { TicketTranscript } from './transcript.js';
 import {
   MAX_SUBJECT_LENGTH,
   TICKET_RETENTION_MONTHS,
@@ -87,6 +89,35 @@ export class TicketService {
     now = new Date(),
   ): Promise<Ticket | null> {
     return this.repository.close(guildId, channelId, closedBy, now, expiresAtFrom(now));
+  }
+
+  /**
+   * Tempelkan transkrip ke tiket yang baru ditutup.
+   *
+   * Best-effort: kegagalan menulis transkrip tidak boleh membuat tiket yang
+   * sudah tertutup dianggap gagal ditutup — isinya sudah tercatat di Discord,
+   * jadi masih bisa disalin manual oleh staff.
+   */
+  async attachTranscript(ticketId: number, transcript: TicketTranscript): Promise<boolean> {
+    try {
+      await this.repository.attachTranscript(ticketId, transcript);
+
+      return true;
+    } catch (error) {
+      getLogger().warn({ err: error, ticketId }, 'Gagal menyimpan transkrip tiket');
+
+      return false;
+    }
+  }
+
+  /** Tiket berdasarkan nomornya, terbuka maupun tertutup — dipakai `/ticket transcript`. */
+  async findByNumber(guildId: string, ticketNumber: number): Promise<Ticket | null> {
+    return this.repository.findByNumber(guildId, ticketNumber);
+  }
+
+  /** Tiket berdasarkan channelnya, termasuk yang sudah ditutup. */
+  async findAnyByChannel(guildId: string, channelId: string): Promise<Ticket | null> {
+    return this.repository.findAnyByChannel(guildId, channelId);
   }
 
   /**

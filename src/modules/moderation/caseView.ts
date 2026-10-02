@@ -1,5 +1,5 @@
 import type { TargetKind } from './embeds.js';
-import { ACTION_LABELS, type ModerationCase } from './types.js';
+import { ACTION_LABELS, NOTIFIABLE_ACTIONS, type ModerationCase } from './types.js';
 
 /** Berapa kasus lain (untuk target yang sama) yang ditampilkan di halaman kasus. */
 export const CASE_HISTORY_LIMIT = 5;
@@ -95,6 +95,32 @@ export function caseHistoryLine(record: ModerationCase): string {
     `\`${record.caseNumber}\` ${meta.emoji} ${meta.label} · <t:${Math.floor(record.createdAt.getTime() / 1_000)}:R>` +
     ` · oleh <@${record.moderatorId}>${state}`
   );
+}
+
+/**
+ * Baris status pengiriman DM ke target, atau null kalau kasus ini memang tidak
+ * pernah mengirim DM.
+ *
+ * `dmStatus: null` ambigu oleh dirinya sendiri — bisa berarti "aksi ini tidak
+ * mengirim DM" (slowmode, note) atau "kasus dibuat sebelum status ini
+ * dicatat". Keduanya dibedakan lewat `NOTIFIABLE_ACTIONS`: kalau aksinya memang
+ * seharusnya mengirim DM tapi statusnya kosong, jawabannya "tidak tercatat",
+ * bukan "tidak dikirim". Tanpa pembedaan ini kasus lama akan terlihat seolah
+ * targetnya tidak pernah diberi tahu.
+ *
+ * DM tambahan seperti dari `/unwarn` tidak ikut ditulis di sini: `dm_status`
+ * menggambarkan notifikasi atas kasus itu sendiri, bukan DM tambahan yang
+ * menyertainya.
+ */
+export function dmDeliveryLine(record: ModerationCase): string | null {
+  if (record.dmStatus === 'sent') return '✅ DM notifikasi terkirim ke target';
+  if (record.dmStatus === 'failed') {
+    return '⚠️ DM notifikasi **tidak terkirim** — DM-nya tertutup atau bot diblokir';
+  }
+
+  if (!NOTIFIABLE_ACTIONS.includes(record.type as (typeof NOTIFIABLE_ACTIONS)[number])) return null;
+
+  return '❔ Status pengiriman DM tidak tercatat (kasus dibuat sebelum fitur ini ada)';
 }
 
 /** Alasan yang aman ditampilkan di embed: dipotong ke batas field Discord. */

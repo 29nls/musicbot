@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ModerationRepository } from '../src/modules/moderation/repository.js';
+import { CHANNEL_TARGET_ACTIONS, type ModeratorActionRow, type ModeratorTotals } from '../src/modules/moderation/modProfile.js';
 import { ModerationService } from '../src/modules/moderation/service.js';
 import type {
   CreateCaseInput,
   CreateWarningInput,
+  DmStatus,
   ModerationCase,
   WarningRecord,
 } from '../src/modules/moderation/types.js';
@@ -16,6 +18,8 @@ const MOD_ID = '333333333333333333';
 class FakeModerationRepository implements ModerationRepository {
   public readonly cases = new Map<number, ModerationCase>();
   public readonly warnings: WarningRecord[] = [];
+  /** Disetel untuk menguji jalur best-effort saat status DM gagal ditulis. */
+  public dmStatusError: Error | null = null;
   private nextCaseId = 1;
   private readonly counters = new Map<string, number>();
 
@@ -34,6 +38,7 @@ class FakeModerationRepository implements ModerationRepository {
       createdAt: new Date('2026-10-02T00:00:00.000Z'),
       expiresAt: input.expiresAt ?? null,
       active: true,
+      dmStatus: null,
     };
 
     this.cases.set(created.id, created);
@@ -121,6 +126,15 @@ class FakeModerationRepository implements ModerationRepository {
     if (found) this.cases.set(found.id, { ...found, active });
   }
 
+  async setCaseDmStatus(guildId: string, caseNumber: number, dmStatus: DmStatus): Promise<void> {
+    if (this.dmStatusError) throw this.dmStatusError;
+
+    const found = [...this.cases.values()].find(
+      (item) => item.guildId === guildId && item.caseNumber === caseNumber,
+    );
+    if (found && found.dmStatus === null) found.dmStatus = dmStatus;
+  }
+
   async deleteExpiredWarnings(cutoff: Date): Promise<number> {
     let removed = 0;
     for (let index = this.warnings.length - 1; index >= 0; index -= 1) {
@@ -143,7 +157,203 @@ class FakeModerationRepository implements ModerationRepository {
     }
     return removed;
   }
+
+  async listCasesByModerator(
+    guildId: string,
+    moderatorId: string,
+    take: number,
+  ): Promise<ModerationCase[]> {
+    return [...this.cases.values()]
+      .filter((item) => item.guildId === guildId && item.moderatorId === moderatorId)
+      .sort(
+        (a, b) =>
+          b.createdAt.getTime() - a.createdAt.getTime() || b.caseNumber - a.caseNumber,
+      )
+      .slice(0, take)
+      .map((item) => ({ ...item }));
+  }
+
+  async countByTypeAndActive(
+    guildId: string,
+    moderatorId: string,
+  ): Promise<ModeratorActionRow[]> {
+    const buckets = new Map<string, ModeratorActionRow>();
+
+    for (const item of this.cases.values()) {
+      if (item.guildId !== guildId || item.moderatorId !== moderatorId) continue;
+
+      const key = `${item.type}:${item.active}`;
+      const bucket = buckets.get(key) ?? { type: item.type, active: item.active, count: 0 };
+      bucket.count += 1;
+      buckets.set(key, bucket);
+    }
+
+    return [...buckets.values()];
+  }
+
+  async summarizeModerator(
+    guildId: string,
+    moderatorId: string,
+    recentSince: Date,
+  ): Promise<ModeratorTotals> {
+    const owned = [...this.cases.values()].filter(
+      (item) => item.guildId === guildId && item.moderatorId === moderatorId,
+    );
+    const times = owned.map((item) => item.createdAt.getTime());
+
+    return {
+      total: owned.length,
+      uniqueTargets: new Set(
+        owned
+          .filter((item) => !CHANNEL_TARGET_ACTIONS.includes(item.type))
+          .map((item) => item.targetId),
+      ).size,
+      firstCaseAt: times.length > 0 ? new Date(Math.min(...times)) : null,
+      lastCaseAt: times.length > 0 ? new Date(Math.max(...times)) : null,
+      recentCount: owned.filter((item) => item.createdAt >= recentSince).length,
+    };
+  }
 }
+
+describe('ModerationService.moderatorProfile', () => {
+  const OTHER_MOD = '777777777777777777';
+  const OTHER_USER = '888888888888888888';
+  const NOW = new Date('2026-10-02T12:00:00.000Z');
+
+  /** Tanggal kasus bisa diubah lewat peta repository supaya jendela waktu bisa diuji. */
+  async function addCase(
+    repository: FakeModerationRepository,
+    overrides: Partial<ModerationCase> & { createdAt?: Date } = {},
+  ): Promise<ModerationCase> {
+    const created = await repository.createCase({
+      guildId: GUILD_ID,
+      type: 'ban',
+      targetId: USER_ID,
+      moderatorId: MOD_ID,
+      reason: 'spam',
+      ...overrides,
+    });
+
+    const stored = repository.cases.get(created.id)!;
+    if (overrides.createdAt) stored.createdAt = overrides.createdAt;
+
+    return stored;
+  }
+
+  it('moderator tanpa kasus tetap dapat profil, bukan null', async () => {
+    const { service } = makeService();
+
+    const profile = await service.moderatorProfile(GUILD_ID, MOD_ID, NOW);
+
+    expect(profile.totals.total).toBe(0);
+    expect(profile.actions).toEqual([]);
+  });
+
+  it('menghitung hanya kasus milik moderator itu', async () => {
+    const { repository, service } = makeService();
+
+    await addCase(repository);
+    await addCase(repository, { moderatorId: OTHER_MOD });
+    await addCase(repository, { guildId: OTHER_GUILD });
+
+    const profile = await service.moderatorProfile(GUILD_ID, MOD_ID, NOW);
+
+    expect(profile.totals.total).toBe(1);
+  });
+
+  it('sebaran aksi dihitung dari seluruh kasus moderator itu', async () => {
+    const { repository, service } = makeService();
+
+    await addCase(repository, { type: 'ban' });
+    await addCase(repository, { type: 'ban' });
+    await addCase(repository, { type: 'warn' });
+
+    const profile = await service.moderatorProfile(GUILD_ID, MOD_ID, NOW);
+
+    expect(profile.actions.map((stat) => [stat.type, stat.total])).toEqual([
+      ['ban', 2],
+      ['warn', 1],
+    ]);
+  });
+
+  it('aksi terhadap channel tidak menambah hitungan target unik', async () => {
+    const { repository, service } = makeService();
+
+    await addCase(repository, { type: 'ban', targetId: USER_ID });
+    await addCase(repository, { type: 'lock', targetId: '444444444444444444' });
+    await addCase(repository, { type: 'unlock', targetId: '444444444444444444' });
+
+    const profile = await service.moderatorProfile(GUILD_ID, MOD_ID, NOW);
+
+    expect(profile.totals.uniqueTargets).toBe(1);
+  });
+
+  it('kasus terbaru dibatasi jumlahnya', async () => {
+    const { repository, service } = makeService();
+    for (let index = 0; index < 15; index += 1) {
+      await addCase(repository, { createdAt: new Date(NOW.getTime() - index * 86_400_000) });
+    }
+
+    const profile = await service.moderatorProfile(GUILD_ID, MOD_ID, NOW);
+
+    expect(profile.recentCases).toHaveLength(10);
+    expect(profile.totals.total).toBe(15);
+  });
+
+  it('jendela aktivitas 30 hari dihitung terpisah dari total', async () => {
+    const { repository, service } = makeService();
+
+    await addCase(repository, { createdAt: new Date('2026-10-01T00:00:00.000Z') });
+    await addCase(repository, { createdAt: new Date('2026-08-01T00:00:00.000Z') });
+
+    const profile = await service.moderatorProfile(GUILD_ID, MOD_ID, NOW);
+
+    expect(profile.totals.total).toBe(2);
+    expect(profile.totals.recentCount).toBe(1);
+  });
+
+  it('rentang waktu kasus pertama dan terakhir terisi', async () => {
+    const { repository, service } = makeService();
+    const old = new Date('2026-01-10T08:00:00.000Z');
+    const recent = new Date('2026-09-30T08:00:00.000Z');
+
+    await addCase(repository, { createdAt: old });
+    await addCase(repository, { createdAt: recent });
+
+    const profile = await service.moderatorProfile(GUILD_ID, MOD_ID, NOW);
+
+    expect(profile.totals.firstCaseAt).toEqual(old);
+    expect(profile.totals.lastCaseAt).toEqual(recent);
+  });
+
+  it('peringatan yang dicabut tidak dihitung sebagai kegagalan', async () => {
+    const { repository, service } = makeService();
+    const warn = await addCase(repository, { type: 'warn' });
+    const ban = await addCase(repository, { type: 'ban' });
+
+    await service.revokeWarning(GUILD_ID, warn.caseNumber);
+    repository.cases.get(ban.id)!.active = false;
+
+    const profile = await service.moderatorProfile(GUILD_ID, MOD_ID, NOW);
+
+    const warnStat = profile.actions.find((stat) => stat.type === 'warn');
+    const banStat = profile.actions.find((stat) => stat.type === 'ban');
+
+    expect(warnStat?.revoked).toBe(1);
+    expect(warnStat?.failed).toBe(0);
+    expect(banStat?.failed).toBe(1);
+  });
+
+  it('kasus moderator lain di server lain tidak bocor ke profil', async () => {
+    const { repository, service } = makeService();
+    await addCase(repository, { guildId: OTHER_GUILD, moderatorId: OTHER_MOD, targetId: OTHER_USER });
+
+    const profile = await service.moderatorProfile(OTHER_GUILD, OTHER_MOD, NOW);
+
+    expect(profile.totals.total).toBe(1);
+    expect(profile.totals.uniqueTargets).toBe(1);
+  });
+});
 
 const makeService = (): { service: ModerationService; repository: FakeModerationRepository } => {
   const repository = new FakeModerationRepository();

@@ -191,6 +191,7 @@ pesan jelas “Lavalink belum terhubung” alih-alih gagal diam-diam.
 | `/warnings <user>` | Riwayat peringatan (10 terbaru + total) | Moderate Members |
 | `/unwarn <case>` | Cabut peringatan (`#CASE-0007` atau `7`) | Moderate Members |
 | `/case <kasus>` | Halaman ringkasan satu kasus + aksi & log terkait | Moderate Members |
+| `/modprofile <moderator>` | Halaman profil moderator: seluruh kasusnya + statistik aksi | Moderate Members |
 | `/unban <user-id> [reason]` | Buka ban berdasarkan ID user | Ban Members |
 | `/slowmode <duration> [reason]` | Slowmode channel (`0`/`off`, `30s`, `5m`, `2h`; maks 6 jam) | Manage Channels |
 | `/lock [reason]` | Tolak `Send Messages` (teks) / `Connect` (voice) untuk @everyone | Manage Channels |
@@ -253,6 +254,48 @@ tidak ada. Gunakan `/logs case:#CASE-0142` untuk melihat daftar kasus itu saja.
 
 Panel log tidak pernah menggagalkan halaman: kalau database log sedang bermasalah,
 ringkasan dan riwayat kasus tetap tampil.
+
+**`/modprofile` — halaman profil moderator**
+
+`/case` menjawab "kasus ini terjadi bagaimana". `/modprofile` menjawab "kebiasaan
+moderator ini seperti apa". Satu perintah, dua embed ephemeral:
+
+```bash
+/modprofile moderator:@Raka
+```
+
+Embed pertama: total kasus, target unik, rentang waktu aktif, aktivitas 30 hari
+terakhir, dan **sebaran aksi** lengkap dengan batang perbandingan:
+
+```
+🔨 **Ban** ██████████ `12` (39%)
+⚠️ **Warn** ████████░░ `9` (29%)
+⏳ **Timeout** █████░░░░░ `6` (19%)
+👢 **Kick** █░░░░░░░░░ `1` (3%) · ⚠️ 1 gagal
+```
+
+Embed kedua: 10 kasus terakhir, dengan arah ke `/case` untuk detail lengkapnya.
+
+**Yang perlu dibaca dengan hati-hati**
+
+- **Statistik ini bisa dipakai untuk mengadili, jadi sengaja dibuat jujur.**
+`active: false` pada `warn` berarti peringatan **dicabut**, bukan aksi yang gagal —
+mencampurkannya akan terlihat seperti moderator yang gagal 6 kali padahal habis
+mencabut peringatannya sendiri. Karena itu keduanya dihitung dan ditampilkan
+terpisah, dan hanya kasus **gagal** yang diberi tanda `⚠️`.
+- **Rasio kasus per target** hanya muncul kalau di atas 1,5. Moderator yang
+memang butuh beberapa kali untuk satu orang berbeda dari moderator yang
+menyerang target yang sama berulang-ulang.
+- **Cakupan datanya terbatas dan itu ditulis di footer**: hanya kasus yang
+tercatat lewat Harmony, dan kasus lama dihapus setelah 12 bulan. Ban atau
+timeout yang dilakukan manual dari Discord **tidak punya kasus** sama sekali —
+profil yang terlihat bersih belum tentu berarti moderatornya jarang bekerja.
+- Moderator tanpa kasus mendapat penjelasan yang jelas, bukan "tidak ditemukan".
+
+Agregasi dihitung di database lewat `groupBy`, bukan memuat semua kasus ke
+memory; hanya 10 kasus terbaru yang benar-benar ditarik. Query-nya dilayani
+indeks baru `(guildId, moderatorId, createdAt)` — tanpa itu, halaman ini akan
+memindai seluruh tabel kasus setiap kali dibuka.
 
 **Welcome, goodbye & autorole**
 
@@ -669,11 +712,57 @@ Butuh izin **Manage Server**. Semua perintah membalas ephemeral.
 | `/ticket panel` | Kirim ulang panel ke channel panel yang sudah diatur |
 | `/ticket list` | Tiket yang masih terbuka (20 terbaru + total) |
 | `/ticket close` | Tutup & arsipkan tiket di channel ini |
+| `/ticket transcript [ticket]` | Baca transkrip percakapan (staff atau pembuat tiketnya) |
 
 Data tiket disimpan di tabel `ticket` (nomor, pembuat, subjek, status, siapa
 yang mengklaim, waktu tutup). Baris yang sudah ditutup dan lewat 12 bulan
 dihapus oleh job retensi yang sama dengan kasus moderasi — tiket yang masih
 terbuka tidak pernah dihapus diam-diam.
+
+### Transkrip percakapan
+
+Saat tiket ditutup, isi channelnya diambil dan disimpan di kolom `transcript`
+pada **baris tiket yang sama**. Berkas `.txt` lengkapnya bisa dibaca lagi
+nanti:
+
+```bash
+/ticket transcript              # tiket di channel ini (sudah ditutup pun)
+/ticket transcript ticket:7     # lewat nomor tiket
+```
+
+Yang boleh membaca: **staff tiket** (role staff atau Manage Server) atau **member
+yang membuka tiket itu sendiri**. Member lain mendapat penolakan, termasuk yang
+memang masih ada di channel itu saat ini — yang tercatat di database hanyalah
+`openerId`.
+
+**Kenapa disimpan di baris tiket, bukan tabel terpisah**
+
+Ini keputusan yang tidak bisa dipindah dengan mudah: retensi menghapus baris
+tiket, jadi transkrip ikut hilang **di operasi yang sama**. Tidak ada data
+percakapan yang bisa tertinggal sebagai baris yatim, dan "hapus tiket = hapus
+transkrip" jadi satu fakta, bukan dua hal yang harus dijaga sinkron.
+
+**Yang dijamin sistem**
+
+- Transkrip diambil **sebelum** channel diarsipkan, saat bot pasti masih punya
+  akses baca. Diambil setelah penguncian, penyimpangan kecil pada hak akses bot
+  bisa membuat transkrip hilang tanpa jejak.
+- Kegagalan transkrip **tidak** menggagalkan penutupan: isinya masih ada di
+  Discord dan bisa disalin manual staff.
+- Maksimal **500 pesan terakhir** per tiket, sisanya ditandai "dipotong" di
+  embed dan diberi catatan di akhir file — tidak ada yang mengira
+  transkripnya lengkap padahal tidak.
+- Hanya pesan berisi teks yang disimpan; pesan sistem (join, pin) dibuang. URL
+  lampiran ikut disimpan, filenya sendiri tidak pernah diunduh atau disalin.
+- Isi pesan dipotong ke batas 2.000 karakter Discord. Nama yang tersimpan adalah
+  nama tampilan **saat pesan dikirim**, bukan nama user sekarang.
+- Transkrip tidak pernah ditulis ke disk lokal; hanya dilampirkan ke balasan.
+
+> **Catatan privasi.** Fitur ini membuat bot menyimpan isi percakapan member,
+> bukan hanya metadata aksi. Job retensi 12 bulan sekarang ikut menjadi
+> kewajiban privasi, bukan sekadar pembersihan database — dan kalau
+> `RETENTION_SWEEP_HOURS=0` (cron luar) atau job-nya mati, isi percakapan bisa
+> tersimpan jauh lebih lama dari yang dijanjikan.
 
 ---
 
@@ -686,6 +775,7 @@ PRD Bab 12 menyatakan data tidak disimpan selamanya. Yang sudah berjalan:
 | Kasus moderasi (`moderation_case`) | 12 bulan | Job retensi |
 | Peringatan (`warning`) | 12 bulan | Job retensi |
 | Tiket tertutup (`ticket`) | 12 bulan sejak ditutup | Job retensi (dalam sapuan yang sama) |
+| Transkrip percakapan tiket | ikut tiketnya (12 bulan) | Job retensi, **di operasi yang sama** |
 | Riwayat log (`log_entry`) | 30 hari (`expiresAt` sudah diisi) | **belum** ada job penghapus |
 
 Cara kerjanya:
@@ -702,6 +792,10 @@ Cara kerjanya:
   bot tidak crash dan mencoba lagi di siklus berikutnya.
 - Menghapus kasus lama **tidak** mengubah nomor kasus baru: nomor selalu
   dihitung dari `MAX(case_number) + 1` per server, bukan dari jumlah baris.
+- Menghapus tiket lama **juga** menghapus transkripnya, karena keduanya berada
+  di satu baris. Tidak ada tabel transkrip terpisah yang bisa meninggalkan data
+  percakapan yatim setelah tiketnya hilang — dan tidak ada cascade yang bisa
+  gagal di tengah jalan.
 
 Untuk server yang lebih suka membersihkan dari cron luar, setel
 `RETENTION_SWEEP_HOURS=0` lalu jalankan skrip sekali-jalan:
@@ -710,6 +804,14 @@ Untuk server yang lebih suka membersihkan dari cron luar, setel
 npm run db:prune
 # {"cutoff":"2025-10-02T12:00:00.000Z","casesDeleted":12,"warningsDeleted":7}
 ```
+
+Ada job kedua yang terpisah: `panelExpiryJob.ts` menonaktifkan panel reaction
+role yang lewat masa hidup setiap `PANEL_EXPIRY_SWEEP_MINUTES` (default 15 menit).
+Pisah karena sifatnya berbeda — retensi menghapus baris data, sedangkan job ini
+mengubah **pesan di Discord** dan butuh gateway yang sudah login, sehingga
+kegagalan totalnya tidak pernah ikut menghapus apa pun. Setel `0` untuk
+mematikannya; select menu yang sudah lewat masa hidup tetap ditolak walau
+penjadwalan dimatikan.
 
 ---
 
@@ -738,16 +840,20 @@ src/
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
 │  │                        # caseLink.ts menjembatani aksi ↔ event Discord
 │  │                        # caseView.ts = isi halaman /case
+│  │                        # modProfile.ts = statistik & isi halaman /modprofile
 │  ├─ automod/              # engine 7 rule + tracker state          (M4 ✅)
 │  ├─ logging/              # routing channel per kategori + diff/audit helper (M4 ✅)
 │  │                        # searchQuery.ts, summary.ts, record.ts untuk riwayat log
 │  │                        # stats.ts = agregasi /logs stats:true (groupBy Prisma)
 │  ├─ reactionroles/        # panel self-assign role via select menu (M5 ✅)
 │  │                        # select.ts = handler saat member memilih role
+│  │                        # expire.ts = lepas select menu saat panel berakhir
 │  └─ tickets/              # tiket: channel privat, klaim, arsip (M5 ✅)
-│                           # lifecycle.ts = buat channel privat & kunci saat tutup
+│                           # lifecycle.ts = buat channel privat, kunci saat tutup, simpan transkrip
+│                           # transcript.ts = ambil isi channel & susun file .txt
 ├─ services/                # logger, Prisma client, deteksi error database
 │                           # retentionJob.ts = pembersihan data berkala
+│                           # panelExpiryJob.ts = matikan panel reaction role lewat masa hidup
 ├─ utils/                   # cooldown, embed, durasi, izin, module loader
 ├─ config/                  # env (zod) + konstanta
 ├─ generated/               # Prisma Client hasil generate — JANGAN diedit, tidak di-commit

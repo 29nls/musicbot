@@ -18,6 +18,21 @@ export const NOTIFIABLE_ACTIONS = ['ban', 'kick', 'timeout', 'warn', 'unban'] as
 
 export type NotifiableAction = (typeof NOTIFIABLE_ACTIONS)[number];
 
+/**
+ * Hasil pengiriman DM ke target.
+ *
+ * String union, bukan boolean: boolean nullable tidak bisa membedakan "aksi ini
+ * memang tidak mengirim DM" dari "statusnya belum tercatat", sedangkan kedua
+ * hal itu perlu dibedakan di halaman `/case`.
+ */
+export const DM_STATUSES = ['sent', 'failed'] as const;
+
+export type DmStatus = (typeof DM_STATUSES)[number];
+
+export function isDmStatus(value: string): value is DmStatus {
+  return (DM_STATUSES as readonly string[]).includes(value);
+}
+
 export function isModerationAction(value: string): value is ModerationAction {
   return (MODERATION_ACTIONS as readonly string[]).includes(value);
 }
@@ -36,6 +51,11 @@ export interface ModerationCase {
   /** Kapan aksi berakhir (mis. timeout); null untuk aksi permanen. */
   expiresAt: Date | null;
   active: boolean;
+  /**
+   * Hasil DM ke target; null kalau aksi ini tidak mengirim DM, atau kasusnya
+   * dibuat sebelum kolom ini ada.
+   */
+  dmStatus: DmStatus | null;
 }
 
 /** Peringatan yang bisa dilihat lewat `/warnings` dan dicabut lewat `/unwarn`. */

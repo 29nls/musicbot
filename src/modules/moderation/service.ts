@@ -1,6 +1,13 @@
+import { getLogger } from '../../services/logger.js';
+import {
+  buildModeratorProfile,
+  MODERATOR_ACTIVE_WINDOW_DAYS,
+  MODERATOR_PROFILE_RECENT_LIMIT,
+  type ModeratorProfile,
+} from './modProfile.js';
 import { purgeExpiredRecords, type RetentionResult } from './retention.js';
 import type { ModerationRepository } from './repository.js';
-import type { CreateCaseInput, ModerationCase, WarningRecord } from './types.js';
+import type { CreateCaseInput, DmStatus, ModerationCase, WarningRecord } from './types.js';
 
 export interface WarningSummary {
   warnings: WarningRecord[];
@@ -70,6 +77,58 @@ export class ModerationService {
   /** Cabut warning berdasarkan nomor kasus; null kalau kasus tidak ditemukan. */
   async revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null> {
     return this.repository.revokeWarning(guildId, caseNumber);
+  }
+
+/**
+ * Catat hasil pengiriman DM ke target pada kasusnya.
+ *
+ * Best-effort: kegagalan menulis status tidak boleh menggagalkan aksi yang
+ * sudah berhasil. Kasus sudah tercatat dan DM-nya sudah terkirim atau gagal;
+ * status ini hanya untuk ditampilkan di `/case`.
+ */
+  async recordDmStatus(guildId: string, caseNumber: number, dmStatus: DmStatus): Promise<boolean> {
+    try {
+      await this.repository.setCaseDmStatus(guildId, caseNumber, dmStatus);
+
+      return true;
+    } catch (error) {
+      getLogger().warn({ err: error, guildId, caseNumber }, 'Gagal menyimpan status DM kasus');
+
+      return false;
+    }
+  }
+
+  /**
+ * Rangkai seluruh aktivitas satu moderator jadi satu profil.
+   *
+   * Tiga pembacaan (sebaran jenis, angka besar, kasus terbaru) berjalan
+   * bersamaan karena tidak saling bergantung — menggabungkan dengan `groupBy`
+   * tunggal justru memaksa database melakukan pekerjaan berulang.
+   *
+   * Moderator tanpa kasus tetap mengembalikan profil dengan total 0, bukan
+   * `null`: "belum pernah punya kasus" adalah jawaban yang valid, bukan kondisi
+   * error, dan pemanggil tidak boleh shaming dengan pesan "tidak ditemukan".
+   */
+  async moderatorProfile(
+    guildId: string,
+    moderatorId: string,
+    now = new Date(),
+  ): Promise<ModeratorProfile> {
+    const recentSince = new Date(
+      now.getTime() - MODERATOR_ACTIVE_WINDOW_DAYS * 86_400_000,
+    );
+
+    const [actionRows, totals, recentCases] = await Promise.all([
+      this.repository.countByTypeAndActive(guildId, moderatorId),
+      this.repository.summarizeModerator(guildId, moderatorId, recentSince),
+      this.repository.listCasesByModerator(
+        guildId,
+        moderatorId,
+        MODERATOR_PROFILE_RECENT_LIMIT,
+      ),
+    ]);
+
+    return buildModeratorProfile({ moderatorId, actionRows, totals, recentCases });
   }
 
   /** Tandai kasus tidak aktif (mis. aksi Discord-nya gagal dieksekusi). */

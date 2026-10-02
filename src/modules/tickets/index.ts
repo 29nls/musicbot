@@ -14,8 +14,19 @@ export {
   ticketListEmbed,
   ticketOpenedEmbed,
   ticketPanelEmbed,
+  ticketTranscriptEmbed,
 } from './embeds.js';
 export { handleTicketButton, isStaff } from './buttons.js';
+export {
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MAX_TRANSCRIPT_MESSAGES,
+  TRANSCRIPT_PREVIEW_COUNT,
+  captureTranscript,
+  parseTranscript,
+  renderTranscriptText,
+  transcriptPreviewLines,
+} from './transcript.js';
+export type { TicketTranscript, TranscriptEntry } from './transcript.js';
 export {
   buildTicketSubjectModal,
   handleTicketSubjectSubmit,

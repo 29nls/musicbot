@@ -1,3 +1,4 @@
+import { parseTranscript } from './transcript.js';
 import { isTicketStatus, type Ticket } from './types.js';
 
 /**
@@ -17,6 +18,8 @@ export interface TicketRow {
   closedAt: Date | null;
   closedBy: string | null;
   expiresAt: Date | null;
+  /** Kolom JSON transkrip; null untuk tiket yang ditutup sebelum fiturnya ada. */
+  transcript: unknown;
 }
 
 /**
@@ -39,5 +42,6 @@ export function toDomain(row: TicketRow): Ticket {
     closedAt: row.closedAt,
     closedBy: row.closedBy,
     expiresAt: row.expiresAt,
+    transcript: parseTranscript(row.transcript),
   };
 }

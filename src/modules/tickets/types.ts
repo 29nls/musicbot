@@ -1,8 +1,11 @@
 /**
  * Sistem tiket dasar (Fase 2, PRD §5.2): satu channel privat per tiket di
  * bawah kategori yang ditentukan admin, dengan role staff yang bisa melihat
- * semuanya. Menutup tiket = mengunci & mengganti nama channel, bukan menghapus.
+ * semuanya. Menutup tiket = mengunci & mengganti nama channel, bukan menghapus,
+ * lalu menyimpan isi percakapannya sebagai transkrip.
  */
+
+import type { TicketTranscript } from './transcript.js';
 
 /** Awalan customId untuk tombol tiket — dipakai router komponen. */
 export const TICKET_PREFIX = 'ticket:';
@@ -42,6 +45,11 @@ export interface Ticket {
   closedBy: string | null;
   /** Retensi (Bab 12 privasi): diisi saat tiket ditutup. */
   expiresAt: Date | null;
+  /**
+   * Isi percakapan, diambil saat tiket ditutup. null kalau tiket ditutup sebelum
+   * fitur ini ada, channelnya sudah hilang, atau pengambilannya gagal.
+   */
+  transcript: TicketTranscript | null;
 }
 
 export interface CreateTicketInput {

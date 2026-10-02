@@ -75,6 +75,10 @@ export default {
         }),
       );
 
+      await ctx.moderation
+        .recordDmStatus(ctx.guildId, created.caseNumber, dmSent ? 'sent' : 'failed')
+        .catch(() => undefined);
+
       const caseEmbed = moderationLogEmbed({
         action: 'warn',
         caseNumber: created.caseNumber,

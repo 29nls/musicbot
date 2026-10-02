@@ -6,9 +6,9 @@ import {
 } from 'discord.js';
 import { getLogger } from '../../services/logger.js';
 import { isGuildTextChannel } from '../../utils/discord.js';
-import { getTicketService } from './singleton.js';
 import { closedTicketChannelName, ticketChannelName } from './naming.js';
 import { buildTicketControls, ticketClosedEmbed, ticketOpenedEmbed } from './embeds.js';
+import { captureTranscript } from './transcript.js';
 import type { TicketService } from './service.js';
 import type { Ticket } from './types.js';
 
@@ -16,6 +16,8 @@ import type { Ticket } from './types.js';
 export interface CloseResult {
   ticket: Ticket;
   channel: TextChannel | null;
+  /** false kalau transkrip gagal diambil — tiket tetap tertutup normal. */
+  transcriptSaved: boolean;
 }
 
 /** Hasil membuka tiket — selalu salah satu dari dua sisi, tidak pernah exception. */
@@ -76,25 +78,57 @@ export async function openTicket(
 }
 
 /**
- * Tutup tiket lalu arsipkan channelnya.
+ * Tutup tiket, simpan transkripnya, lalu arsipkan channelnya.
  *
  * Satu jalur untuk tombol `Tutup Tiket` dan perintah `/ticket close`, supaya
  * keduanya tidak bisa berbeda: database sudah menandai tiket tertutup sementara
  * channelnya masih bisa diketik.
+ *
+ * Urutannya penting. Transkrip diambil **sebelum** channel diarsipkan, saat bot
+ * pasti masih punya akses baca dan belum ada permission overwrite yang
+ * mengubah apa pun. Kalau diambil setelah penguncian, penyimpangan kecil pada
+ * hak akses bot bisa membuat transkrip hilang tanpa jejak.
+ *
+ * Kegagalan transkrip tidak menggagalkan penutupan: isinya masih ada di
+ * Discord dan bisa disalin manual staff.
  */
 export async function closeAndArchive(
+  service: TicketService,
   guild: Guild,
   channelId: string,
   closedBy: string,
+  now = new Date(),
 ): Promise<CloseResult | null> {
-  const closed = await getTicketService().close(guild.id, channelId, closedBy);
+  const closed = await service.close(guild.id, channelId, closedBy, now);
   if (!closed) return null;
 
   const fetched = await guild.channels.fetch(channelId).catch(() => null);
   const channel = toTextChannel(fetched);
+
+  const transcriptSaved = await saveTranscript(service, channel, closed, now);
   if (channel) await archiveTicketChannel(channel, closed, closedBy);
 
-  return { ticket: closed, channel };
+  return { ticket: closed, channel, transcriptSaved };
+}
+
+/**
+ * Ambil isi channel lalu simpan ke tiket.
+ *
+ * Best-effort di dua tingkat: `captureTranscript` sudah mengembalikan null kalau
+ * pembacaan gagal, dan kegagalan di lapisan database juga ditelan di sini.
+ */
+async function saveTranscript(
+  service: TicketService,
+  channel: TextChannel | null,
+  ticket: Ticket,
+  now: Date,
+): Promise<boolean> {
+  if (!channel) return false;
+
+  const transcript = await captureTranscript(channel, now);
+  if (!transcript) return false;
+
+  return service.attachTranscript(ticket.id, transcript);
 }
 
 /** Buat channel tiket privat: hanya pembuat tiket dan role staff yang melihat. */

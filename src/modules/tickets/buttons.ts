@@ -100,7 +100,12 @@ async function closeTicket(
     return;
   }
 
-  const result = await closeAndArchive(guild, interaction.channelId, interaction.user.id);
+  const result = await closeAndArchive(
+    getTicketService(),
+    guild,
+    interaction.channelId,
+    interaction.user.id,
+  );
   if (!result) {
     await reply(interaction, warningEmbed('Tiket ini sudah tertutup.'));
     return;
