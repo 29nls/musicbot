@@ -1,6 +1,6 @@
 import type { PrismaClient } from '../../generated/prisma/client.js';
 import { toCaseDomain, toWarningDomain } from './mapping.js';
-import type { CreateCaseInput, CreateWarningInput, ModerationCase, WarningRecord } from './types.js';
+import { MAX_NOTES_SHOWN, type CreateCaseInput, type CreateWarningInput, type ModerationCase, type WarningRecord } from './types.js';
 
 /** Kontrak penyimpanan moderasi — bisa diganti fake di tes. */
 export interface ModerationRepository {
@@ -10,6 +10,8 @@ export interface ModerationRepository {
   findCaseByNumber(guildId: string, caseNumber: number): Promise<ModerationCase | null>;
   listWarnings(guildId: string, userId: string): Promise<WarningRecord[]>;
   countWarnings(guildId: string, userId: string): Promise<number>;
+  /** Catatan internal terbaru satu user (maks `MAX_NOTES_SHOWN`). */
+  listNotes(guildId: string, userId: string): Promise<ModerationCase[]>;
   /** Hapus warning + nonaktifkan kasusnya. null kalau kasus tidak ada/bukan warn. */
   revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null>;
   /** Nonaktifkan kasus (dipakai kalau aksi Discord gagal setelah kasus dicatat). */
@@ -79,6 +81,16 @@ export class PrismaModerationRepository implements ModerationRepository {
 
   async countWarnings(guildId: string, userId: string): Promise<number> {
     return this.prisma.warning.count({ where: { guildId, userId } });
+  }
+
+  async listNotes(guildId: string, userId: string): Promise<ModerationCase[]> {
+    const rows = await this.prisma.moderationCase.findMany({
+      where: { guildId, targetId: userId, type: 'note' },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_NOTES_SHOWN,
+    });
+
+    return rows.map(toCaseDomain);
   }
 
   async revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null> {

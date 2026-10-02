@@ -18,6 +18,7 @@ import {
   toModerationErrorEmbed,
   type ModerationAction,
   type ModerationService,
+  type NotifiableAction,
 } from '../../modules/moderation/index.js';
 import { getLogger } from '../../services/logger.js';
 import { errorEmbed } from '../../utils/embeds.js';
@@ -30,11 +31,16 @@ export interface AdminPermission {
 /** Izin Discord tiap perintah admin — dipakai untuk gate & default permission. */
 export const ADMIN_PERMISSIONS = {
   ban: { bit: PermissionFlagsBits.BanMembers, label: 'Ban Members' },
+  unban: { bit: PermissionFlagsBits.BanMembers, label: 'Ban Members' },
   kick: { bit: PermissionFlagsBits.KickMembers, label: 'Kick Members' },
   timeout: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   warn: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   warnings: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
   unwarn: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
+  note: { bit: PermissionFlagsBits.ModerateMembers, label: 'Moderate Members' },
+  slowmode: { bit: PermissionFlagsBits.ManageChannels, label: 'Manage Channels' },
+  lock: { bit: PermissionFlagsBits.ManageChannels, label: 'Manage Channels' },
+  unlock: { bit: PermissionFlagsBits.ManageChannels, label: 'Manage Channels' },
   purge: { bit: PermissionFlagsBits.ManageMessages, label: 'Manage Messages' },
 } as const satisfies Record<string, AdminPermission>;
 
@@ -150,72 +156,86 @@ export async function dmTarget(user: User, embed: EmbedBuilder): Promise<boolean
   }
 }
 
-export function deliveryNotes(dmSent: boolean, logged: boolean): string[] {
+/** Catatan kondisi pengiriman; `undefined` = aksi ini memang tidak mengirim DM. */
+export function deliveryNotes(dmSent: boolean | undefined, logged: boolean): string[] {
   const notes: string[] = [];
-  if (!dmSent) notes.push('⚠️ DM ke target tidak terkirim (DM tertutup atau bot diblokir).');
+  if (dmSent === false) notes.push('⚠️ DM ke target tidak terkirim (DM tertutup atau bot diblokir).');
   if (!logged) {
     notes.push('⚠️ Channel log belum diatur atau tidak bisa dikirim, jadi log tidak tersimpan.');
   }
   return notes;
 }
 
-export interface ModerationRunOptions {
+export type TargetKind = 'user' | 'channel';
+
+interface RecordedActionBase {
   interaction: ChatInputCommandInteraction;
   ctx: AdminContext;
-  user: User;
   action: ModerationAction;
+  targetId: string;
+  targetKind?: TargetKind;
   reason: string | null;
   expiresAt?: Date | null;
-  /** Aksi Discord yang dieksekusi setelah kasus tercatat. */
-  execute: () => Promise<void>;
+  /** Aksi Discord yang dieksekusi setelah kasus tercatat. Opsional (mis. `/note`). */
+  execute?: () => Promise<void>;
   extraLines?: string[];
 }
 
+type RecordedActionOptions = RecordedActionBase &
+  ({ notify: User; action: NotifiableAction } | { notify?: undefined });
+
 /**
- * Alur baku satu aksi moderasi:
- * catat kasus → DM target → eksekusi aksi Discord → kirim log → balas dengan ID kasus.
+ * Alur baku satu aksi yang tercatat sebagai kasus:
+ * catat kasus → DM target (kalau ada) → eksekusi aksi Discord → kirim log →
+ * balas dengan ID kasus.
  *
  * Kasus dicatat lebih dulu supaya ID kasus bisa dipakai di DM dan log. Kalau
  * aksi Discord gagal, kasus ditandai tidak aktif agar tidak menyesatkan.
  */
-export async function runModerationAction(options: ModerationRunOptions): Promise<void> {
-  const { interaction, ctx, user, action, reason } = options;
+async function runRecordedAction(options: RecordedActionOptions): Promise<void> {
+  const { interaction, ctx, reason } = options;
   const expiresAt = options.expiresAt ?? null;
 
   const created = await ctx.moderation.recordAction({
     guildId: ctx.guildId,
-    type: action,
-    targetId: user.id,
+    type: options.action,
+    targetId: options.targetId,
     moderatorId: interaction.user.id,
     reason,
     expiresAt,
   });
 
-  const dmSent = await dmTarget(
-    user,
-    moderationDmEmbed({
-      action,
-      caseNumber: created.caseNumber,
-      guildName: ctx.guild.name,
-      reason,
-      expiresAt,
-    }),
-  );
+  let dmSent: boolean | undefined;
+  if (options.notify) {
+    dmSent = await dmTarget(
+      options.notify,
+      moderationDmEmbed({
+        action: options.action,
+        caseNumber: created.caseNumber,
+        guildName: ctx.guild.name,
+        reason,
+        expiresAt,
+      }),
+    );
+  }
 
-  try {
-    await options.execute();
-  } catch (error) {
-    await ctx.moderation.deactivateCase(ctx.guildId, created.caseNumber).catch(() => undefined);
-    throw error;
+  if (options.execute) {
+    try {
+      await options.execute();
+    } catch (error) {
+      await ctx.moderation.deactivateCase(ctx.guildId, created.caseNumber).catch(() => undefined);
+      throw error;
+    }
   }
 
   const logged = await sendGuildEmbed(
     ctx.guild,
     ctx.config.logChannelId,
     moderationLogEmbed({
-      action,
+      action: options.action,
       caseNumber: created.caseNumber,
-      targetId: user.id,
+      targetId: options.targetId,
+      targetKind: options.targetKind,
       moderatorId: interaction.user.id,
       reason,
       createdAt: created.createdAt,
@@ -227,15 +247,134 @@ export async function runModerationAction(options: ModerationRunOptions): Promis
   await interaction.editReply({
     embeds: [
       moderationResultEmbed({
-        action,
+        action: options.action,
         caseNumber: created.caseNumber,
-        targetId: user.id,
+        targetId: options.targetId,
+        targetKind: options.targetKind,
         reason,
         expiresAt,
         extraLines: [...(options.extraLines ?? []), ...deliveryNotes(dmSent, logged)],
       }),
     ],
   });
+}
+
+export interface ModerationRunOptions {
+  interaction: ChatInputCommandInteraction;
+  ctx: AdminContext;
+  user: User;
+  action: NotifiableAction;
+  reason: string | null;
+  expiresAt?: Date | null;
+  execute: () => Promise<void>;
+  extraLines?: string[];
+}
+
+/** Aksi terhadap user: selalu mencoba DM ke target. */
+export async function runModerationAction(options: ModerationRunOptions): Promise<void> {
+  const { user, ...rest } = options;
+  await runRecordedAction({ ...rest, targetId: user.id, notify: user });
+}
+
+export interface ChannelActionRunOptions {
+  interaction: ChatInputCommandInteraction;
+  ctx: AdminContext;
+  channelId: string;
+  action: Extract<ModerationAction, 'slowmode' | 'lock' | 'unlock'>;
+  reason: string | null;
+  execute: () => Promise<void>;
+  extraLines?: string[];
+}
+
+/** Aksi terhadap channel: tidak ada DM, tetapi tetap punya ID kasus & log. */
+export async function runChannelAction(options: ChannelActionRunOptions): Promise<void> {
+  await runRecordedAction({ ...options, targetId: options.channelId, targetKind: 'channel' });
+}
+
+export interface NoteRunOptions {
+  interaction: ChatInputCommandInteraction;
+  ctx: AdminContext;
+  userId: string;
+  content: string;
+  extraLines?: string[];
+}
+
+/** Catatan internal: tercatat sebagai kasus, tetapi target tidak diberi tahu. */
+export async function runNoteAction(options: NoteRunOptions): Promise<void> {
+  await runRecordedAction({
+    interaction: options.interaction,
+    ctx: options.ctx,
+    action: 'note',
+    targetId: options.userId,
+    reason: options.content,
+    extraLines: options.extraLines,
+  });
+}
+
+export type LockPlan =
+  | {
+      ok: true;
+      channelId: string;
+      label: string;
+      apply: (locked: boolean, reason: string) => Promise<void>;
+    }
+  | { ok: false; embed: EmbedBuilder };
+
+/**
+ * Siapkan lock/unlock untuk channel tempat perintah dipanggil.
+ * Channel teks → tolak `SendMessages`; channel voice → tolak `Connect`.
+ * Nilai `null` saat unlock mengembalikan izin ke default (bukan memaksa allow).
+ */
+export function resolveLockPlan(interaction: ChatInputCommandInteraction): LockPlan {
+  if (!interaction.inCachedGuild()) {
+    return { ok: false, embed: errorEmbed('Perintah ini hanya bisa dipakai di dalam server.') };
+  }
+
+  const channel = interaction.channel;
+  if (!channel || channel.isDMBased()) {
+    return { ok: false, embed: errorEmbed('Perintah ini hanya bisa dipakai di channel server.') };
+  }
+
+  if (channel.isVoiceBased()) {
+    const everyone = channel.guild.roles.everyone;
+
+    return {
+      ok: true,
+      channelId: channel.id,
+      label: 'Connect',
+      apply: async (locked, reason) => {
+        await channel.permissionOverwrites.edit(
+          everyone,
+          { Connect: locked ? false : null },
+          { reason },
+        );
+      },
+    };
+  }
+
+  if (channel.isTextBased() && 'permissionOverwrites' in channel) {
+    const everyone = channel.guild.roles.everyone;
+
+    return {
+      ok: true,
+      channelId: channel.id,
+      label: 'Send Messages',
+      apply: async (locked, reason) => {
+        await channel.permissionOverwrites.edit(
+          everyone,
+          { SendMessages: locked ? false : null },
+          { reason },
+        );
+      },
+    };
+  }
+
+  return {
+    ok: false,
+    embed: errorEmbed(
+      'Perintah ini hanya bisa dipakai di channel teks atau voice — bukan thread atau kategori.',
+    ),
+  };
 }
 
 /** Ganti balasan "sedang diproses" dengan pesan privat. */

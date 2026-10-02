@@ -8,12 +8,12 @@ komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 > environment, database PostgreSQL + Prisma, konfigurasi per-server dengan cache
 > + wizard `/setup`, `/config`, **pemutaran musik lewat Lavalink**
 > (`/play`, `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`),
-> **moderasi dengan ID kasus** (`/ban`, `/kick`, `/timeout`, `/warn`,
-> `/warnings`, `/unwarn`, `/purge`), **welcome/goodbye + autorole** otomatis,
-> `/ping`, `/help`, dan stack Docker (bot + migrasi + Lavalink + PostgreSQL + Redis).
-> Berikutnya: M4 (automod & logging). Sisa perintah moderasi (`/unban`,
-> `/slowmode`, `/lock`, `/unlock`, `/note`) dan sisa fitur musik (`/volume`,
-> `/loop`, `/seek`, `/shuffle`, `/disconnect`) mengikuti PRD.
+> **moderasi lengkap dengan ID kasus** (`/ban`, `/unban`, `/kick`, `/timeout`,
+> `/warn`, `/warnings`, `/unwarn`, `/purge`, `/slowmode`, `/lock`, `/unlock`,
+> `/note`), **welcome/goodbye + autorole** otomatis, `/ping`, `/help`, dan
+> stack Docker (bot + migrasi + Lavalink + PostgreSQL + Redis).
+> Berikutnya: M4 (automod & logging). Sisa fitur musik (`/volume`, `/loop`,
+> `/seek`, `/shuffle`, `/disconnect`) mengikuti PRD.
 
 ---
 
@@ -188,6 +188,12 @@ pesan jelas “Lavalink belum terhubung” alih-alih gagal diam-diam.
 | `/warn <user> <reason>` | Peringatan tersimpan | Moderate Members |
 | `/warnings <user>` | Riwayat peringatan (10 terbaru + total) | Moderate Members |
 | `/unwarn <case>` | Cabut peringatan (`#CASE-0007` atau `7`) | Moderate Members |
+| `/unban <user-id> [reason]` | Buka ban berdasarkan ID user | Ban Members |
+| `/slowmode <duration> [reason]` | Slowmode channel (`0`/`off`, `30s`, `5m`, `2h`; maks 6 jam) | Manage Channels |
+| `/lock [reason]` | Tolak `Send Messages` (teks) / `Connect` (voice) untuk @everyone | Manage Channels |
+| `/unlock [reason]` | Hapus override kunci — izin kembali ke default server | Manage Channels |
+| `/note add <user> <content>` | Catatan internal (target tidak diberi tahu) | Moderate Members |
+| `/note show <user>` | Lihat catatan terbaru seorang member | Moderate Members |
 | `/purge <amount> [user] [contains]` | Hapus pesan massal (maks 100) | Manage Messages |
 
 **Aturan yang berlaku**
@@ -197,9 +203,16 @@ target, dan channel log.
 - **Anti-hierarki**: self-moderation, bot sendiri, dan pemilik server ditolak;
 role bot dan role moderator harus benar-benar di atas role target. Semua
 diperiksa *sebelum* aksi dieksekusi.
-- **Selalu DM target** (best-effort) dan **selalu kirim log** ke `logChannelId`.
-Kalau DM tertutup atau channel log belum diatur, aksi tetap jalan dan hasilnya
-mencatat apa yang gagal.
+- **Selalu DM target** untuk aksi terhadap user (ban/kick/timeout/warn/unban) dan
+**selalu kirim log** ke `logChannelId` — best-effort. Kalau DM tertutup atau
+channel log belum diatur, aksi tetap jalan dan hasilnya mencatat apa yang gagal.
+Aksi channel (`/slowmode`, `/lock`, `/unlock`) dan `/note` tidak mengirim DM.
+- `/note` murni internal: tercatat sebagai kasus tanpa mengubah apa pun di
+Discord, dan bisa dibaca lagi lewat `/note show`. Tanpa cek hierarki — mencatat
+pemilik server pun tidak apa-apa.
+- `/lock`/`/unlock` bekerja di channel tempat perintah dipanggil: channel teks
+menolak `Send Messages`, channel voice menolak `Connect`; `/unlock` menghapus
+override sehingga izin kembali mengikuti default server (bukan dipaksa allow).
 - Kasus dicatat **lebih dulu** di database; kalau eksekusi Discord gagal, kasus
 ditandai tidak aktif sehingga tidak ada aksi “hantu”. Database offline berarti
 tidak ada aksi yang dijalankan.
@@ -219,7 +232,8 @@ kosong memakai template default di [greetings.ts](src/modules/moderation/greetin
 **Di mana datanya**
 
 - `moderation_case` — satu baris per aksi: `caseNumber` unik per server, tipe,
-target, moderator, alasan, `expiresAt` untuk timeout, `active`.
+target (user atau channel), moderator, alasan, `expiresAt` untuk timeout,
+`active`. Catatan `/note` juga tersimpan di sini dengan tipe `note`.
 - `warning` — baris peringatan yang menunjuk kasusnya; `/unwarn` menghapus baris
 ini dan menonaktifkan kasusnya (data tidak hilang untuk audit).
 
@@ -238,8 +252,9 @@ src/
 │  ├─ core/                 # /ping, /help, /config, /setup         (M0–M1 ✅)
 │  ├─ music/                # /play, /queue, /nowplaying, /skip,
 │  │                        # /pause, /resume, /stop + _shared.ts   (M2 ✅)
-│  └─ admin/                # /ban, /kick, /timeout, /warn,
-│                           # /warnings, /unwarn, /purge + _shared.ts (M3 ✅)
+│  └─ admin/                # /ban, /unban, /kick, /timeout, /warn,
+│                           # /warnings, /unwarn, /slowmode, /lock,
+│                           # /unlock, /note, /purge + _shared.ts   (M3 ✅)
 ├─ events/                  # satu file = satu event Discord
 │                           # + guildMemberAdd/Remove (welcome, autorole, goodbye)
 ├─ handlers/                # loader perintah & event (auto-discovery)

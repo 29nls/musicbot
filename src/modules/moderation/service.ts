@@ -44,6 +44,11 @@ export class ModerationService {
     return { warnings, total };
   }
 
+  /** Catatan internal terbaru satu user (untuk `/note show`). */
+  async listNotes(guildId: string, userId: string): Promise<ModerationCase[]> {
+    return this.repository.listNotes(guildId, userId);
+  }
+
   /** Cabut warning berdasarkan nomor kasus; null kalau kasus tidak ditemukan. */
   async revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null> {
     return this.repository.revokeWarning(guildId, caseNumber);

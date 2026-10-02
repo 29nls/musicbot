@@ -78,6 +78,15 @@ class FakeModerationRepository implements ModerationRepository {
     ).length;
   }
 
+  async listNotes(guildId: string, userId: string): Promise<ModerationCase[]> {
+    return [...this.cases.values()]
+      .filter(
+        (item) => item.guildId === guildId && item.targetId === userId && item.type === 'note',
+      )
+      .slice(0, 10)
+      .map((item) => ({ ...item }));
+  }
+
   async revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null> {
     const found = await this.findCaseByNumber(guildId, caseNumber);
     if (!found || found.type !== 'warn') return null;
@@ -232,6 +241,37 @@ describe('ModerationService warning', () => {
 
     await expect(service.revokeWarning(GUILD_ID, 1)).resolves.toBeNull();
     await expect(service.revokeWarning(GUILD_ID, 99)).resolves.toBeNull();
+  });
+
+  it('listNotes hanya mengembalikan kasus bertipe note milik user itu', async () => {
+    const { service } = makeService();
+
+    await service.recordAction({
+      guildId: GUILD_ID,
+      type: 'note',
+      targetId: USER_ID,
+      moderatorId: MOD_ID,
+      reason: 'pernah spam',
+    });
+    await service.recordAction({
+      guildId: GUILD_ID,
+      type: 'note',
+      targetId: '999999999999999999',
+      moderatorId: MOD_ID,
+      reason: 'user lain',
+    });
+    await service.recordAction({
+      guildId: GUILD_ID,
+      type: 'ban',
+      targetId: USER_ID,
+      moderatorId: MOD_ID,
+      reason: 'bukan catatan',
+    });
+
+    const notes = await service.listNotes(GUILD_ID, USER_ID);
+
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.reason).toBe('pernah spam');
   });
 
   it('deactivateCase menandai kasus tidak aktif', async () => {

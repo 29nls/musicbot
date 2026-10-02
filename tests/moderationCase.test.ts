@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatCaseId, parseCaseNumber } from '../src/modules/moderation/caseNumber.js';
+import { describeSlowmode, parseSlowmodeSeconds } from '../src/modules/moderation/slowmode.js';
 import { describeTimeout, parseTimeoutDuration } from '../src/modules/moderation/timeout.js';
 
 describe('formatCaseId', () => {
@@ -67,5 +68,38 @@ describe('describeTimeout', () => {
     expect(describeTimeout(3_600_000)).toBe('1 jam');
     expect(describeTimeout(2 * 86_400_000)).toBe('2 hari');
     expect(describeTimeout(45_000)).toBe('45 detik');
+  });
+});
+
+describe('parseSlowmodeSeconds', () => {
+  it('membaca satuan dan menganggap angka polos sebagai detik', () => {
+    expect(parseSlowmodeSeconds('30s')).toBe(30);
+    expect(parseSlowmodeSeconds('5m')).toBe(300);
+    expect(parseSlowmodeSeconds('2h')).toBe(7_200);
+    expect(parseSlowmodeSeconds('45')).toBe(45);
+    expect(parseSlowmodeSeconds('1 jam')).toBe(3_600);
+  });
+
+  it('menerima 0/off/nonaktif sebagai matikan', () => {
+    expect(parseSlowmodeSeconds('0')).toBe(0);
+    expect(parseSlowmodeSeconds('off')).toBe(0);
+    expect(parseSlowmodeSeconds('nonaktif')).toBe(0);
+  });
+
+  it('menolak di luar batas Discord (6 jam) dan format salah', () => {
+    expect(parseSlowmodeSeconds('7h')).toBeNull();
+    expect(parseSlowmodeSeconds('21601')).toBeNull();
+    expect(parseSlowmodeSeconds('abc')).toBeNull();
+    expect(parseSlowmodeSeconds('-5')).toBeNull();
+    expect(parseSlowmodeSeconds('')).toBeNull();
+  });
+});
+
+describe('describeSlowmode', () => {
+  it('memilih satuan terbesar yang pas', () => {
+    expect(describeSlowmode(0)).toBe('nonaktif');
+    expect(describeSlowmode(30)).toBe('30 detik');
+    expect(describeSlowmode(300)).toBe('5 menit');
+    expect(describeSlowmode(7_200)).toBe('2 jam');
   });
 });

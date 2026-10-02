@@ -20,6 +20,7 @@ export type { WarningSummary } from './service.js';
 export { checkModerationHierarchy } from './hierarchy.js';
 export { formatCaseId, parseCaseNumber } from './caseNumber.js';
 export { describeTimeout, parseTimeoutDuration } from './timeout.js';
+export { MAX_SLOWMODE_SEC, describeSlowmode, parseSlowmodeSeconds } from './slowmode.js';
 export {
   DEFAULT_GOODBYE_MESSAGE,
   DEFAULT_WELCOME_MESSAGE,
@@ -32,22 +33,27 @@ export {
   moderationDmEmbed,
   moderationLogEmbed,
   moderationResultEmbed,
+  notesEmbed,
   purgeLogEmbed,
   warningRevokedDmEmbed,
   warningRevokedLogEmbed,
   warningsEmbed,
 } from './embeds.js';
+export type { TargetKind } from './embeds.js';
 export {
   ACTION_LABELS,
+  MAX_NOTES_SHOWN,
   MAX_PURGE_COUNT,
   MAX_REASON_LENGTH,
   MAX_TIMEOUT_MS,
   MAX_WARNINGS_SHOWN,
+  NOTIFIABLE_ACTIONS,
 } from './types.js';
 export type {
   CreateCaseInput,
   CreateWarningInput,
   ModerationAction,
   ModerationCase,
+  NotifiableAction,
   WarningRecord,
 } from './types.js';

@@ -1,21 +1,46 @@
 import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
 import { formatCaseId } from './caseNumber.js';
-import { ACTION_LABELS, type ModerationAction, type WarningRecord } from './types.js';
+import {
+  ACTION_LABELS,
+  type ModerationAction,
+  type ModerationCase,
+  type NotifiableAction,
+  type WarningRecord,
+} from './types.js';
 
 const toUnix = (date: Date): number => Math.floor(date.getTime() / 1_000);
 const trimReason = (reason: string | null): string =>
   reason ? reason.slice(0, 1_000) : '*tidak disebutkan*';
 
+/** Target aksi bisa berupa user (default) atau channel. */
+export type TargetKind = 'user' | 'channel';
+
+const formatTarget = (id: string, kind: TargetKind = 'user'): string =>
+  kind === 'channel' ? `<#${id}>` : `<@${id}>`;
+
+const ACTION_COLORS: Record<ModerationAction, number> = {
+  ban: EMBED_COLORS.error,
+  kick: EMBED_COLORS.warning,
+  timeout: EMBED_COLORS.warning,
+  warn: EMBED_COLORS.warning,
+  unban: EMBED_COLORS.success,
+  slowmode: EMBED_COLORS.primary,
+  lock: EMBED_COLORS.warning,
+  unlock: EMBED_COLORS.success,
+  note: EMBED_COLORS.primary,
+};
+
 export interface ModerationLogInput {
   action: ModerationAction;
   caseNumber: number;
   targetId: string;
+  targetKind?: TargetKind;
   moderatorId: string;
   reason: string | null;
   createdAt?: Date;
   expiresAt?: Date | null;
-  /** undefined = tidak dicoba dikirim (mis. untuk log purge). */
+  /** undefined = tidak relevan (mis. aksi channel & catatan). */
   dmSent?: boolean;
 }
 
@@ -23,11 +48,11 @@ export interface ModerationLogInput {
 export function moderationLogEmbed(input: ModerationLogInput): EmbedBuilder {
   const meta = ACTION_LABELS[input.action];
   const embed = new EmbedBuilder()
-    .setColor(input.action === 'ban' ? EMBED_COLORS.error : EMBED_COLORS.warning)
+    .setColor(ACTION_COLORS[input.action])
     .setTitle(`${meta.emoji} ${meta.label} — ${formatCaseId(input.caseNumber)}`)
     .addFields(
       { name: 'Kasus', value: `\`${formatCaseId(input.caseNumber)}\``, inline: true },
-      { name: 'Target', value: `<@${input.targetId}>`, inline: true },
+      { name: 'Target', value: formatTarget(input.targetId, input.targetKind), inline: true },
       { name: 'Moderator', value: `<@${input.moderatorId}>`, inline: true },
       { name: 'Alasan', value: trimReason(input.reason) },
     )
@@ -47,18 +72,19 @@ export function moderationLogEmbed(input: ModerationLogInput): EmbedBuilder {
 }
 
 export interface ModerationDmInput {
-  action: ModerationAction;
+  action: NotifiableAction;
   caseNumber: number;
   guildName: string;
   reason: string | null;
   expiresAt?: Date | null;
 }
 
-const DM_TITLES: Record<ModerationAction, string> = {
+const DM_TITLES: Record<NotifiableAction, string> = {
   ban: '🔨 Kamu di-ban dari {server}',
   kick: '👢 Kamu di-kick dari {server}',
   timeout: '⏳ Kamu di-timeout di {server}',
   warn: '⚠️ Kamu mendapat peringatan di {server}',
+  unban: '🔓 Ban-mu di server {server} telah dibuka',
 };
 
 /** DM yang dikirim ke target — selalu berisi ID kasus. */
@@ -79,20 +105,21 @@ export interface ModerationResultInput {
   action: ModerationAction;
   caseNumber: number;
   targetId: string;
+  targetKind?: TargetKind;
   reason: string | null;
   expiresAt?: Date | null;
   extraLines?: string[];
 }
 
-/** Balasan publik/privat setelah aksi berhasil — menampilkan ID kasus. */
+/** Balasan setelah aksi berhasil — menampilkan ID kasus. */
 export function moderationResultEmbed(input: ModerationResultInput): EmbedBuilder {
   const meta = ACTION_LABELS[input.action];
   const embed = new EmbedBuilder()
-    .setColor(input.action === 'ban' ? EMBED_COLORS.error : EMBED_COLORS.success)
+    .setColor(ACTION_COLORS[input.action])
     .setTitle(`${meta.emoji} ${meta.label} Berhasil`)
     .addFields(
       { name: 'Kasus', value: `\`${formatCaseId(input.caseNumber)}\``, inline: true },
-      { name: 'Target', value: `<@${input.targetId}>`, inline: true },
+      { name: 'Target', value: formatTarget(input.targetId, input.targetKind), inline: true },
     )
     .setTimestamp();
 
@@ -157,6 +184,31 @@ export function warningsEmbed(
   );
 
   return embed.setDescription(lines.join('\n\n').slice(0, 4_000));
+}
+
+/** Embed daftar catatan internal satu member. */
+export function notesEmbed(
+  target: { id: string; tag: string },
+  notes: ModerationCase[],
+): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(EMBED_COLORS.primary)
+    .setTitle(`📝 Catatan Internal — ${target.tag}`)
+    .setTimestamp();
+
+  if (notes.length === 0) {
+    return embed.setDescription('Belum ada catatan untuk user ini.');
+  }
+
+  const lines = notes.map(
+    (note) =>
+      `**\`${formatCaseId(note.caseNumber)}\`** • <t:${toUnix(note.createdAt)}:R> • oleh <@${note.moderatorId}>\n` +
+      `> ${note.reason ? note.reason.slice(0, 200) : '*tanpa isi*'}`,
+  );
+
+  return embed
+    .setDescription(lines.join('\n\n').slice(0, 4_000))
+    .setFooter({ text: `${notes.length} catatan terbaru ditampilkan` });
 }
 
 /** Embed yang dicatat ke channel log setiap kali `/purge` dijalankan. */
