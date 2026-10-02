@@ -25,9 +25,13 @@ model GuildConfig {
   welcomeChannelId String? @db.VarChar(20)
   goodbyeChannelId String? @db.VarChar(20)
   djRoleId         String? @db.VarChar(20)
+  /// Role otomatis untuk member manusia dan bot (dipisah karena kebutuhan berbeda).
+  autoroleId       String? @db.VarChar(20)
+  autoroleBotId    String? @db.VarChar(20)
 
-  // Teks sambutan, mendukung placeholder {user} {server} {count}
+  // Teks sambutan & perpisahan, mendukung placeholder {user} {mention} {server} {count}
   welcomeMessage String? @db.VarChar(1500)
+  goodbyeMessage String? @db.VarChar(1500)
 
   // Preferensi musik
   defaultVolume  Int @default(100)
@@ -42,4 +46,42 @@ model GuildConfig {
   updatedAt DateTime @updatedAt
 
   @@map("guild_config")
+}
+
+/// Semua aksi moderasi (ban/kick/timeout/warn) — satu baris per aksi.
+/// Nomor kasus unik per server dan dipakai di semua pesan/log (mis. #CASE-0142).
+model ModerationCase {
+  id          Int      @id @default(autoincrement())
+  caseNumber  Int
+  guildId     String   @db.VarChar(20)
+  type        String   @db.VarChar(20)
+  targetId    String   @db.VarChar(20)
+  moderatorId String   @db.VarChar(20)
+  reason      String?  @db.VarChar(1000)
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime?
+  active      Boolean  @default(true)
+
+  warnings Warning[]
+
+  @@unique([guildId, caseNumber])
+  @@index([guildId, targetId, createdAt])
+  @@index([guildId, createdAt])
+  @@map("moderation_case")
+}
+
+/// Peringatan aktif & historis. Satu /warn = satu case + satu baris di sini.
+model Warning {
+  id          Int      @id @default(autoincrement())
+  guildId     String   @db.VarChar(20)
+  userId      String   @db.VarChar(20)
+  moderatorId String   @db.VarChar(20)
+  reason      String?  @db.VarChar(1000)
+  caseId      Int
+  createdAt   DateTime @default(now())
+
+  case ModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, userId, createdAt])
+  @@map("warning")
 }

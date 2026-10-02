@@ -11,7 +11,10 @@ export interface GuildConfigRow {
   welcomeChannelId: string | null;
   goodbyeChannelId: string | null;
   djRoleId: string | null;
+  autoroleId: string | null;
+  autoroleBotId: string | null;
   welcomeMessage: string | null;
+  goodbyeMessage: string | null;
   defaultVolume: number;
   idleTimeoutSec: number;
   modulesEnabled: unknown;
@@ -26,7 +29,10 @@ export function toDomain(row: GuildConfigRow): GuildConfig {
     welcomeChannelId: row.welcomeChannelId,
     goodbyeChannelId: row.goodbyeChannelId,
     djRoleId: row.djRoleId,
+    autoroleId: row.autoroleId,
+    autoroleBotId: row.autoroleBotId,
     welcomeMessage: row.welcomeMessage,
+    goodbyeMessage: row.goodbyeMessage,
     defaultVolume: row.defaultVolume,
     idleTimeoutSec: row.idleTimeoutSec,
     modules: parseModules(row.modulesEnabled),
@@ -44,7 +50,10 @@ export function toPrismaData(config: GuildConfig) {
     welcomeChannelId: config.welcomeChannelId,
     goodbyeChannelId: config.goodbyeChannelId,
     djRoleId: config.djRoleId,
+    autoroleId: config.autoroleId,
+    autoroleBotId: config.autoroleBotId,
     welcomeMessage: config.welcomeMessage,
+    goodbyeMessage: config.goodbyeMessage,
     defaultVolume: config.defaultVolume,
     idleTimeoutSec: config.idleTimeoutSec,
     modulesEnabled: { ...config.modules },

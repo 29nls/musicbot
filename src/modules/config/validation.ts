@@ -35,7 +35,12 @@ export const guildConfigPatchSchema = z.object({
   welcomeChannelId: snowflakeOrNull.optional(),
   goodbyeChannelId: snowflakeOrNull.optional(),
   djRoleId: snowflakeOrNull.optional(),
+  autoroleId: snowflakeOrNull.optional(),
+  autoroleBotId: snowflakeOrNull.optional(),
   welcomeMessage: z
+    .union([z.string().max(MAX_WELCOME_MESSAGE_LENGTH, `maksimal ${MAX_WELCOME_MESSAGE_LENGTH} karakter`), z.null()])
+    .optional(),
+  goodbyeMessage: z
     .union([z.string().max(MAX_WELCOME_MESSAGE_LENGTH, `maksimal ${MAX_WELCOME_MESSAGE_LENGTH} karakter`), z.null()])
     .optional(),
   defaultVolume: z.number().int().min(0).max(MAX_VOLUME, `maksimal ${MAX_VOLUME}`).optional(),

@@ -23,12 +23,18 @@ export function renderConfigEmbed(config: GuildConfig, title = '⚙️ Konfigura
       { name: '👋 Channel welcome', value: channel(config.welcomeChannelId), inline: true },
       { name: '🚪 Channel goodbye', value: channel(config.goodbyeChannelId), inline: true },
       { name: '🎧 Role DJ', value: role(config.djRoleId), inline: true },
+      { name: '🎭 Autorole member', value: role(config.autoroleId), inline: true },
+      { name: '🤖 Autorole bot', value: role(config.autoroleBotId), inline: true },
       { name: '🔊 Volume default', value: `${config.defaultVolume}%`, inline: true },
       { name: '⏱️ Auto-disconnect', value: `${config.idleTimeoutSec} detik`, inline: true },
       { name: '🧩 Modul aktif', value: moduleLines(config.modules) },
       {
         name: '💬 Pesan welcome',
         value: config.welcomeMessage ? config.welcomeMessage.slice(0, 300) : notSet,
+      },
+      {
+        name: '💬 Pesan goodbye',
+        value: config.goodbyeMessage ? config.goodbyeMessage.slice(0, 300) : notSet,
       },
     )
     .setTimestamp();

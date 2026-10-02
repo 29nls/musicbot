@@ -13,7 +13,12 @@ export interface GuildConfig {
   welcomeChannelId: string | null;
   goodbyeChannelId: string | null;
   djRoleId: string | null;
+  /** Role otomatis untuk member manusia yang baru join. */
+  autoroleId: string | null;
+  /** Role otomatis untuk bot yang baru join (bisa beda dari manusia). */
+  autoroleBotId: string | null;
   welcomeMessage: string | null;
+  goodbyeMessage: string | null;
   defaultVolume: number;
   idleTimeoutSec: number;
   modules: ModulesEnabled;
@@ -26,7 +31,10 @@ export interface GuildConfigPatch {
   welcomeChannelId?: string | null;
   goodbyeChannelId?: string | null;
   djRoleId?: string | null;
+  autoroleId?: string | null;
+  autoroleBotId?: string | null;
   welcomeMessage?: string | null;
+  goodbyeMessage?: string | null;
   defaultVolume?: number;
   idleTimeoutSec?: number;
   modules?: Partial<ModulesEnabled>;
@@ -45,6 +53,7 @@ export const DEFAULT_IDLE_TIMEOUT_SEC = 300;
 export const MIN_IDLE_TIMEOUT_SEC = 30;
 export const MAX_IDLE_TIMEOUT_SEC = 86_400;
 export const MAX_VOLUME = 200;
+/** Berlaku untuk pesan welcome maupun goodbye. */
 export const MAX_WELCOME_MESSAGE_LENGTH = 1_500;
 
 export const MODULE_LABELS: Record<keyof ModulesEnabled, { label: string; description: string }> = {

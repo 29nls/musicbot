@@ -46,6 +46,12 @@ export default {
         .addRoleOption((option) =>
           option.setName('dj-role').setDescription('Role yang boleh mengontrol musik'),
         )
+        .addRoleOption((option) =>
+          option.setName('autorole').setDescription('Role otomatis untuk member manusia yang baru join'),
+        )
+        .addRoleOption((option) =>
+          option.setName('autorole-bot').setDescription('Role otomatis untuk bot yang baru join'),
+        )
         .addIntegerOption((option) =>
           option
             .setName('volume')
@@ -63,7 +69,13 @@ export default {
         .addStringOption((option) =>
           option
             .setName('welcome-message')
-            .setDescription('Pesan sambutan; placeholder {user} {server} {count}')
+            .setDescription('Pesan sambutan; placeholder {user} {mention} {server} {count}')
+            .setMaxLength(1_500),
+        )
+        .addStringOption((option) =>
+          option
+            .setName('goodbye-message')
+            .setDescription('Pesan perpisahan; placeholder {user} {mention} {server} {count}')
             .setMaxLength(1_500),
         ),
     )
@@ -137,6 +149,12 @@ function buildPatch(interaction: ChatInputCommandInteraction): GuildConfigPatch 
   const djRole = interaction.options.getRole('dj-role');
   if (djRole) patch.djRoleId = djRole.id;
 
+  const autorole = interaction.options.getRole('autorole');
+  if (autorole) patch.autoroleId = autorole.id;
+
+  const autoroleBot = interaction.options.getRole('autorole-bot');
+  if (autoroleBot) patch.autoroleBotId = autoroleBot.id;
+
   const volume = interaction.options.getInteger('volume');
   if (volume !== null) patch.defaultVolume = volume;
 
@@ -145,6 +163,9 @@ function buildPatch(interaction: ChatInputCommandInteraction): GuildConfigPatch 
 
   const welcomeMessage = interaction.options.getString('welcome-message');
   if (welcomeMessage !== null) patch.welcomeMessage = welcomeMessage;
+
+  const goodbyeMessage = interaction.options.getString('goodbye-message');
+  if (goodbyeMessage !== null) patch.goodbyeMessage = goodbyeMessage;
 
   return patch;
 }

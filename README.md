@@ -3,15 +3,17 @@
 Bot Discord serbaguna: pemutaran musik berkualitas tinggi (Lavalink) + moderasi
 komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 
-> **Status: M2 (musik).**
+> **Status: M3 (moderasi).**
 > Sudah jalan: bootstrap bot, loader perintah & event otomatis, validasi
 > environment, database PostgreSQL + Prisma, konfigurasi per-server dengan cache
 > + wizard `/setup`, `/config`, **pemutaran musik lewat Lavalink**
-> (`/play`, `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`,
-> antrean per-server, auto-disconnect), `/ping`, `/help`, dan stack Docker
-> (bot + migrasi + Lavalink + PostgreSQL + Redis).
-> Berikutnya: M3 (moderasi). Sisa fitur musik (`/volume`, `/loop`, `/seek`,
-> `/shuffle`, `/disconnect`) ada di Fase 2 PRD.
+> (`/play`, `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`),
+> **moderasi dengan ID kasus** (`/ban`, `/kick`, `/timeout`, `/warn`,
+> `/warnings`, `/unwarn`, `/purge`), **welcome/goodbye + autorole** otomatis,
+> `/ping`, `/help`, dan stack Docker (bot + migrasi + Lavalink + PostgreSQL + Redis).
+> Berikutnya: M4 (automod & logging). Sisa perintah moderasi (`/unban`,
+> `/slowmode`, `/lock`, `/unlock`, `/note`) dan sisa fitur musik (`/volume`,
+> `/loop`, `/seek`, `/shuffle`, `/disconnect`) mengikuti PRD.
 
 ---
 
@@ -116,8 +118,10 @@ lewat menu (channel log, channel welcome, role DJ, modul aktif) dan tombol
 | `/config reset` | Hapus barisnya dan kembali ke default |
 
 Opsi `/config set`: `log-channel`, `welcome-channel`, `goodbye-channel`,
-`dj-role`, `volume` (0–200), `idle-timeout` (30–86400 detik),
-`welcome-message` (placeholder `{user}` `{server}` `{count}`).
+`dj-role`, `autorole` (member manusia), `autorole-bot` (bot baru),
+`volume` (0–200), `idle-timeout` (30–86400 detik),
+`welcome-message` & `goodbye-message` (placeholder `{user}` `{mention}`
+`{server}` `{count}`).
 
 Keduanya butuh izin **Manage Server** dan hanya bisa dipakai di dalam server.
 Nilai yang tidak valid ditolak sebelum menyentuh database, dengan pesan yang
@@ -174,7 +178,54 @@ pesan jelas “Lavalink belum terhubung” alih-alih gagal diam-diam.
 
 ---
 
-## 5. Struktur proyek
+## 5. Moderasi & onboarding (M3)
+
+| Perintah | Fungsi | Izin |
+| --- | --- | --- |
+| `/ban <user> [reason] [delete-messages 0–7]` | Ban member; opsional hapus pesannya | Ban Members |
+| `/kick <user> [reason]` | Kick member | Kick Members |
+| `/timeout <user> <duration> [reason]` | Bisukan sementara (`30s`, `10m`, `2h`, `7d`; maks 28 hari) | Moderate Members |
+| `/warn <user> <reason>` | Peringatan tersimpan | Moderate Members |
+| `/warnings <user>` | Riwayat peringatan (10 terbaru + total) | Moderate Members |
+| `/unwarn <case>` | Cabut peringatan (`#CASE-0007` atau `7`) | Moderate Members |
+| `/purge <amount> [user] [contains]` | Hapus pesan massal (maks 100) | Manage Messages |
+
+**Aturan yang berlaku**
+
+- Setiap aksi punya **ID kasus** (`#CASE-0142`) yang muncul di balasan, DM
+target, dan channel log.
+- **Anti-hierarki**: self-moderation, bot sendiri, dan pemilik server ditolak;
+role bot dan role moderator harus benar-benar di atas role target. Semua
+diperiksa *sebelum* aksi dieksekusi.
+- **Selalu DM target** (best-effort) dan **selalu kirim log** ke `logChannelId`.
+Kalau DM tertutup atau channel log belum diatur, aksi tetap jalan dan hasilnya
+mencatat apa yang gagal.
+- Kasus dicatat **lebih dulu** di database; kalau eksekusi Discord gagal, kasus
+ditandai tidak aktif sehingga tidak ada aksi “hantu”. Database offline berarti
+tidak ada aksi yang dijalankan.
+- `/purge` tidak membuat kasus (tidak ada target tunggal) tetapi selalu dicatat
+ke channel log. Pesan lebih tua dari 14 hari tidak bisa dihapus massal —
+jumlah yang dilewati dilaporkan.
+
+**Welcome, goodbye & autorole**
+
+- `guildMemberAdd` mengirim pesan ke `welcomeChannelId` lalu memberi
+`autoroleId` (manusia) atau `autoroleBotId` (bot). Kalau role gagal diberikan
+(izin `Manage Roles` atau posisi role), bot melaporkannya di `logChannelId`.
+- `guildMemberRemove` mengirim pesan ke `goodbyeChannelId`.
+- Placeholder teks: `{user}` (tag), `{mention}`, `{server}`, `{count}`. Pesan
+kosong memakai template default di [greetings.ts](src/modules/moderation/greetings.ts).
+
+**Di mana datanya**
+
+- `moderation_case` — satu baris per aksi: `caseNumber` unik per server, tipe,
+target, moderator, alasan, `expiresAt` untuk timeout, `active`.
+- `warning` — baris peringatan yang menunjuk kasusnya; `/unwarn` menghapus baris
+ini dan menonaktifkan kasusnya (data tidak hilang untuk audit).
+
+---
+
+## 6. Struktur proyek
 
 ```
 prisma/
@@ -187,14 +238,16 @@ src/
 │  ├─ core/                 # /ping, /help, /config, /setup         (M0–M1 ✅)
 │  ├─ music/                # /play, /queue, /nowplaying, /skip,
 │  │                        # /pause, /resume, /stop + _shared.ts   (M2 ✅)
-│  └─ admin/                # /ban, /warn, ...                      (M3)
+│  └─ admin/                # /ban, /kick, /timeout, /warn,
+│                           # /warnings, /unwarn, /purge + _shared.ts (M3 ✅)
 ├─ events/                  # satu file = satu event Discord
+│                           # + guildMemberAdd/Remove (welcome, autorole, goodbye)
 ├─ handlers/                # loader perintah & event (auto-discovery)
 ├─ modules/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
-│  ├─ moderation/           # case manager, cek hierarki role (M3)
+│  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
 │  ├─ automod/              # rule engine (M4)
 │  └─ logging/              # event → embed log (M4)
 ├─ services/                # logger, Prisma client, deteksi error database
@@ -242,7 +295,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
 ---
 
-## 6. Perintah npm
+## 7. Perintah npm
 
 | Perintah | Fungsi |
 | --- | --- |
@@ -265,7 +318,7 @@ setiap push/PR.
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | --- | --- |
@@ -275,6 +328,9 @@ setiap push/PR.
 | Bot keluar sendiri dari voice channel | Auto-disconnect setelah `idleTimeoutSec` tanpa lagu. Atur lewat `/config set idle-timeout` |
 | `/play` bilang antrean penuh | Batas `MAX_QUEUE_SIZE` (default 500) tercapai — tunggu lagu selesai atau naikkan di `.env` |
 | `Konfigurasi environment tidak valid: • DISCORD_TOKEN: ...` | `.env` belum diisi / valuenya salah — pesannya menyebut variabel yang bermasalah |
+| “DM ke target tidak terkirim” saat moderasi | Wajar kalau target menutup DM atau memblokir bot — aksinya tetap dijalankan dan tercatat di channel log |
+| “Role target lebih tinggi atau setara…” | Hierarki Discord. Pindahkan role bot dan role moderator di atas role target (Server Settings → Roles) |
+| Autorole gagal diberikan | Cek pesan di channel log: bot butuh izin **Manage Roles** dan role autorole harus berada di bawah role bot |
 | Perintah `/setup` bilang database offline | Jalankan `npm run infra:up`, lalu cek `docker compose ps` |
 | `Cannot resolve environment variable: DATABASE_URL` | Prisma CLI butuh `DATABASE_URL` di `.env` — untuk `generate` saja, nilai placeholder otomatis dipakai |
 | Prisma Client tidak sinkron setelah ubah schema | `npm run db:generate` (atau `npm run db:migrate` sekaligus) |

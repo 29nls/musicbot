@@ -8,7 +8,10 @@ const row: GuildConfigRow = {
   welcomeChannelId: null,
   goodbyeChannelId: null,
   djRoleId: '323456789012345678',
+  autoroleId: '523456789012345678',
+  autoroleBotId: null,
   welcomeMessage: 'Halo {user}!',
+  goodbyeMessage: null,
   defaultVolume: 70,
   idleTimeoutSec: 120,
   modulesEnabled: { music: true, moderation: false, automod: true, logging: false },
@@ -23,6 +26,9 @@ describe('toDomain', () => {
     expect(config.logChannelId).toBe('223456789012345678');
     expect(config.welcomeChannelId).toBeNull();
     expect(config.djRoleId).toBe('323456789012345678');
+    expect(config.autoroleId).toBe('523456789012345678');
+    expect(config.autoroleBotId).toBeNull();
+    expect(config.goodbyeMessage).toBeNull();
     expect(config.defaultVolume).toBe(70);
     expect(config.modules).toEqual({ music: true, moderation: false, automod: true, logging: false });
   });
@@ -62,7 +68,10 @@ describe('toPrismaData', () => {
       welcomeChannelId: null,
       goodbyeChannelId: null,
       djRoleId: null,
+      autoroleId: null,
+      autoroleBotId: null,
       welcomeMessage: null,
+      goodbyeMessage: null,
       defaultVolume: 100,
       idleTimeoutSec: 300,
       modules: { music: true, moderation: true, automod: false, logging: false },
