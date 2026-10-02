@@ -17,6 +17,7 @@ import {
   moderationLogCategory,
   moderationLogEmbed,
   moderationResultEmbed,
+  priorCaseEmbed,
   registerCaseLink,
   sendGuildEmbed,
   toModerationErrorEmbed,
@@ -185,6 +186,13 @@ interface RecordedActionBase {
   /** Aksi Discord yang dieksekusi setelah kasus tercatat. Opsional (mis. `/note`). */
   execute?: () => Promise<void>;
   extraLines?: string[];
+  /**
+   * Lampirkan riwayat kasus sebelumnya atas target yang sama sebagai embed
+   * kedua. Opt-in per perintah: aksi ringan seperti `/warn` tidak perlu
+   * mengulang riwayat yang bisa saja sudah dibaca, sementara `/ban` —
+   * yang tidak bisa dibatalkan — hampir selalu butuh.
+   */
+  withPriorCases?: boolean;
 }
 
 type RecordedActionOptions = RecordedActionBase &
@@ -273,19 +281,59 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
     caseNumber: created.caseNumber,
   });
 
-  await interaction.editReply({
-    embeds: [
-      moderationResultEmbed({
-        action: options.action,
-        caseNumber: created.caseNumber,
-        targetId: options.targetId,
-        targetKind: options.targetKind,
-        reason,
-        expiresAt,
-        extraLines: [...(options.extraLines ?? []), ...deliveryNotes(dmSent, logged)],
-      }),
-    ],
-  });
+  const embeds = [
+    moderationResultEmbed({
+      action: options.action,
+      caseNumber: created.caseNumber,
+      targetId: options.targetId,
+      targetKind: options.targetKind,
+      reason,
+      expiresAt,
+      extraLines: [...(options.extraLines ?? []), ...deliveryNotes(dmSent, logged)],
+    }),
+  ];
+
+  // Riwayat dibaca SETELAH kasus tercatat & Discord sudah dipanggil, lalu
+  // kasus ini dikecualikan — jadi yang tampil benar-benar kasus sebelumnya.
+  // Kegagalan baca tidak boleh menutupi hasil aksi yang sudah berhasil, jadi
+  // dibiarkan kosong dan hanya dicatat sebagai peringatan di log internal.
+  if (options.withPriorCases) {
+    const priorCase = await priorCaseEmbedFor(
+      ctx.moderation,
+      ctx.guildId,
+      options.targetId,
+      created.caseNumber,
+    ).catch((error) => {
+      getLogger()
+        .warn({ err: error, guildId: ctx.guildId, target: options.targetId }, 'Gagal memuat riwayat kasus');
+
+      return null;
+    });
+
+    if (priorCase) embeds.push(priorCase);
+  }
+
+  await interaction.editReply({ embeds });
+}
+
+/**
+ * Embed riwayat target untuk dilampirkan ke balasan aksi, atau null kalau
+ * targetnya benar-benar bersih.
+ *
+ * "Riwayat kosong" sengaja tidak pernah dirender: embed yang hanya berisi
+ * "tidak ada riwayat" menambah tinggi balasan tanpa keputusan yang bisa
+ * diambil dari isinya. `caseNumber` yang sedang dibuat dikecualikan supaya
+ * aksi ini tidak menghitung dirinya sendiri sebagai riwayat.
+ */
+export async function priorCaseEmbedFor(
+  service: Pick<ModerationService, 'priorCaseSummary'>,
+  guildId: string,
+  targetId: string,
+  caseNumber: number,
+): Promise<EmbedBuilder | null> {
+  const summary = await service.priorCaseSummary(guildId, targetId, caseNumber);
+
+  return summary.hasHistory ? priorCaseEmbed(summary) : null;
 }
 
 /**
@@ -338,6 +386,8 @@ export interface ModerationRunOptions {
   expiresAt?: Date | null;
   execute: () => Promise<void>;
   extraLines?: string[];
+  /** Lihat `withPriorCases` di `RecordedActionBase`. */
+  withPriorCases?: boolean;
 }
 
 /** Aksi terhadap user: selalu mencoba DM ke target. */

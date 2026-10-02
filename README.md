@@ -184,7 +184,7 @@ pesan jelas “Lavalink belum terhubung” alih-alih gagal diam-diam.
 
 | Perintah | Fungsi | Izin |
 | --- | --- | --- |
-| `/ban <user> [reason] [delete-messages 0–7]` | Ban member; opsional hapus pesannya | Ban Members |
+| `/ban <user> [reason] [delete-messages 0–7]` | Ban member; opsional hapus pesannya + lampiran riwayat target | Ban Members |
 | `/kick <user> [reason]` | Kick member | Kick Members |
 | `/timeout <user> <duration> [reason]` | Bisukan sementara (`30s`, `10m`, `2h`, `7d`; maks 28 hari) | Moderate Members |
 | `/warn <user> <reason>` | Peringatan tersimpan | Moderate Members |
@@ -241,6 +241,11 @@ embed:
    dan masa berlaku. Untuk **ban** & **timeout** ada field **Kondisi sekarang**
    yang mengecek langsung ke Discord: masih diblokir atau tidak, masih timeout
    sampai kapan. Aksi lain tidak punya field ini karena tidak bisa dibatalkan.
+   Untuk aksi yang memang mengirim DM ke target (warn, timeout, ban, kick)
+   ada field **Notifikasi** yang berisi hasil pengiriman DM-nya: terkirim,
+   gagal (DM-nya tertutup atau bot diblokir), atau tidak tercatat. Aksi yang
+   tidak mengirim DM sama sekali (`/note`, slowmode, lock, unlock) tidak punya
+   field ini.
 2. **Riwayat target** — 5 kasus lain atas target yang sama (warn, timeout, ban,
    note sebelumnya) supaya moderator bisa langsung melihat pola, bukan cuma satu
    kejadian.
@@ -254,6 +259,42 @@ tidak ada. Gunakan `/logs case:#CASE-0142` untuk melihat daftar kasus itu saja.
 
 Panel log tidak pernah menggagalkan halaman: kalau database log sedang bermasalah,
 ringkasan dan riwayat kasus tetap tampil.
+
+**Riwayat target yang ikut muncul di `/ban`**
+
+`/ban` membalas dengan **dua embed** kalau targetnya punya riwayat — yang kedua
+adalah “kasus sebelumnya atas orang ini”, jadi moderator tidak perlu membuka
+`/case` satu per satu untuk tahu apakah ini pola pertama atau yang kelima:
+
+```
+🗂️ Riwayat terkait <@Raka>
+⚠️ **2 peringatan masih aktif** — target sudah diberi tahu sebelumnya.
+🔁 Target **pernah di-ban 1×** di server ini.
+📋 Total **7** kasus sebelumnya — ⚠️ Warn `4` · 📝 Catatan `2` · 🔨 Ban `1`.
+
+`138` ⏳ Timeout · <t:…:R> · oleh <@Dimas>
+`96` ⚠️ Warn · <t:…:R> · oleh <@Dimas> · *nonaktif*
+```
+
+Aturan yang dipakai supaya angkanya tidak menyesatkan:
+
+- **Hanya kasus yang tercatat lewat Harmony** dan berumur di bawah 12 bulan.
+  Ban atau timeout yang dilakukan manual dari Discord tidak akan pernah muncul.
+- **Member yang benar-benar bersih tidak mendapat embed kedua** — tidak ada
+  “riwayat kosong” yang cuma menambah tinggi balasan.
+- **Kasus yang sedang dibuat dikecualikan**, jadi ban ini tidak melaporkan dirinya
+  sendiri sebagai “pernah di-ban sebelumnya”.
+- **Ban yang gagal dieksekusi tidak dihitung sebagai pernah di-ban.** Kasus ban
+  nonaktif berarti Discord menolaknya, jadi tidak ada yang pernah diblokir.
+- **Peringatan aktif dihitung dari tabel peringatan**, bukan dari kasus `warn` —
+  peringatan yang sudah dicabut moderator tidak muncul sebagai yang “masih aktif”.
+- Balasannya tetap ephemeral (hanya untuk moderator), dan riwayat yang ditampilkan
+  **tidak memuat alasan lengkap** — alasan lengkap tetap di `/case`.
+- `/case` butuh izin Moderate Members sedangkan `/ban` butuh Ban Members, jadi
+  moderator yang hanya punya Ban Members tidak bisa membuka detailnya.
+
+Kalau database sedang bermasalah, embed kedua dilewati dan balasan ban tetap
+tampil utuh — riwayat adalah tambahan, bukan syarat ban berhasil.
 
 **`/modprofile` — halaman profil moderator**
 
@@ -310,7 +351,10 @@ kosong memakai template default di [greetings.ts](src/modules/moderation/greetin
 
 - `moderation_case` — satu baris per aksi: `caseNumber` unik per server, tipe,
 target (user atau channel), moderator, alasan, `expiresAt` untuk timeout,
-`active`. Catatan `/note` juga tersimpan di sini dengan tipe `note`.
+`active`, dan `dmStatus` hasil pengiriman notifikasi DM ke target
+(`sent` / `failed`, kosong kalau aksinya memang tidak mengirim DM atau kasusnya
+dibuat sebelum status ini dicatat). Catatan `/note` juga tersimpan di sini
+dengan tipe `note`.
 - `warning` — baris peringatan yang menunjuk kasusnya; `/unwarn` menghapus baris
 ini dan menonaktifkan kasusnya (data tidak hilang untuk audit).
 - Nomor kasus yang sama ikut menempel di log kategori (lihat bagian 7) dan di

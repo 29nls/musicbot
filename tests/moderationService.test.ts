@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ModerationRepository } from '../src/modules/moderation/repository.js';
 import { CHANNEL_TARGET_ACTIONS, type ModeratorActionRow, type ModeratorTotals } from '../src/modules/moderation/modProfile.js';
+import type { TargetActionRow } from '../src/modules/moderation/priorCases.js';
 import { ModerationService } from '../src/modules/moderation/service.js';
 import type {
   CreateCaseInput,
@@ -104,7 +105,9 @@ class FakeModerationRepository implements ModerationRepository {
           item.targetId === targetId &&
           item.caseNumber !== options.excludeCaseNumber,
       )
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      // Sama seperti repository sungguhan: `createdAt` sama-sama jatuh di detik
+      // yang sama saat kasus dibuat, jadi nomor kasus yang menentukan.
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.caseNumber - a.caseNumber)
       .slice(0, options.take)
       .map((item) => ({ ...item }));
   }
@@ -181,6 +184,26 @@ class FakeModerationRepository implements ModerationRepository {
 
     for (const item of this.cases.values()) {
       if (item.guildId !== guildId || item.moderatorId !== moderatorId) continue;
+
+      const key = `${item.type}:${item.active}`;
+      const bucket = buckets.get(key) ?? { type: item.type, active: item.active, count: 0 };
+      bucket.count += 1;
+      buckets.set(key, bucket);
+    }
+
+    return [...buckets.values()];
+  }
+
+  async countTargetByTypeAndActive(
+    guildId: string,
+    targetId: string,
+    excludeCaseNumber?: number,
+  ): Promise<TargetActionRow[]> {
+    const buckets = new Map<string, TargetActionRow>();
+
+    for (const item of this.cases.values()) {
+      if (item.guildId !== guildId || item.targetId !== targetId) continue;
+      if (excludeCaseNumber !== undefined && item.caseNumber === excludeCaseNumber) continue;
 
       const key = `${item.type}:${item.active}`;
       const bucket = buckets.get(key) ?? { type: item.type, active: item.active, count: 0 };
@@ -540,5 +563,100 @@ describe('ModerationService warning', () => {
     await expect(repository.findCaseByNumber(GUILD_ID, created.caseNumber)).resolves.toMatchObject({
       active: false,
     });
+  });
+});
+
+describe('ModerationService.priorCaseSummary', () => {
+  const OTHER_USER = '888888888888888888';
+
+  async function warn(service: ModerationService, userId = USER_ID): Promise<number> {
+    const created = await service.recordWarning({
+      guildId: GUILD_ID,
+      targetId: userId,
+      moderatorId: MOD_ID,
+      reason: 'spam',
+    });
+
+    return created.case.caseNumber;
+  }
+
+  it('target bersih menghasilkan ringkasan tanpa riwayat', async () => {
+    const { service } = makeService();
+
+    const summary = await service.priorCaseSummary(GUILD_ID, USER_ID);
+
+    expect(summary.hasHistory).toBe(false);
+    expect(summary.total).toBe(0);
+    expect(summary.recentCases).toEqual([]);
+  });
+
+  it('menghitung kasus sebelumnya tanpa menghitung kasus yang sedang dibuat', async () => {
+    // Tanpa pengecualian ini, setiap ban akan melaporkan dirinya sendiri sebagai
+    // "pernah di-ban sebelumnya".
+    const { service } = makeService();
+    await warn(service);
+
+    const fresh = await service.recordAction({
+      guildId: GUILD_ID,
+      type: 'ban',
+      targetId: USER_ID,
+      moderatorId: MOD_ID,
+      reason: 'spam parah',
+    });
+
+    const summary = await service.priorCaseSummary(GUILD_ID, USER_ID, fresh.caseNumber);
+
+    expect(summary.total).toBe(1);
+    expect(summary.byAction).toEqual([{ type: 'warn', count: 1, inactive: 0 }]);
+  });
+
+  it('tidak ikut menghitung kasus milik target lain atau server lain', async () => {
+    const { service } = makeService();
+    await warn(service, OTHER_USER);
+    await service.recordAction({
+      guildId: OTHER_GUILD,
+      type: 'timeout',
+      targetId: USER_ID,
+      moderatorId: MOD_ID,
+      reason: null,
+    });
+
+    const summary = await service.priorCaseSummary(GUILD_ID, USER_ID);
+
+    expect(summary.total).toBe(0);
+    expect(summary.hasHistory).toBe(false);
+  });
+
+  it('peringatan aktif dihitung dari tabel peringatan, jadi yang dicabut hilang', async () => {
+    const { service } = makeService();
+    const first = await warn(service);
+    await warn(service);
+
+    expect((await service.priorCaseSummary(GUILD_ID, USER_ID)).activeWarnings).toBe(2);
+
+    await service.revokeWarning(GUILD_ID, first);
+
+    const summary = await service.priorCaseSummary(GUILD_ID, USER_ID);
+
+    expect(summary.activeWarnings).toBe(1);
+    // Kasus yang dicabut tetap dihitung sebagai riwayat — Moderator yang mencabut
+    // peringatan tidak menghapus jejaknya.
+    expect(summary.total).toBe(2);
+  });
+
+  it('menampilkan kasus terbaru, terbaru lebih dulu', async () => {
+    const { service } = makeService();
+    await warn(service);
+    await service.recordAction({
+      guildId: GUILD_ID,
+      type: 'timeout',
+      targetId: USER_ID,
+      moderatorId: MOD_ID,
+      reason: 'terus spam',
+    });
+
+    const summary = await service.priorCaseSummary(GUILD_ID, USER_ID);
+
+    expect(summary.recentCases.map((item) => item.type)).toEqual(['timeout', 'warn']);
   });
 });

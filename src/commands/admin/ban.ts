@@ -60,6 +60,9 @@ export default {
         user,
         action: 'ban',
         reason,
+        // Ban tidak bisa dibatalkan, jadi moderator perlu riwayat target sebelum
+        // menekan tombolnya — bukan sesudah.
+        withPriorCases: true,
         execute: async () => {
           await ctx.guild.members.ban(user.id, {
             reason: auditReason(interaction.user, reason),

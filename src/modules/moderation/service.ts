@@ -5,6 +5,11 @@ import {
   MODERATOR_PROFILE_RECENT_LIMIT,
   type ModeratorProfile,
 } from './modProfile.js';
+import {
+  buildPriorCaseSummary,
+  PRIOR_CASE_HINT_LIMIT,
+  type PriorCaseSummary,
+} from './priorCases.js';
 import { purgeExpiredRecords, type RetentionResult } from './retention.js';
 import type { ModerationRepository } from './repository.js';
 import type { CreateCaseInput, DmStatus, ModerationCase, WarningRecord } from './types.js';
@@ -129,6 +134,34 @@ export class ModerationService {
     ]);
 
     return buildModeratorProfile({ moderatorId, actionRows, totals, recentCases });
+  }
+
+  /**
+   * Riwayat singkat target untuk dilampirkan di balasan aksi.
+   *
+   * Tiga pembacaan berjalan bersamaan: agregat per jenis aksi (seluruh riwayat),
+   * kasus terbaru (yang dirinci), dan jumlah peringatan aktif. Semuanya punya
+   * sumber berbeda supaya tidak bisa saling menutupi kesalahan.
+   *
+   * `excludeCaseNumber` dipakai agar kasus yang sedang dibuat tidak ikut
+   * terhitung sebagai riwayat — tanpa itu setiap ban akan melaporkan dirinya
+   * sendiri sebagai "pernah di-ban sebelumnya".
+   */
+  async priorCaseSummary(
+    guildId: string,
+    targetId: string,
+    excludeCaseNumber?: number,
+  ): Promise<PriorCaseSummary> {
+    const [actionRows, recentCases, warnings] = await Promise.all([
+      this.repository.countTargetByTypeAndActive(guildId, targetId, excludeCaseNumber),
+      this.repository.listCasesForTarget(guildId, targetId, {
+        excludeCaseNumber,
+        take: PRIOR_CASE_HINT_LIMIT,
+      }),
+      this.repository.countWarnings(guildId, targetId),
+    ]);
+
+    return buildPriorCaseSummary({ targetId, actionRows, recentCases, activeWarnings: warnings });
   }
 
   /** Tandai kasus tidak aktif (mis. aksi Discord-nya gagal dieksekusi). */

@@ -35,6 +35,13 @@ export {
 } from './caseView.js';
 export type { CaseTargetState } from './caseView.js';
 export {
+  PRIOR_CASE_HINT_LIMIT,
+  buildPriorCaseSummary,
+  priorCaseNoteLines,
+  priorCaseRecentLines,
+} from './priorCases.js';
+export type { PriorCaseSummary, TargetActionRow } from './priorCases.js';
+export {
   CHANNEL_TARGET_ACTIONS,
   MODERATOR_ACTIVE_WINDOW_DAYS,
   MODERATOR_PROFILE_RECENT_LIMIT,
@@ -82,6 +89,7 @@ export {
   moderationLogEmbed,
   moderationResultEmbed,
   notesEmbed,
+  priorCaseEmbed,
   purgeLogEmbed,
   warningRevokedDmEmbed,
   warningRevokedLogEmbed,

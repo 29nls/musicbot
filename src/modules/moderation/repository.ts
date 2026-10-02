@@ -6,6 +6,7 @@ import {
   type ModeratorTotals,
 } from './modProfile.js';
 import { MAX_NOTES_SHOWN, MODERATION_ACTIONS, type CreateCaseInput, type CreateWarningInput, type DmStatus, type ModerationCase, type WarningRecord } from './types.js';
+import type { TargetActionRow } from './priorCases.js';
 
 /** Kontrak penyimpanan moderasi — bisa diganti fake di tes. */
 export interface ModerationRepository {
@@ -47,6 +48,17 @@ export interface ModerationRepository {
     guildId: string,
     moderatorId: string,
   ): Promise<ModeratorActionRow[]>;
+  /**
+   * Sebaran kasus satu target menurut jenis & status aktif.
+   *
+   * `excludeCaseNumber` dipakai supaya kasus yang sedang dibuat (mis. ban ini
+   * juga) tidak ikut terhitung sebagai "riwayat sebelumnya".
+   */
+  countTargetByTypeAndActive(
+    guildId: string,
+    targetId: string,
+    excludeCaseNumber?: number,
+  ): Promise<TargetActionRow[]>;
   /** Angka besar profil moderator (total, rentang waktu, target unik, aktivitas terkini). */
   summarizeModerator(
     guildId: string,
@@ -245,6 +257,35 @@ export class PrismaModerationRepository implements ModerationRepository {
    * yang sama. Aksi terhadap channel dikecualikan: ID channel bukan orang,
    * dan menghitungnya akan membuat "jumlah orang" terlihat lebih besar.
    */
+  /**
+   * Sebaran jenis & status kasus atas satu target.
+   *
+   * Satu `groupBy` untuk seluruh riwayat — bukan memuat semua kasus target lalu
+   * menghitungnya di memory. Target yang paling bermasalah justru yang paling
+   * banyak kasusnya, jadi memuat semuanya adalah pola yang paling salah di sini.
+   */
+  async countTargetByTypeAndActive(
+    guildId: string,
+    targetId: string,
+    excludeCaseNumber?: number,
+  ): Promise<TargetActionRow[]> {
+    const rows = await this.prisma.moderationCase.groupBy({
+      by: ['type', 'active'],
+      where: {
+        guildId,
+        targetId,
+        ...(excludeCaseNumber === undefined ? {} : { caseNumber: { not: excludeCaseNumber } }),
+      },
+      _count: { _all: true },
+    });
+
+    return rows.map((row) => ({
+      type: row.type,
+      active: row.active,
+      count: row._count._all,
+    }));
+  }
+
   async summarizeModerator(
     guildId: string,
     moderatorId: string,

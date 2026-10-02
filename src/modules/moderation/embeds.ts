@@ -18,6 +18,11 @@ import {
   type ModeratorProfile,
 } from './modProfile.js';
 import {
+  priorCaseNoteLines,
+  priorCaseRecentLines,
+  type PriorCaseSummary,
+} from './priorCases.js';
+import {
   ACTION_LABELS,
   type ModerationAction,
   type ModerationCase,
@@ -326,6 +331,35 @@ export function moderatorProfileEmbed(
     .setTimestamp();
 
   return embed;
+}
+
+/**
+ * Embed kedua di balasan aksi: riwayat kasus sebelumnya atas target yang sama.
+ *
+ * Hanya dibuat kalau target punya riwayat — embed kosong untuk member yang
+ * benar-benar bersih hanya menambah beban baca tanpa keputusan yang bisa
+ * diambil darinya.
+ *
+ * Balasan ini hanya ke moderator (ephemeral), jadi menampilkan kasus lama di
+ * sini tidak membuka data yang tidak boleh dilihat target: alasan lengkapnya
+ * tetap hanya di `/case`.
+ */
+export function priorCaseEmbed(summary: PriorCaseSummary): EmbedBuilder {
+  const overview = priorCaseNoteLines(summary);
+  const recent = priorCaseRecentLines(summary);
+  const body = [...overview, ...(recent.length > 0 ? ['', ...recent] : [])].join('\n');
+  const hint = summary.recentCases[0]
+    ? ` · \`/case kasus:${formatCaseId(summary.recentCases[0].caseNumber)}\` untuk detail`
+    : '';
+
+  return new EmbedBuilder()
+    .setColor(EMBED_COLORS.primary)
+    .setTitle(`🗂️ Riwayat terkait <@${summary.targetId}>`)
+    .setDescription(body.slice(0, 4_000))
+    .setFooter({
+      text: `${summary.total} kasus sebelumnya tercatat di Harmony${hint}`,
+    })
+    .setTimestamp();
 }
 
 /** Daftar kasus terbaru milik moderator — kasus lengkapnya ada di `/case`. */
