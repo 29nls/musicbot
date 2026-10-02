@@ -85,3 +85,23 @@ model Warning {
   @@index([guildId, userId, createdAt])
   @@map("warning")
 }
+
+/// Aturan automod per server (satu baris per tipe rule).
+/// Baris yang belum ada memakai default dari kode — lihat src/modules/automod/types.ts.
+model AutomodRule {
+  id        Int      @id @default(autoincrement())
+  guildId   String   @db.VarChar(20)
+  type      String   @db.VarChar(20)
+  enabled   Boolean  @default(true)
+  /// Ambang pemicu; 0 untuk rule yang tidak memakai ambang (invite/link/badword).
+  threshold Int      @default(0)
+  /// Daftar aksi saat rule terpicu, mis. ["delete", "warn"].
+  actions   Json
+  /// { channels, roles, domains, words, invites }
+  whitelist Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([guildId, type])
+  @@map("automod_rule")
+}

@@ -10,6 +10,7 @@ import {
   renderConfigEmbed,
   toConfigErrorEmbed,
   type GuildConfigPatch,
+  type ModulesEnabled,
 } from '../../modules/config/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
@@ -77,7 +78,15 @@ export default {
             .setName('goodbye-message')
             .setDescription('Pesan perpisahan; placeholder {user} {mention} {server} {count}')
             .setMaxLength(1_500),
-        ),
+        )
+        .addBooleanOption((option) => option.setName('music').setDescription('Modul musik aktif?'))
+        .addBooleanOption((option) =>
+          option.setName('moderation').setDescription('Modul moderasi aktif?'),
+        )
+        .addBooleanOption((option) =>
+          option.setName('automod').setDescription('Modul automod aktif?'),
+        )
+        .addBooleanOption((option) => option.setName('logging').setDescription('Modul logging aktif?')),
     )
     .addSubcommand((sub) => sub.setName('reset').setDescription('Hapus konfigurasi dan kembali ke default')),
   category: 'core',
@@ -166,6 +175,17 @@ function buildPatch(interaction: ChatInputCommandInteraction): GuildConfigPatch 
 
   const goodbyeMessage = interaction.options.getString('goodbye-message');
   if (goodbyeMessage !== null) patch.goodbyeMessage = goodbyeMessage;
+
+  const modules: Partial<ModulesEnabled> = {};
+  const music = interaction.options.getBoolean('music');
+  if (music !== null) modules.music = music;
+  const moderation = interaction.options.getBoolean('moderation');
+  if (moderation !== null) modules.moderation = moderation;
+  const automod = interaction.options.getBoolean('automod');
+  if (automod !== null) modules.automod = automod;
+  const logging = interaction.options.getBoolean('logging');
+  if (logging !== null) modules.logging = logging;
+  if (Object.keys(modules).length > 0) patch.modules = modules;
 
   return patch;
 }

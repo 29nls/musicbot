@@ -3,17 +3,18 @@
 Bot Discord serbaguna: pemutaran musik berkualitas tinggi (Lavalink) + moderasi
 komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 
-> **Status: M3 (moderasi).**
+> **Status: M4 (automod).**
 > Sudah jalan: bootstrap bot, loader perintah & event otomatis, validasi
 > environment, database PostgreSQL + Prisma, konfigurasi per-server dengan cache
 > + wizard `/setup`, `/config`, **pemutaran musik lewat Lavalink**
 > (`/play`, `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`),
 > **moderasi lengkap dengan ID kasus** (`/ban`, `/unban`, `/kick`, `/timeout`,
 > `/warn`, `/warnings`, `/unwarn`, `/purge`, `/slowmode`, `/lock`, `/unlock`,
-> `/note`), **welcome/goodbye + autorole** otomatis, `/ping`, `/help`, dan
-> stack Docker (bot + migrasi + Lavalink + PostgreSQL + Redis).
-> Berikutnya: M4 (automod & logging). Sisa fitur musik (`/volume`, `/loop`,
-> `/seek`, `/shuffle`, `/disconnect`) mengikuti PRD.
+> `/note`), **welcome/goodbye + autorole** otomatis, **automod 7 rule** dengan
+> whitelist (`/automod`), `/ping`, `/help`, dan stack Docker (bot + migrasi +
+> Lavalink + PostgreSQL + Redis).
+> Berikutnya: logging 6 kategori (sisa M4) dan sisa fitur musik (`/volume`,
+> `/loop`, `/seek`, `/shuffle`, `/disconnect`) mengikuti PRD.
 
 ---
 
@@ -121,7 +122,8 @@ Opsi `/config set`: `log-channel`, `welcome-channel`, `goodbye-channel`,
 `dj-role`, `autorole` (member manusia), `autorole-bot` (bot baru),
 `volume` (0–200), `idle-timeout` (30–86400 detik),
 `welcome-message` & `goodbye-message` (placeholder `{user}` `{mention}`
-`{server}` `{count}`).
+`{server}` `{count}`), serta `music` / `moderation` / `automod` / `logging`
+(true/false) untuk menyalakan-matikan modul.
 
 Keduanya butuh izin **Manage Server** dan hanya bisa dipakai di dalam server.
 Nilai yang tidak valid ditolak sebelum menyentuh database, dengan pesan yang
@@ -239,7 +241,56 @@ ini dan menonaktifkan kasusnya (data tidak hilang untuk audit).
 
 ---
 
-## 6. Struktur proyek
+## 6. Automod (M4)
+
+Aktifkan dulu modulnya lewat `/config set automod:true` (atau wizard `/setup`).
+Semua rule bisa diatur dengan `/automod` — dasar-dasarnya adalah default PRD:
+
+| Rule | Pemicu default | Aksi default | Ambang bisa diubah |
+| --- | --- | --- | --- |
+| 🌊 Anti-spam | 5 pesan / 5 detik dari user sama | Hapus + catat peringatan | 2–20 pesan |
+| 🔗 Anti-invite | Link `discord.gg/*` / `discord.com/invite/*` | Hapus + catat peringatan | — |
+| 🌐 Anti-link | Semua URL (`http(s)://` dan `www.`) | Hapus | — |
+| 🤬 Badword | Daftar kata terlarang (default kosong) | Hapus + catat peringatan | — |
+| 📣 Anti-mention-spam | >5 mention (user + role) dalam satu pesan | Hapus + timeout 10 menit | 1–20 mention |
+| 🔠 Anti-caps | >70% huruf kapital dan panjang >10 | Hapus | 10–100% |
+| 🔁 Anti-duplicate | Pesan identik 3x berturut-turut | Hapus | 2–10x |
+
+**Aturan yang berlaku**
+
+- **Pengecualian global:** channel & role yang di-whitelist, semua bot, dan
+  pemegang **Manage Messages** tidak pernah dievaluasi.
+- Rule berjalan berurutan sesuai prioritas tabel di atas; pelanggaran pertama
+  yang menang supaya tidak ada aksi bertumpuk.
+- Aksi **catat peringatan** masuk ke sistem kasus moderasi — muncul di
+  `/warnings` dengan ID `#CASE-…` dan moderator dicatat sebagai bot.
+- Setiap tindakan dikirim ke `logChannelId` (rule, alasan, aksi, cuplikan
+  pesan). Kalau channel log belum diatur, automod tetap jalan.
+- Anti-spam & anti-duplicate memakai state in-memory per user — restart bot
+  mengosongkan hitungan (sama seperti antrean musik).
+- Anti-link hanya mengenali URL dengan protokol/`www.`; domain telanjang
+  seperti `contoh.com` sengaja tidak dideteksi supaya tidak salah tangkap
+  nama file. Daftar putih domain mencakup subdomain.
+
+### `/automod` — kelola rule
+
+| Perintah | Fungsi |
+| --- | --- |
+| `/automod show` | Status semua rule + pengecualian + daftar putih |
+| `/automod toggle <rule> <enabled>` | Nyalakan/matikan satu rule |
+| `/automod threshold <rule> <value>` | Ubah ambang (rule tanpa ambang akan ditolak) |
+| `/automod badword add\|remove <word>` | Kelola daftar kata terlarang |
+| `/automod whitelist channel add\|remove <channel>` | Kecualikan channel |
+| `/automod whitelist role add\|remove <role>` | Kecualikan role |
+| `/automod whitelist domain add\|remove <domain>` | Izinkan domain untuk anti-link |
+| `/automod whitelist invite add\|remove <code>` | Izinkan kode invite |
+
+Butuh izin **Manage Server**; perubahan langsung berlaku (cache 60 detik
+dibuang setiap kali rule diubah).
+
+---
+
+## 7. Struktur proyek
 
 ```
 prisma/
@@ -252,19 +303,18 @@ src/
 │  ├─ core/                 # /ping, /help, /config, /setup         (M0–M1 ✅)
 │  ├─ music/                # /play, /queue, /nowplaying, /skip,
 │  │                        # /pause, /resume, /stop + _shared.ts   (M2 ✅)
-│  └─ admin/                # /ban, /unban, /kick, /timeout, /warn,
-│                           # /warnings, /unwarn, /slowmode, /lock,
-│                           # /unlock, /note, /purge + _shared.ts   (M3 ✅)
+│  └─ admin/                # /ban … /purge (M3 ✅) + /automod (M4 ✅)
+│                           # _shared.ts berisi gate & alur aksi bersama
 ├─ events/                  # satu file = satu event Discord
-│                           # + guildMemberAdd/Remove (welcome, autorole, goodbye)
+│                           # + guildMemberAdd/Remove & messageCreate (automod)
 ├─ handlers/                # loader perintah & event (auto-discovery)
 ├─ modules/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
-│  ├─ automod/              # rule engine (M4)
-│  └─ logging/              # event → embed log (M4)
+│  ├─ automod/              # engine 7 rule + tracker state          (M4 ✅)
+│  └─ logging/              # event → embed log 6 kategori (sisa M4)
 ├─ services/                # logger, Prisma client, deteksi error database
 ├─ utils/                   # cooldown, embed, durasi, izin, module loader
 ├─ config/                  # env (zod) + konstanta
@@ -310,7 +360,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
 ---
 
-## 7. Perintah npm
+## 8. Perintah npm
 
 | Perintah | Fungsi |
 | --- | --- |
@@ -333,7 +383,7 @@ setiap push/PR.
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | --- | --- |
