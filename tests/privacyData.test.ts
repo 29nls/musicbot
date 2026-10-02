@@ -39,13 +39,15 @@ function fakeRepositories(overrides: {
   activeWarnings?: number;
   tickets?: TicketOpenerCount;
   logEntries?: number;
-  failAnonymize?: 'moderation' | 'tickets' | 'logging';
+  playlists?: number;
+  failAnonymize?: 'moderation' | 'tickets' | 'playlists' | 'logging';
 } = {}) {
   const state = {
     anonymizedReason: new Map<string, string>(),
     anonymizedTickets: [] as string[],
     pseudonyms: [] as string[],
     deletedLogs: 0,
+    anonymizedPlaylists: 0,
     calls: [] as string[],
   };
 
@@ -82,6 +84,19 @@ function fakeRepositories(overrides: {
         state.pseudonyms.push(pseudonym);
         state.anonymizedTickets.push(subjectMarker);
         return overrides.tickets ?? { tickets: 0, transcripts: 0 };
+      },
+    },
+    playlists: {
+      async countByOwner(guildId, userId) {
+        state.calls.push(`countplaylist:${guildId}:${userId}`);
+        return guildId === GUILD_ID && userId === USER_ID ? (overrides.playlists ?? 0) : 0;
+      },
+      async anonymizeOwner(guildId, userId, pseudonym) {
+        state.calls.push(`anonymize:playlists:${guildId}:${userId}`);
+        if (overrides.failAnonymize === 'playlists') throw new Error('tabel playlist terkunci');
+        state.anonymizedPlaylists = overrides.playlists ?? 0;
+        state.pseudonyms.push(pseudonym);
+        return overrides.playlists ?? 0;
       },
     },
     logging: {
@@ -139,12 +154,20 @@ describe('buildInventory', () => {
       tickets: 1,
       ticketTranscripts: 1,
       logEntries: 12,
+      playlists: 2,
       ...overrides,
     });
   }
 
   it('member tanpa data punya inventaris kosong, bukan null', () => {
-    const result = inventory({ actionRows: [], activeWarnings: 0, tickets: 0, ticketTranscripts: 0, logEntries: 0 });
+    const result = inventory({
+      actionRows: [],
+      activeWarnings: 0,
+      tickets: 0,
+      ticketTranscripts: 0,
+      logEntries: 0,
+      playlists: 0,
+    });
 
     expect(result.caseTotal).toBe(0);
     expect(result.cases).toEqual([]);
@@ -201,7 +224,7 @@ describe('buildInventory', () => {
   });
 
   it('jumlah yang akan tersentuh menjumlahkan semua kelompok data', () => {
-    expect(inventoryTouchedCount(inventory())).toBe(6 + 3 + 1 + 1 + 12);
+    expect(inventoryTouchedCount(inventory())).toBe(6 + 3 + 1 + 1 + 12 + 2);
   });
 });
 
@@ -256,6 +279,41 @@ describe('PrivacyService.anonymize', () => {
     expect(outcome.pseudonym).toBe(pseudonymFor(GUILD_ID, USER_ID));
   });
 
+  it('melepas identitas pemilik playlist dan melaporkan jumlahnya', async () => {
+    // Playlist menyimpan `ownerId`, jadi tanpa langkah ini `/data-delete` akan
+    // meninggalkan jejak yang paling mudah dilacak balik ke orangnya.
+    const { repositories, state } = fakeRepositories({ playlists: 3 });
+
+    const outcome = await new PrivacyService(repositories).anonymize(GUILD_ID, USER_ID);
+
+    expect(outcome.playlists).toBe(3);
+    expect(state.anonymizedPlaylists).toBe(3);
+    expect(state.calls).toContain(`anonymize:playlists:${GUILD_ID}:${USER_ID}`);
+  });
+
+  it('playlist dianonimkan sebelum log dihapus', async () => {
+    const { repositories, state } = fakeRepositories();
+
+    await new PrivacyService(repositories).anonymize(GUILD_ID, USER_ID);
+
+    const playlistCall = state.calls.indexOf(`anonymize:playlists:${GUILD_ID}:${USER_ID}`);
+    const loggingCall = state.calls.indexOf(`anonymize:logging:${GUILD_ID}:${USER_ID}`);
+
+    expect(playlistCall).toBeGreaterThanOrEqual(0);
+    expect(playlistCall).toBeLessThan(loggingCall);
+  });
+
+  it('inventaris menghitung playlist milik member', async () => {
+    const { repositories } = fakeRepositories({ playlists: 4 });
+
+    const inventory = await new PrivacyService(repositories).inventory(GUILD_ID, USER_ID);
+
+    expect(inventory.playlists).toBe(4);
+    const row = inventoryRows(inventory).find((item) => item.label === 'Playlist milikmu');
+    expect(row?.value).toBe('4');
+    expect(row?.removedByDataDelete).toBe(true);
+  });
+
   it('mengirim pseudonim yang sama ke semua modul', async () => {
     // Kalau tiap modul memakai pseudonim berbeda, permintaan berikutnya hanya
     // akan menyentuh sebagian data dan sisanya akan terlupakan diam-diam.
@@ -308,6 +366,7 @@ describe('embed privasi', () => {
       tickets: 1,
       ticketTranscripts: 1,
       logEntries: 12,
+      playlists: 2,
     });
   }
 

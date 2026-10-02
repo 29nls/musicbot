@@ -69,6 +69,8 @@ export interface AnonymizeOutcome {
   transcripts: number;
   /** Entri log yang dihapus seluruhnya. */
   logEntries: number;
+  /** Playlist yang pemiliknya dilepas; isi lagunya tetap ada. */
+  playlists: number;
 }
 
 export function emptyAnonymizeOutcome(pseudonym: string): AnonymizeOutcome {
@@ -79,5 +81,6 @@ export function emptyAnonymizeOutcome(pseudonym: string): AnonymizeOutcome {
     tickets: 0,
     transcripts: 0,
     logEntries: 0,
+    playlists: 0,
   };
 }

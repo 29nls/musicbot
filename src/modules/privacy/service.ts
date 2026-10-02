@@ -1,5 +1,6 @@
 import { getLogger } from '../../services/logger.js';
 import type { LoggingRepository } from '../logging/repository.js';
+import type { PlaylistRepository } from '../playlists/repository.js';
 import type { ModerationRepository } from '../moderation/repository.js';
 import type { TicketRepository } from '../tickets/repository.js';
 import {
@@ -19,6 +20,7 @@ export interface PrivacyRepositories {
   >;
   tickets: Pick<TicketRepository, 'countByOpener' | 'anonymizeOpener'>;
   logging: Pick<LoggingRepository, 'countAboutUser' | 'deleteAboutUser'>;
+  playlists: Pick<PlaylistRepository, 'countByOwner' | 'anonymizeOwner'>;
 }
 
 /**
@@ -36,7 +38,7 @@ export class PrivacyService {
   /**
    * Apa yang disimpan Harmony tentang member ini di server ini.
    *
-   * Lima pembacaan berjalan bersamaan: satu per kelompok data, plus satu
+   * Enam pembacaan berjalan bersamaan: satu per kelompok data, plus satu
    * pembacaan agregat kasus. Semuanya pada indeks yang sudah ada, jadi
    * inventaris ini tidak memindai tabel yang lebih besar dari yang dijawab.
    */
@@ -45,11 +47,12 @@ export class PrivacyService {
     // sebagai "tidak ada data" padahal barisnya masih ada dalam bentuk anonim.
     const pseudonym = pseudonymFor(guildId, userId);
 
-    const [actionRows, activeWarnings, tickets, logEntries] = await Promise.all([
+    const [actionRows, activeWarnings, tickets, logEntries, playlists] = await Promise.all([
       this.repositories.moderation.countTargetByTypeAndActive(guildId, userId),
       this.repositories.moderation.countWarnings(guildId, userId),
       this.repositories.tickets.countByOpener(guildId, userId),
       this.repositories.logging.countAboutUser(guildId, userId, pseudonym),
+      this.repositories.playlists.countByOwner(guildId, userId),
     ]);
 
     return buildInventory({
@@ -60,6 +63,7 @@ export class PrivacyService {
       tickets: tickets.tickets,
       ticketTranscripts: tickets.transcripts,
       logEntries,
+      playlists,
     });
   }
 
@@ -72,7 +76,8 @@ export class PrivacyService {
    * mana yang bertindak — supaya keputusan moderasi berikutnya tidak berjalan
    * tanpa konteks.
    *
-   * Urutannya penting: kasus dianonimkan lebih dulu, baru tiket, baru log.
+   * Urutannya penting: kasus dianonimkan lebih dulu, baru tiket, baru playlist,
+   * lalu log.
    * Kalau salah satu gagal, dua yang sudah berhasil tidak dibatalkan, dan
    * kegagalannya dilempar supaya pemanggil bisa mengatakannya apa adanya —
    * melaporkan "selesai" sementara masih ada data yang tersisa adalah kesalahan
@@ -100,6 +105,15 @@ export class PrivacyService {
     outcome.tickets = tickets.tickets;
     outcome.transcripts = tickets.transcripts;
 
+    // Playlist: isi lagunya bukan tentang orang, jadi yang dilepas hanya
+    // pemiliknya. Playlist lama milik orang yang sama tetap bisa diputar member
+    // lain tanpa bisa ditelusuri balik ke dia.
+    outcome.playlists = await this.repositories.playlists.anonymizeOwner(
+      guildId,
+      userId,
+      pseudonym,
+    );
+
     // Log dihapus terakhir karena tidak ada yang bergantung padanya.
     outcome.logEntries = await this.repositories.logging.deleteAboutUser(
       guildId,
@@ -116,6 +130,7 @@ export class PrivacyService {
         tickets: outcome.tickets,
         transcripts: outcome.transcripts,
         logEntries: outcome.logEntries,
+        playlists: outcome.playlists,
       },
       'Permintaan penghapusan data anonimasi',
     );

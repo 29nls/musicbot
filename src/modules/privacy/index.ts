@@ -1,5 +1,6 @@
 import { PrismaLoggingRepository } from '../logging/repository.js';
 import { PrismaModerationRepository } from '../moderation/repository.js';
+import { PrismaPlaylistRepository } from '../playlists/repository.js';
 import { PrismaTicketRepository } from '../tickets/repository.js';
 import { getPrisma } from '../../services/database.js';
 import { PrivacyService } from './service.js';
@@ -19,6 +20,7 @@ export function getPrivacyService(): PrivacyService {
       moderation: new PrismaModerationRepository(prisma),
       tickets: new PrismaTicketRepository(prisma),
       logging: new PrismaLoggingRepository(prisma),
+      playlists: new PrismaPlaylistRepository(prisma),
     });
   }
 

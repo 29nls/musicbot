@@ -157,8 +157,40 @@ menyebut field bermasalahnya.
 | `/remove <posisi>` | Hapus satu lagu dari antrean | DJ |
 | `/move <dari> <ke>` | Pindahkan posisi satu lagu dalam antrean | DJ |
 | `/seek <posisi>` | Lompat ke posisi (`90`, `1:30`, `1m30s`) | DJ |
+| `/playlist <subcommand>` | Simpan & putar playlist: `create` `add` `remove` `list` `show` `play` `delete` `public` | Semua (harus di voice channel untuk `play`) |
 | `/filter <mode>` | Ubah warna suara: bassboost, nightcore, vaporwave, 8D, atau `off` | DJ |
 | `/disconnect` | Bot keluar dari voice channel, antrean dikosongkan | DJ |
+
+**Playlist: simpan, buka lagi, dan bagikan ke server ini**
+
+`/playlist create <nama>` lalu `/playlist add <nama> <judul atau URL>` — atau
+`/playlist add <nama>` tanpa query untuk **menyimpan lagu yang sedang diputar**.
+Delapan subcommand: `create` `add` `remove` `list` `show` `play` `delete` `public`.
+
+Empat hal yang perlu diketahui:
+
+- **`uri` adalah sumber kebenaran, bukan `encoded`.** Data base64 Lavalink bisa
+  basi setelah node restart atau ganti password, jadi playlist selalu
+  di-resolve ulang dari URL-nya. Konsekuensinya: playlist lama tetap bisa
+  diputar tanpa perlu disunting siapa pun. Playlist yang tidak punya `uri`
+  memakai `encoded` sebagai sumber terakhir, dan entri yang keduanya tidak punya
+  **dihitung sebagai gagal**.
+- **Lagu yang gagal dimuat dilaporkan jumlahnya**, bukan diputar diam-diam. Footer
+  embed menyebut berapa dari berapa yang gagal, jadi "diputar" tidak pernah lebih
+  besar dari kenyataan. Resolve dilakukan bertahap 5 lagu sekaligus dengan urutan
+  tetap terjaga.
+- **Nama playlist tidak membedakan huruf besar-kecil** (`Lofi` = `lofi`), jadi tidak
+  ada dua baris dengan nama yang terlihat sama. Playlist milik orang lain dilaporkan
+  "tidak ada" — membalas "bukan milikmu" justru membocorkan bahwa nama itu benar.
+- **Batas 100 lagu per playlist.** Menambah ke playlist yang sudah penuh ditolak
+  dengan menyebut batasnya. Lagu yang sudah ada tidak digandakan, dan jumlahnya
+  dilaporkan ("3 lagu tidak digandakan karena sudah ada").
+
+Playlist bisa dibagikan ke server ini dengan `/playlist public <nama>`; yang
+privat hanya bisa diputar pemiliknya. **Playlist ikut tercakup privasi §12:**
+`ownerId`-nya dihitung di `/privacy` dan dilepas (pseudonim) saat
+`/data-delete` dijalankan — isi playlist tetap ada karena daftar lagu bukan tentang
+orang, sedangkan pemiliknya bisa ditelusuri kembali.
 
 **Filter audio: satu mode aktif, kembali ke normal lewat `off`**
 

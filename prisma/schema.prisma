@@ -242,3 +242,25 @@ model Ticket {
   @@index([guildId, status, closedAt])
   @@map("ticket")
 }
+
+/// Playlist lagu milik member (Fase 2, PRD §5.2 & §10).
+///
+/// `tracks` disimpan sebagai JSON: satu entri per lagu hasil resolusi Lavalink.
+/// Playlist ikut tercakup privasi Bab 12 — `ownerId` adalah data pribadi dan
+/// ikut dianonimkan saat `/data-delete` dijalankan.
+model Playlist {
+  id       Int      @id @default(autoincrement())
+  guildId  String   @db.VarChar(20)
+  ownerId  String   @db.VarChar(20)
+  name     String   @db.VarChar(60)
+  /// Daftar StoredTrack sebagai JSON (lihat `tracks.ts`).
+  tracks   Json     @default("[]")
+  /// true = member lain di server ini boleh memutar playlist-nya.
+  isPublic Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([guildId, ownerId, name])
+  @@index([guildId, ownerId])
+  @@map("playlist")
+}
