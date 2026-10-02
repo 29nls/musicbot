@@ -59,6 +59,10 @@ export default {
       ]),
     });
 
-    await dispatchLog(member.guild, 'voice', embed);
+    await dispatchLog(member.guild, 'voice', embed, {
+      eventKey: 'voiceStateUpdate',
+      targetId: member.id,
+      channelId: newState.channelId ?? oldState.channelId,
+    });
   },
 } satisfies BotEvent<'voiceStateUpdate'>;

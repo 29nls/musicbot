@@ -27,6 +27,10 @@ const envSchema = z.object({
   // Perilaku bot
   DEFAULT_VOLUME: z.coerce.number().int().min(0).max(200).default(100),
   MAX_QUEUE_SIZE: z.coerce.number().int().min(1).max(10_000).default(500),
+
+  // Retensi data: berapa jam sekali job membersihkan kasus/peringatan lama.
+  // 0 = matikan penjadwalan (mis. kalau pembersihan dijalankan dari cron luar).
+  RETENTION_SWEEP_HOURS: z.coerce.number().int().min(0).max(24 * 30).default(6),
 });
 
 export type Env = z.infer<typeof envSchema>;

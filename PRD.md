@@ -184,6 +184,7 @@ Bot Discord serbaguna dengan **dua pilar utama**:
 - **Anti-hierarki:** bot tidak bisa memoderasi user dengan role lebih tinggi, dan tidak bisa memoderasi pemilik server. Cek ini sebelum eksekusi.
 - **Self-moderation block:** user tidak bisa memoderasi dirinya sendiri.
 - Setiap aksi mengembalikan **ID kasus** (misal `#CASE-0142`) agar bisa dirujuk di laporan.
+- Nomor kasus yang sama ikut menempel di log kategori (Bab 7.3) sehingga aksi bot bisa dibedakan dari moderator lain: log menandai **sumber** aksi — kasus Harmony, bot lain, atau moderator manusia — dan `/logs case:#CASE-0142` bisa menelusurinya kembali.
 
 ### 7.2 Automod
 
@@ -213,6 +214,8 @@ Event yang dicatat, masing-masing dikirim ke channel log yang bisa dipilih per k
 | Server | emoji/sticker change, boost, vanity URL update |
 
 **Format:** embed dengan warna per kategori, timestamp, executor (siapa yang melakukan), target, dan alasan bila tersedia.
+
+Setiap event yang lolos juga disimpan ke tabel `log_entry` (kategori, kunci event, executor, target, channel asal, ringkasan isi embed, ID pesan log) sehingga bisa dicari ulang lewat `/logs` dengan filter kategori, user, channel, kata kunci, dan rentang tanggal. Retensi riwayat log 30 hari; kolom `expires_at` disiapkan untuk job pembersihan sesuai Bab 12.
 
 ### 7.4 Welcome, Autorole & Lainnya
 
@@ -350,8 +353,9 @@ MAX_QUEUE_SIZE=500
 | `user_note` | `id` PK, `guild_id`, `user_id`, `author_id`, `content`, `created_at` | Catatan internal |
 | `playlist` (Fase 2) | `id` PK, `guild_id`, `owner_id`, `name`, `tracks` (JSON), `is_public` | Playlist pengguna |
 | `guild_log_subscription` | `guild_id`, `category`, `channel_id` | Routing log per kategori |
+| `log_entry` | `id` PK, `guild_id`, `category`, `event_key`, `title`, `summary`, `executor_id`, `target_id`, `channel_id`, `log_channel_id`, `log_message_id`, `case_id`, `created_at`, `expires_at` | Riwayat log agar bisa dicari `/logs`; `case_id` mengikat aksi bot ke kasus moderasinya |
 
-**Retensi data:** kasus moderasi disimpan 12 bulan; lagu/statistik playback disimpan agregat (tanpa data pribadi). Lihat Bab 12 (Privasi).
+**Retensi data:** kasus moderasi disimpan 12 bulan; riwayat log 30 hari (`expires_at`); lagu/statistik playback disimpan agregat (tanpa data pribadi). Lihat Bab 12 (Privasi).
 
 ---
 
@@ -410,7 +414,7 @@ Bagian ini **tidak boleh dilewati** — inilah yang menumbangkan Groovy & Rythm.
 | **M1 — Fondasi** | 1 minggu | Koneksi DB, config service, `/setup`, `/config`, logging infra | Konfigurasi per-server tersimpan & terbaca — 🟢 *selesai: PostgreSQL + Prisma 7, service config dengan cache 60 detik (perubahan langsung berlaku), wizard `/setup`, `/config show\|set\|reset`, migrasi otomatis saat start Docker* |
 | **M2 — Music MVP** | 2 minggu | Lavalink terpasang, `/play`, `/queue`, `/skip`, `/pause`, `/stop`, `/nowplaying`, loop, volume | Bisa memutar & mengelola antrean 20 lagu berturut-turut tanpa error — 🟢 *inti selesai: klien shoukaku + Lavalink v4, antrean per-server (batas `MAX_QUEUE_SIZE`), `/play` `/queue` `/nowplaying` `/skip` `/pause` `/resume` `/stop`, izin role DJ, auto-disconnect via `idleTimeoutSec`. Sisa: `/volume`, `/loop`, `/seek`, `/shuffle`, `/disconnect`* |
 | **M3 — Admin MVP** | 2 minggu | Moderation commands + case system + welcome + autorole | Semua AC US-04 & US-05 lolos — 🟢 *selesai: seluruh perintah Bab 7.1 (`/ban` `/unban` `/kick` `/timeout` `/warn` `/warnings` `/unwarn` `/slowmode` `/lock` `/unlock` `/note` `/purge`) dengan ID kasus (`#CASE-0142`), anti-hierarki (self/bot/owner/posisi role), DM target + log channel (best-effort), tabel `moderation_case` & `warning`, welcome/goodbye + autorole dari konfigurasi server, 115 tes unit* |
-| **M4 — Automod & Logging** | 1 minggu | Rule engine automod + logging 6 kategori | Uji simulasi spam/link/badword lolos — 🟢 *selesai: automod 7 rule (spam, invite, link, badword, mention, caps, duplicate) dengan ambang & whitelist, tabel `automod_rule`, `/automod show\|toggle\|threshold\|badword\|whitelist`, aksi hapus / catat peringatan (masuk sistem kasus) / timeout 10 menit, pengecualian channel/role/bot/Manage Messages; logging 6 kategori (member, pesan, channel, role, voice, server) lewat 22 event ke embed berwarna dengan executor dari audit log, routing per kategori `/logging show\|set\|reset` dengan fallback `logChannelId` dan tabel `guild_log_subscription`, sepenuhnya best-effort; 184 tes unit* |
+| **M4 — Automod & Logging** | 1 minggu | Rule engine automod + logging 6 kategori | Uji simulasi spam/link/badword lolos — 🟢 *selesai: automod 7 rule (spam, invite, link, badword, mention, caps, duplicate) dengan ambang & whitelist, tabel `automod_rule`, `/automod show\|toggle\|threshold\|badword\|whitelist`, aksi hapus / catat peringatan (masuk sistem kasus) / timeout 10 menit, pengecualian channel/role/bot/Manage Messages; logging 6 kategori (member, pesan, channel, role, voice, server) lewat 22 event ke embed berwarna dengan executor dari audit log, routing per kategori `/logging show\|set\|reset` dengan fallback `logChannelId` dan tabel `guild_log_subscription`, riwayat log tersimpan di `log_entry` dengan perintah `/logs` (filter kategori/user/channel/kata kunci/kasus/rentang tanggal) dan tertaut ke ID kasus moderasi, sepenuhnya best-effort; 250 tes unit* |
 | **M5 — Hardening & Beta** | 1 minggu | Test coverage, rate limit, dokumentasi, kebijakan privasi, deploy 5 server beta | Error rate < 1% selama 1 minggu beta |
 | **M6 — Rilis Publik v1.0** | 3 hari | Listing bot publik, halaman bantuan, kanal dukungan | Bot tayang di top.gg / discords.com |
 
@@ -491,6 +495,8 @@ Bagian ini **tidak boleh dilewati** — inilah yang menumbangkan Groovy & Rythm.
 | --- | --- | --- | --- |
 | v1.0 | 2 Okt 2026 | Draft awal | (isi nama) |
 | v1.0 | 2 Okt 2026 | M0 dieksekusi: scaffold proyek (TypeScript strict + ESLint + Vitest), validasi env dengan zod, loader perintah/event otomatis, `/ping` + `/help`, Docker Compose (bot + Lavalink v4 + PostgreSQL + Redis), CI GitHub Actions | Buffy |
+| v1.0 | 2 Okt 2026 | Log tertaut ke kasus moderasi: registry tautan singkat (`caseLink.ts`, TTL 60 detik) diisi perintah sebelum aksi Discord dieksekusi, lalu dipakai event `guildBanAdd`/`guildBanRemove`/`guildMemberRemove`/`guildMemberUpdate`/`channelUpdate` untuk menampilkan `Sumber` + `Kasus #CASE-…`; aksi dari bot lain atau moderator manusia ditandai eksplisit; kasus menjadi satu baris riwayat tunggal (event tidak mencatat ulang) dan `/logs case:` bisa mencarinya, kolom `case_id` + index baru, 250 tes unit | Buffy |
+| v1.0 | 2 Okt 2026 | Riwayat log + `/logs`: tabel `log_entry` (kategori, kunci event, executor, target, channel asal, ringkasan isi embed, ID pesan log, `expiresAt` retensi 30 hari), `dispatchLog` menyimpan entri sebelum mengirim lalu menempelkan ID pesan untuk tautan lompat, pencarian dengan filter kategori/user/channel/kata kunci/rentang tanggal (relatif `7d` atau kalender) + halaman, builder `where` murni yang bisa dites, env minimal untuk tes lewat `tests/setup.ts`, 225 tes unit | Buffy |
 | v1.0 | 2 Okt 2026 | M4 (logging) dieksekusi: 22 event Discord dipetakan ke 6 kategori (member, pesan, channel, role, voice, server), embed berwarna per kategori dengan executor dari audit log + diff role/izin/channel/voice/server, routing channel per kategori lewat `/logging show\|set\|reset` dengan fallback `logChannelId` global dan tabel `guild_log_subscription` (cache 60 detik), `dispatchLog` best-effort yang tidak pernah menggagalkan alur event, 184 tes unit | Buffy |
 | v1.0 | 2 Okt 2026 | M4 (automod) dieksekusi: engine 7 rule murni + tracker state (anti-spam 5 detik & anti-duplicate per user), tabel `automod_rule` (actions & whitelist JSON), perintah `/automod show\|toggle\|threshold\|badword\|whitelist`, event `messageCreate` (hapus + peringatan ke sistem kasus + timeout 10 menit + log channel), toggle modul via `/config set`, 166 tes unit | Buffy |
 | v1.0 | 2 Okt 2026 | M3 dilengkapi: `/unban` (verifikasi ban + DM), `/slowmode` (parser 0–6 jam), `/lock` & `/unlock` berbasis override @everyone (teks → `SendMessages`, voice → `Connect`), `/note add\|show` sebagai catatan internal tanpa DM, kasus untuk aksi channel (target = channel), 115 tes unit | Buffy |

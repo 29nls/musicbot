@@ -119,3 +119,39 @@ model LogSubscription {
   @@unique([guildId, category])
   @@map("guild_log_subscription")
 }
+
+/// Riwayat log yang pernah dikirim (PRD §7.3) — dasar perintah `/logs`.
+model LogEntry {
+  id       Int    @id @default(autoincrement())
+  guildId  String @db.VarChar(20)
+  /// member | message | channel | role | voice | server
+  category String @db.VarChar(20)
+  /// Nama event Discord, mis. guildBanAdd.
+  eventKey String @db.VarChar(50)
+  title    String @db.VarChar(200)
+  /// Teks gabungan embed (deskripsi + nilai field) supaya bisa dicari kata kunci.
+  summary  String @db.VarChar(1000)
+  /// Siapa yang melakukan; null untuk aksi sistem atau pelanggarnya sendiri.
+  executorId String? @db.VarChar(20)
+  /// Subjek aksi: member, channel, atau role. Null kalau tidak relevan.
+  targetId String? @db.VarChar(20)
+  /// Channel tempat aksi terjadi (bukan channel tujuan log).
+  channelId String? @db.VarChar(20)
+  /// Channel tujuan log; null kalau embed gagal dikirim.
+  logChannelId String? @db.VarChar(20)
+  /// ID pesan log supaya `/logs` bisa menyediakan tautan lompat.
+  logMessageId String? @db.VarChar(20)
+  /// Nomor kasus moderasi Harmony (tanpa `#`, mis. `142`) kalau aksi datang dari
+  /// perintah bot; null = aksi moderator lain atau sistem Discord.
+  caseId       String?      @db.VarChar(20)
+  createdAt DateTime  @default(now())
+  /// Retensi (Bab 12 privasi): dipakai job pembersihan berkala.
+  expiresAt DateTime?
+
+  @@index([guildId, category, createdAt(sort: Desc)])
+  @@index([guildId, targetId, createdAt(sort: Desc)])
+  @@index([guildId, executorId, createdAt(sort: Desc)])
+  @@index([guildId, channelId, createdAt(sort: Desc)])
+  @@index([guildId, caseId])
+  @@map("log_entry")
+}

@@ -103,6 +103,29 @@ class FakeModerationRepository implements ModerationRepository {
     const found = await this.findCaseByNumber(guildId, caseNumber);
     if (found) this.cases.set(found.id, { ...found, active });
   }
+
+  async deleteExpiredWarnings(cutoff: Date): Promise<number> {
+    let removed = 0;
+    for (let index = this.warnings.length - 1; index >= 0; index -= 1) {
+      const warning = this.warnings[index];
+      if (warning && warning.createdAt < cutoff) {
+        this.warnings.splice(index, 1);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  async deleteExpiredCases(cutoff: Date): Promise<number> {
+    let removed = 0;
+    for (const [id, item] of [...this.cases]) {
+      if (item.createdAt < cutoff) {
+        this.cases.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
 }
 
 const makeService = (): { service: ModerationService; repository: FakeModerationRepository } => {

@@ -22,6 +22,9 @@ export default {
       ]),
     });
 
-    await dispatchLog(emoji.guild, 'server', embed);
+    await dispatchLog(emoji.guild, 'server', embed, {
+      eventKey: 'guildEmojiCreate',
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'emojiCreate'>;

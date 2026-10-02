@@ -50,6 +50,11 @@ export default {
       ]),
     });
 
-    await dispatchLog(channel.guild, 'message', embed);
+    await dispatchLog(channel.guild, 'message', embed, {
+      eventKey: 'messageBulkDelete',
+      targetId: authorIds.length === 1 ? (authorIds[0] ?? null) : null,
+      channelId: channel.id,
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'messageDeleteBulk'>;

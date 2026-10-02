@@ -51,6 +51,9 @@ export default {
       ]),
     });
 
-    await dispatchLog(newGuild, 'server', embed);
+    await dispatchLog(newGuild, 'server', embed, {
+      eventKey: 'guildUpdate',
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'guildUpdate'>;

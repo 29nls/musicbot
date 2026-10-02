@@ -6,12 +6,19 @@ import {
 } from 'discord.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
-import { compactFields, executorFields, logEmbed, relativeTime } from '../../modules/logging/embeds.js';
+import {
+  caseSourceFields,
+  compactFields,
+  executorFields,
+  logEmbed,
+  relativeTime,
+} from '../../modules/logging/embeds.js';
+import { consumeCaseLink } from '../../modules/moderation/index.js';
 import type { BotEvent } from '../../types/event.js';
 
 export default {
   name: Events.GuildMemberRemove,
-  async execute(_client, member: GuildMember | PartialGuildMember): Promise<void> {
+  async execute(client, member: GuildMember | PartialGuildMember): Promise<void> {
     const [kickEntry, banEntry] = await Promise.all([
       findAuditEntry(member.guild, AuditLogEvent.MemberKick, { targetId: member.id }),
       findAuditEntry(member.guild, AuditLogEvent.MemberBanAdd, { targetId: member.id }),
@@ -21,6 +28,8 @@ export default {
     if (banEntry) return;
 
     const joinedAt = member.joinedAt ?? null;
+    // Hanya kicked member yang bisa punya kasus; leave biasa tidak.
+    const link = consumeCaseLink(member.guild.id, member.id, ['kick']);
 
     const embed = logEmbed({
       category: 'member',
@@ -30,9 +39,16 @@ export default {
         { name: 'ID', value: `\`${member.id}\``, inline: true },
         joinedAt ? { name: 'Bergabung', value: relativeTime(joinedAt), inline: true } : null,
         ...executorFields(kickEntry),
+        ...caseSourceFields(link, kickEntry?.executor?.id, client.user?.id),
       ]),
     });
 
-    await dispatchLog(member.guild, 'member', embed);
+    await dispatchLog(member.guild, 'member', embed, {
+      eventKey: 'guildMemberRemove',
+      targetId: member.id,
+      executorId: kickEntry?.executor?.id ?? null,
+      caseNumber: link?.caseNumber ?? null,
+      record: link === null,
+    });
   },
 } satisfies BotEvent<'guildMemberRemove'>;

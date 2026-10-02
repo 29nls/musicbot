@@ -1,3 +1,4 @@
+import { purgeExpiredRecords, type RetentionResult } from './retention.js';
 import type { ModerationRepository } from './repository.js';
 import type { CreateCaseInput, ModerationCase, WarningRecord } from './types.js';
 
@@ -57,5 +58,13 @@ export class ModerationService {
   /** Tandai kasus tidak aktif (mis. aksi Discord-nya gagal dieksekusi). */
   async deactivateCase(guildId: string, caseNumber: number): Promise<void> {
     await this.repository.setCaseActive(guildId, caseNumber, false);
+  }
+
+  /**
+   * Bersihkan kasus & peringatan yang lewat retensi 12 bulan (PRD Bab 12).
+   * Dipanggil job terjadwal; error dibiarkan lempar supaya pemanggil mencatatnya.
+   */
+  async purgeExpired(now = new Date()): Promise<RetentionResult> {
+    return purgeExpiredRecords(this.repository, now);
   }
 }

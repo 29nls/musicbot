@@ -20,6 +20,10 @@ export default {
       ]),
     });
 
-    await dispatchLog(role.guild, 'role', embed);
+    await dispatchLog(role.guild, 'role', embed, {
+      eventKey: 'guildRoleCreate',
+      targetId: role.id,
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'roleCreate'>;

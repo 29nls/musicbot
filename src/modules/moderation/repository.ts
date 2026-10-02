@@ -16,6 +16,10 @@ export interface ModerationRepository {
   revokeWarning(guildId: string, caseNumber: number): Promise<ModerationCase | null>;
   /** Nonaktifkan kasus (dipakai kalau aksi Discord gagal setelah kasus dicatat). */
   setCaseActive(guildId: string, caseNumber: number, active: boolean): Promise<void>;
+  /** Hapus peringatan yang lebih tua dari `cutoff`; mengembalikan jumlah baris. */
+  deleteExpiredWarnings(cutoff: Date): Promise<number>;
+  /** Hapus kasus yang lebih tua dari `cutoff`; peringatan ikut terhapus (Cascade). */
+  deleteExpiredCases(cutoff: Date): Promise<number>;
 }
 
 export class PrismaModerationRepository implements ModerationRepository {
@@ -116,5 +120,17 @@ export class PrismaModerationRepository implements ModerationRepository {
       where: { guildId, caseNumber },
       data: { active },
     });
+  }
+
+  async deleteExpiredWarnings(cutoff: Date): Promise<number> {
+    const result = await this.prisma.warning.deleteMany({ where: { createdAt: { lt: cutoff } } });
+    return result.count;
+  }
+
+  async deleteExpiredCases(cutoff: Date): Promise<number> {
+    const result = await this.prisma.moderationCase.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return result.count;
   }
 }

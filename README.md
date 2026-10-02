@@ -238,6 +238,8 @@ target (user atau channel), moderator, alasan, `expiresAt` untuk timeout,
 `active`. Catatan `/note` juga tersimpan di sini dengan tipe `note`.
 - `warning` — baris peringatan yang menunjuk kasusnya; `/unwarn` menghapus baris
 ini dan menonaktifkan kasusnya (data tidak hilang untuk audit).
+- Nomor kasus yang sama ikut menempel di log kategori (lihat bagian 7) dan di
+riwayat `/logs`, jadi satu aksi bisa ditelusuri dari kasus sampai pesan log-nya.
 
 ---
 
@@ -331,9 +333,112 @@ diubah).
 - Boost dipantau lewat perubahan `premiumTier`/jumlah boost di event
   `guildUpdate`, karena discord.js 14.27 tidak punya event boost tersendiri.
 
+### `/logs` — cari riwayat log
+
+Setiap event yang lolos modul logging juga **disimpan ke database** (tabel
+`log_entry`): kategori, kunci event, judul, ringkasan isi embed, executor,
+target, channel asal, dan ID pesan log. Jadi log tetap bisa dicari walau
+channel log dihapus atau embed-nya sudah tak terlihat.
+
+| Opsi | Contoh | Fungsi |
+| --- | --- | --- |
+| `category` | `member,message` | Batasi kategori (boleh beberapa, dipisah koma) |
+| `user` | `@sasha` | Aksi atas dirinya **atau** aksi yang dilaulunya |
+| `channel` | `#general` | Channel tempat aksi terjadi |
+| `keyword` | `spam` | Cari di judul & ringkasan isi log |
+| `case` | `#CASE-0142` | Hanya aksi dari satu kasus moderasi Harmony |
+| `from` / `to` | `7d`, `24h`, `2026-10-01`, `02/10/2026` | Rentang waktu (relatif atau kalender) |
+| `page` | `2` | Halaman hasil (10 entri per halaman) |
+
+```bash
+/logs category:member from:7d
+/logs user:@sasha category:member,role
+/logs case:#CASE-0142
+/logs channel:#pengumuman keyword:lagu from:2026-09-01 to:2026-10-01
+```
+
+Setiap hasil menampilkan waktu, target, executor, dan **tautan lompat** ke pesan
+log aslinya (kalau masih ada). Butuh izin **Manage Server**, dan balasannya
+ephemeral karena dapat berisi data member.
+
+### Kasus moderasi & sumber aksi
+
+Aksi yang dijalankan Harmony lewat perintahnya (`/ban`, `/kick`, `/timeout`,
+`/slowmode`, `/lock`, `/unlock`) **terhubung** dengan event Discord yang menyusul.
+Saat perintah selesai, bot menyimpan tautan singkat antara kasus dan target-nya;
+event `guildBanAdd`, `guildMemberRemove`, `guildMemberUpdate`, atau
+`channelUpdate` yang tiba beberapa saat kemudian mengambil tautan itu dan
+menandai embed log seperti ini:
+
+```
+🔨 Member Ban (Harmony)
+Member: @sasha        ID: 2222…
+Sumber: 🤖 Harmony (perintah bot)
+Kasus:   #CASE-0142
+Moderator: @mod_harfi
+```
+
+Kalau tidak ada tautan, log ditandai jelas sebagai aksi luar Harmony:
+
+```
+🔨 Member Ban
+Sumber: 👤 Moderator lain (@mod_lain)
+```
+
+Tiga kemungkinan sumber yang dibedakan: **kasus Harmony** (punya nomor kasus),
+**bot lain / bot tanpa kasus** (`🤖 Bot — di luar kasus Harmony`, mis. aksi yang
+tautannya sudah lewat 60 detik), dan **moderator manusia**.
+
+Agar `/logs` tidak menampilkan satu aksi dua kali, kasus yang sudah dicatat oleh
+perintahnya menjadi satu-satunya baris riwayat — event Discord yang menyusul
+hanya menempelkan nomor kasus pada embed kategorinya. Aksi tanpa kasus
+(moderator lain, Discord) tetap dicatat utuh dari sisi event.
+
+> Retensi riwayat log adalah **30 hari** (`DEFAULT_LOG_RETENTION_DAYS`): setiap
+> entri diisi `expiresAt` saat disimpan supaya job pembersihan bisa menghapus
+> yang sudah lewat sesuai kebijakan privasi Bab 12. Pencatatan juga melompat
+> kalau modul logging mati atau database offline — `/logs` akan menjelaskan
+> kondisinya. Penghapusan otomatis untuk `log_entry` belum dijadwalkan — lihat
+> bagian 8.
+
 ---
 
-## 8. Struktur proyek
+## 8. Retensi data
+
+PRD Bab 12 menyatakan data tidak disimpan selamanya. Yang sudah berjalan:
+
+| Data | Retensi | Dihapus oleh |
+| --- | --- | --- |
+| Kasus moderasi (`moderation_case`) | 12 bulan | Job retensi |
+| Peringatan (`warning`) | 12 bulan | Job retensi |
+| Riwayat log (`log_entry`) | 30 hari (`expiresAt` sudah diisi) | **belum** ada job penghapus |
+
+Cara kerjanya:
+
+- Job berjalan **di dalam proses bot** — sekali saat start, lalu setiap
+  `RETENTION_SWEEP_HOURS` (default 6). Tidak perlu cron di host, dan otomatis
+  ikut berhenti ketika bot berhenti.
+- Peringatan dihapus lebih dulu, baru kasusnya (yang menarik peringatan dengan
+  `onDelete: Cascade`), sehingga hitungan akurat dan tidak meninggalkan baris
+  terlantar.
+- `active` bukan syarat: ban yang masih aktif tetap berlaku di Discord, tabel
+  kasus hanya arsip audit.
+- Sapuan yang lambat tidak ditumpuk, dan kegagalannya hanya jadi peringatan —
+  bot tidak crash dan mencoba lagi di siklus berikutnya.
+- Menghapus kasus lama **tidak** mengubah nomor kasus baru: nomor selalu
+  dihitung dari `MAX(case_number) + 1` per server, bukan dari jumlah baris.
+
+Untuk server yang lebih suka membersihkan dari cron luar, setel
+`RETENTION_SWEEP_HOURS=0` lalu jalankan skrip sekali-jalan:
+
+```bash
+npm run db:prune
+# {"cutoff":"2025-10-02T12:00:00.000Z","casesDeleted":12,"warningsDeleted":7}
+```
+
+---
+
+## 9. Struktur proyek
 
 ```
 prisma/
@@ -346,7 +451,7 @@ src/
 │  ├─ core/                 # /ping, /help, /config, /setup         (M0–M1 ✅)
 │  ├─ music/                # /play, /queue, /nowplaying, /skip,
 │  │                        # /pause, /resume, /stop + _shared.ts   (M2 ✅)
-│  └─ admin/                # /ban … /note (M3 ✅), /automod & /logging (M4 ✅)
+│  └─ admin/                # /ban … /note (M3 ✅), /automod, /logging, /logs (M4 ✅)
 │                           # _shared.ts berisi gate & alur aksi bersama
 ├─ events/                  # satu file = satu event Discord
 │  └─ logging/              # 22 event → embed 6 kategori (M4 ✅)
@@ -356,15 +461,22 @@ src/
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
+│  │                        # caseLink.ts menjembatani aksi ↔ event Discord
 │  ├─ automod/              # engine 7 rule + tracker state          (M4 ✅)
 │  └─ logging/              # routing channel per kategori + diff/audit helper (M4 ✅)
+│                           # searchQuery.ts, summary.ts, record.ts untuk riwayat log
 ├─ services/                # logger, Prisma client, deteksi error database
+│                           # retentionJob.ts = pembersihan data berkala
 ├─ utils/                   # cooldown, embed, durasi, izin, module loader
 ├─ config/                  # env (zod) + konstanta
 ├─ generated/               # Prisma Client hasil generate — JANGAN diedit, tidak di-commit
 ├─ client.ts                # BotClient: intents + registry perintah
 ├─ deploy-commands.ts       # daftarkan slash command ke Discord
+├─ prune-retention.ts       # sekali-jalan: bersihkan data kedaluwarsa (cron)
 └─ index.ts                 # entrypoint + graceful shutdown
+
+tests/                      # unit test vitest; setup.ts menyetel env minimal
+tsconfig.test.json          # typecheck untuk src/ + tests/
 ```
 
 ### Menambah perintah baru
@@ -403,7 +515,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
 ---
 
-## 9. Perintah npm
+## 10. Perintah npm
 
 | Perintah | Fungsi |
 | --- | --- |
@@ -417,7 +529,8 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 | `npm run db:deploy` | Terapkan migrasi yang sudah ada (produksi/CI) |
 | `npm run db:generate` | Generate Prisma Client dari schema |
 | `npm run db:studio` | Buka Prisma Studio untuk melihat isi database |
-| `npm run typecheck` | TypeScript strict, tanpa emit |
+| `npm run db:prune` | Sekali jalan: hapus kasus & peringatan yang lewat retensi (cron) |
+| `npm run typecheck` | TypeScript strict tanpa emit — mencakup `src/` dan `tests/` |
 | `npm run lint` / `lint:fix` | ESLint |
 | `npm test` / `test:watch` | Vitest |
 
@@ -426,7 +539,7 @@ setiap push/PR.
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | --- | --- |

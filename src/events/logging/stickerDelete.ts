@@ -23,6 +23,9 @@ export default {
       ]),
     });
 
-    await dispatchLog(sticker.guild, 'server', embed);
+    await dispatchLog(sticker.guild, 'server', embed, {
+      eventKey: 'guildStickerDelete',
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'stickerDelete'>;

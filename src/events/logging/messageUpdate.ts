@@ -33,6 +33,10 @@ export default {
       ]),
     });
 
-    await dispatchLog(newMessage.guild, 'message', embed);
+    await dispatchLog(newMessage.guild, 'message', embed, {
+      eventKey: 'messageUpdate',
+      targetId: newMessage.author.id,
+      channelId: newMessage.channelId,
+    });
   },
 } satisfies BotEvent<'messageUpdate'>;

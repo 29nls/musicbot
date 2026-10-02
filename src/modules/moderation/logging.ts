@@ -1,5 +1,30 @@
 import type { EmbedBuilder, Guild } from 'discord.js';
 import { getLogger } from '../../services/logger.js';
+import type { LogCategory } from '../logging/types.js';
+import type { ModerationAction } from './types.js';
+
+/**
+ * Kategori log tempat aksi moderasi dicatat.
+ *
+ * `null` untuk `/note` — catatan internal tidak mengubah apa pun di server,
+ * jadi tidak ada event log yang relevan.
+ */
+export function moderationLogCategory(action: ModerationAction): LogCategory | null {
+  switch (action) {
+    case 'ban':
+    case 'kick':
+    case 'timeout':
+    case 'unban':
+    case 'warn':
+      return 'member';
+    case 'slowmode':
+    case 'lock':
+    case 'unlock':
+      return 'channel';
+    case 'note':
+      return null;
+  }
+}
 
 /**
  * Kirim embed ke satu channel guild (log, welcome, goodbye, dst.).

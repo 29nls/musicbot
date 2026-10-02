@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { LoggingRepository } from '../src/modules/logging/repository.js';
+import type { LoggingRepository, NewLogEntry } from '../src/modules/logging/repository.js';
 import { LoggingService } from '../src/modules/logging/service.js';
-import type { LogCategory, LogSubscription } from '../src/modules/logging/types.js';
+import type {
+  LogCategory,
+  LogSearchFilter,
+  LogSearchResult,
+  LogSubscription,
+} from '../src/modules/logging/types.js';
 import { LoggingValidationError } from '../src/modules/logging/validation.js';
 
 const GUILD_ID = '123456789012345678';
@@ -31,6 +36,18 @@ class FakeLoggingRepository implements LoggingRepository {
 
   async remove(guildId: string, category: LogCategory): Promise<void> {
     this.rows.get(guildId)?.delete(category);
+  }
+
+  // Routing log tidak butuh riwayat; method ini hanya menjaga fake tetap
+  // memenuhi kontrak LoggingRepository.
+  async insert(_entry: NewLogEntry): Promise<number> {
+    return 0;
+  }
+
+  async attachMessage(): Promise<void> {}
+
+  async search(_filter: LogSearchFilter): Promise<LogSearchResult> {
+    return { rows: [], total: 0 };
   }
 }
 

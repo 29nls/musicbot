@@ -40,6 +40,9 @@ export default {
       fields: compactFields([changesField(lines), ...executorFields(entry)]),
     });
 
-    await dispatchLog(newSticker.guild, 'server', embed);
+    await dispatchLog(newSticker.guild, 'server', embed, {
+      eventKey: 'guildStickerUpdate',
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'stickerUpdate'>;

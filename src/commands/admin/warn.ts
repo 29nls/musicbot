@@ -1,4 +1,5 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { recordLogEntry } from '../../modules/logging/index.js';
 import {
   moderationDmEmbed,
   moderationLogEmbed,
@@ -75,19 +76,26 @@ export default {
         }),
       );
 
-      const logged = await sendGuildEmbed(
-        ctx.guild,
-        ctx.config.logChannelId,
-        moderationLogEmbed({
-          action: 'warn',
-          caseNumber: created.caseNumber,
-          targetId: user.id,
-          moderatorId: interaction.user.id,
-          reason,
-          createdAt: created.createdAt,
-          dmSent,
-        }),
-      );
+      const caseEmbed = moderationLogEmbed({
+        action: 'warn',
+        caseNumber: created.caseNumber,
+        targetId: user.id,
+        moderatorId: interaction.user.id,
+        reason,
+        createdAt: created.createdAt,
+        dmSent,
+      });
+
+      const logged = await sendGuildEmbed(ctx.guild, ctx.config.logChannelId, caseEmbed);
+
+      // Peringatan tidak memicu event Discord apa pun, jadi kasusnya dicatat di
+      // sini supaya tetap bisa dicari lewat /logs.
+      await recordLogEntry(ctx.guild, 'member', caseEmbed, {
+        eventKey: 'moderation.warn',
+        targetId: user.id,
+        executorId: interaction.user.id,
+        caseNumber: created.caseNumber,
+      }).catch(() => undefined);
 
       // Jumlah total hanya informasi tambahan — jangan gagalkan perintah kalau gagal dibaca.
       const summary = await ctx.moderation.listWarnings(ctx.guildId, user.id).catch(() => null);

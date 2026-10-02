@@ -8,7 +8,8 @@ import {
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { diffOverwrites, diffValues, type OverwriteSnapshot } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
-import { changesField, compactFields, executorFields, logEmbed } from '../../modules/logging/embeds.js';
+import { changesField, caseSourceFields, compactFields, executorFields, logEmbed } from '../../modules/logging/embeds.js';
+import { consumeCaseLink } from '../../modules/moderation/index.js';
 import type { BotEvent } from '../../types/event.js';
 
 type ChannelSnapshot = Record<string, unknown>;
@@ -42,7 +43,7 @@ function overwriteSnapshots(channel: NonThreadGuildBasedChannel): OverwriteSnaps
 export default {
   name: Events.ChannelUpdate,
   async execute(
-    _client,
+    client,
     oldChannel: DMChannel | NonThreadGuildBasedChannel,
     newChannel: DMChannel | NonThreadGuildBasedChannel,
   ): Promise<void> {
@@ -65,16 +66,26 @@ export default {
       targetId: newChannel.id,
     });
 
+    // `/slowmode`, `/lock`, dan `/unlock` semuanya mengubah channel ini.
+    const link = consumeCaseLink(newChannel.guild.id, newChannel.id, ['slowmode', 'lock', 'unlock']);
+
     const embed = logEmbed({
       category: 'channel',
-      title: '📝 Channel Diperbarui',
+      title: link ? '📝 Channel Diperbarui (Harmony)' : '📝 Channel Diperbarui',
       fields: compactFields([
         { name: 'Channel', value: `<#${newChannel.id}> (\`${newChannel.name}\`)` },
         changesField(lines),
         ...executorFields(entry),
+        ...caseSourceFields(link, entry?.executor?.id, client.user?.id),
       ]),
     });
 
-    await dispatchLog(newChannel.guild, 'channel', embed);
+    await dispatchLog(newChannel.guild, 'channel', embed, {
+      eventKey: 'channelUpdate',
+      targetId: newChannel.id,
+      caseNumber: link?.caseNumber ?? null,
+      record: link === null,
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'channelUpdate'>;

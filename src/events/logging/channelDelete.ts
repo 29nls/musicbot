@@ -31,6 +31,10 @@ export default {
       ]),
     });
 
-    await dispatchLog(channel.guild, 'channel', embed);
+    await dispatchLog(channel.guild, 'channel', embed, {
+      eventKey: 'channelDelete',
+      targetId: channel.id,
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'channelDelete'>;

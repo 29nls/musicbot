@@ -7,13 +7,20 @@ import {
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { diffIdSets } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
-import { changesField, compactFields, executorFields, logEmbed } from '../../modules/logging/embeds.js';
+import {
+  caseSourceFields,
+  changesField,
+  compactFields,
+  executorFields,
+  logEmbed,
+} from '../../modules/logging/embeds.js';
+import { consumeCaseLink } from '../../modules/moderation/index.js';
 import type { BotEvent } from '../../types/event.js';
 
 export default {
   name: Events.GuildMemberUpdate,
   async execute(
-    _client,
+    client,
     oldMember: GuildMember | PartialGuildMember,
     newMember: GuildMember,
   ): Promise<void> {
@@ -54,6 +61,12 @@ export default {
 
     if (lines.length === 0) return;
 
+    // Tautan timeout hanya diambil saat timeout benar-benar berubah; event ini
+    // juga menyalakan perubahan nickname/role yang tidak ada hubungannya.
+    const link = timeoutChanged
+      ? consumeCaseLink(guild.id, newMember.id, ['timeout'])
+      : null;
+
     const change = changesField(lines);
     const auditType = rolesChanged && !timeoutChanged
       ? AuditLogEvent.MemberRoleUpdate
@@ -62,14 +75,21 @@ export default {
 
     const embed = logEmbed({
       category: 'member',
-      title: '📝 Member Diperbarui',
+      title: link ? '⏱️ Timeout Diperbarui (Harmony)' : '📝 Member Diperbarui',
       fields: compactFields([
         { name: 'Member', value: `<@${newMember.id}> (\`${newMember.user.tag}\`)`, inline: true },
         change,
         ...executorFields(entry),
+        ...caseSourceFields(link, entry?.executor?.id, client.user?.id),
       ]),
     });
 
-    await dispatchLog(guild, 'member', embed);
+    await dispatchLog(guild, 'member', embed, {
+      eventKey: 'guildMemberUpdate',
+      targetId: newMember.id,
+      executorId: entry?.executor?.id ?? null,
+      caseNumber: link?.caseNumber ?? null,
+      record: link === null,
+    });
   },
 } satisfies BotEvent<'guildMemberUpdate'>;

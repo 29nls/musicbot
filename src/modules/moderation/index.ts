@@ -18,7 +18,17 @@ export { PrismaModerationRepository } from './repository.js';
 export type { ModerationRepository } from './repository.js';
 export type { WarningSummary } from './service.js';
 export { checkModerationHierarchy } from './hierarchy.js';
+export { RETENTION_MONTHS, purgeExpiredRecords, retentionCutoff } from './retention.js';
+export type { RetentionResult } from './retention.js';
 export { formatCaseId, parseCaseNumber } from './caseNumber.js';
+export {
+  LINKED_CASE_ACTIONS,
+  clearCaseLinks,
+  consumeCaseLink,
+  pendingCaseLinkCount,
+  registerCaseLink,
+} from './caseLink.js';
+export type { CaseLink } from './caseLink.js';
 export { describeTimeout, parseTimeoutDuration } from './timeout.js';
 export { MAX_SLOWMODE_SEC, describeSlowmode, parseSlowmodeSeconds } from './slowmode.js';
 export {
@@ -27,7 +37,7 @@ export {
   greetingTemplate,
   renderGreeting,
 } from './greetings.js';
-export { sendGuildEmbed } from './logging.js';
+export { moderationLogCategory, sendGuildEmbed } from './logging.js';
 export { toModerationErrorEmbed } from './errors.js';
 export {
   moderationDmEmbed,

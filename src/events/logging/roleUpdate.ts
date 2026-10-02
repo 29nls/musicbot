@@ -56,6 +56,10 @@ export default {
       ]),
     });
 
-    await dispatchLog(newRole.guild, 'role', embed);
+    await dispatchLog(newRole.guild, 'role', embed, {
+      eventKey: 'guildRoleUpdate',
+      targetId: newRole.id,
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'roleUpdate'>;

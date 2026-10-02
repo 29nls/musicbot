@@ -21,6 +21,9 @@ export default {
       ]),
     });
 
-    await dispatchLog(emoji.guild, 'server', embed);
+    await dispatchLog(emoji.guild, 'server', embed, {
+      eventKey: 'guildEmojiDelete',
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'emojiDelete'>;

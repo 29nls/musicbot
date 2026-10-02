@@ -33,6 +33,9 @@ export default {
       ]),
     });
 
-    await dispatchLog(newEmoji.guild, 'server', embed);
+    await dispatchLog(newEmoji.guild, 'server', embed, {
+      eventKey: 'guildEmojiUpdate',
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'emojiUpdate'>;

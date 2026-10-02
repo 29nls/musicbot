@@ -23,6 +23,10 @@ export default {
       ]),
     });
 
-    await dispatchLog(channel.guild, 'channel', embed);
+    await dispatchLog(channel.guild, 'channel', embed, {
+      eventKey: 'channelCreate',
+      targetId: channel.id,
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'channelCreate'>;

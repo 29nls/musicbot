@@ -4,11 +4,14 @@ import { EnvError, getEnv } from './config/env.js';
 import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
 import { getMusicService, initMusic } from './modules/music/index.js';
+import { clearCaseLinks } from './modules/moderation/index.js';
 import { connectDatabase, disconnectDatabase } from './services/database.js';
 import { getLogger } from './services/logger.js';
+import { startRetentionJob, type RetentionJob } from './services/retentionJob.js';
 
 // Disimpan di scope modul supaya bisa ditutup dengan bersih saat startup gagal.
 let client: BotClient | undefined;
+let retentionJob: RetentionJob | undefined;
 
 async function main(): Promise<void> {
   // Validasi config lebih dulu: gagal cepat kalau .env belum lengkap.
@@ -30,6 +33,10 @@ async function main(): Promise<void> {
   // butuh DB), tapi perintah yang butuh konfigurasi akan gagal dengan pesan jelas.
   await connectDatabase();
 
+  // Retensi data (kasus & peringatan > 12 bulan) berjalan di dalam proses:
+  // ikut berhenti saat bot berhenti, tanpa cron di host.
+  retentionJob = startRetentionJob();
+
   logger.info(
     { node: process.version, lavalink: `${env.LAVALINK_HOST}:${env.LAVALINK_PORT}` },
     'Menghubungkan ke Discord…',
@@ -47,6 +54,10 @@ function registerProcessHandlers(bot: BotClient): void {
     shuttingDown = true;
 
     logger.info({ signal }, 'Sinyal berhenti diterima, menutup koneksi…');
+
+    // Tautan kasus berumur pendek dan tidak perlu bertahan melewati restart.
+    clearCaseLinks();
+    retentionJob?.stop();
 
     // Jaring pengaman kalau destroy() menggantung (mis. socket tidak menutup).
     const forceExit = setTimeout(() => process.exit(1), 10_000);

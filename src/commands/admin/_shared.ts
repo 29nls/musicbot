@@ -8,12 +8,16 @@ import {
   type User,
 } from 'discord.js';
 import { getGuildConfigService, type GuildConfig } from '../../modules/config/index.js';
+import { recordLogEntry } from '../../modules/logging/index.js';
 import {
   checkModerationHierarchy,
   getModerationService,
+  LINKED_CASE_ACTIONS,
   moderationDmEmbed,
+  moderationLogCategory,
   moderationLogEmbed,
   moderationResultEmbed,
+  registerCaseLink,
   sendGuildEmbed,
   toModerationErrorEmbed,
   type ModerationAction,
@@ -220,6 +224,19 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
   }
 
   if (options.execute) {
+    // Daftarkan tautan kasus sebelum memanggil Discord: event guildBanAdd &
+    // friends menyusul setelah API membalas, dan tautan itulah yang membuat log
+    // kategori bisa menyebut nomor kasus ini.
+    if (LINKED_CASE_ACTIONS.includes(options.action)) {
+      registerCaseLink({
+        guildId: ctx.guildId,
+        targetId: options.targetId,
+        action: options.action,
+        caseNumber: created.caseNumber,
+        moderatorId: interaction.user.id,
+      });
+    }
+
     try {
       await options.execute();
     } catch (error) {
@@ -228,21 +245,29 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
     }
   }
 
-  const logged = await sendGuildEmbed(
-    ctx.guild,
-    ctx.config.logChannelId,
-    moderationLogEmbed({
-      action: options.action,
-      caseNumber: created.caseNumber,
-      targetId: options.targetId,
-      targetKind: options.targetKind,
-      moderatorId: interaction.user.id,
-      reason,
-      createdAt: created.createdAt,
-      expiresAt,
-      dmSent,
-    }),
-  );
+  const caseEmbed = moderationLogEmbed({
+    action: options.action,
+    caseNumber: created.caseNumber,
+    targetId: options.targetId,
+    targetKind: options.targetKind,
+    moderatorId: interaction.user.id,
+    reason,
+    createdAt: created.createdAt,
+    expiresAt,
+    dmSent,
+  });
+
+  const logged = await sendGuildEmbed(ctx.guild, ctx.config.logChannelId, caseEmbed);
+
+  // Kasus ini adalah catatan utama-nya, jadi riwayat log disimpan di sini.
+  // Event Discord yang menyusul (jika ada) hanya menempelkan nomor kasus pada
+  // embed kategorinya tanpa mencatat baris kedua.
+  await recordCaseHistory(ctx.guild, options.action, caseEmbed, {
+    targetId: options.targetId,
+    channelId: options.targetKind === 'channel' ? options.targetId : null,
+    moderatorId: interaction.user.id,
+    caseNumber: created.caseNumber,
+  });
 
   await interaction.editReply({
     embeds: [
@@ -257,6 +282,28 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
       }),
     ],
   });
+}
+
+/**
+ * Simpan embed kasus ke riwayat log supaya bisa dicari lewat `/logs`.
+ * Best-effort: kegagalan pencatatan tidak boleh membatalkan aksi moderasi.
+ */
+async function recordCaseHistory(
+  guild: Guild,
+  action: ModerationAction,
+  embed: EmbedBuilder,
+  meta: { targetId: string; channelId: string | null; moderatorId: string; caseNumber: number },
+): Promise<void> {
+  const category = moderationLogCategory(action);
+  if (!category) return;
+
+  await recordLogEntry(guild, category, embed, {
+    eventKey: `moderation.${action}`,
+    targetId: meta.targetId,
+    channelId: meta.channelId,
+    executorId: meta.moderatorId,
+    caseNumber: meta.caseNumber,
+  }).catch(() => undefined);
 }
 
 export interface ModerationRunOptions {

@@ -23,6 +23,10 @@ export default {
       ]),
     });
 
-    await dispatchLog(member.guild, 'member', embed);
+    await dispatchLog(member.guild, 'member', embed, {
+      eventKey: 'guildMemberAdd',
+      targetId: member.id,
+      executorId: entry?.executor?.id ?? null,
+    });
   },
 } satisfies BotEvent<'guildMemberAdd'>;
