@@ -3,12 +3,15 @@
 Bot Discord serbaguna: pemutaran musik berkualitas tinggi (Lavalink) + moderasi
 komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 
-> **Status: M1 (konfigurasi per-server).**
+> **Status: M2 (musik).**
 > Sudah jalan: bootstrap bot, loader perintah & event otomatis, validasi
-> environment, **database PostgreSQL + Prisma**, **konfigurasi per-server dengan
-> cache + wizard `/setup`**, `/config`, `/ping`, `/help`, dan stack Docker
+> environment, database PostgreSQL + Prisma, konfigurasi per-server dengan cache
+> + wizard `/setup`, `/config`, **pemutaran musik lewat Lavalink**
+> (`/play`, `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`,
+> antrean per-server, auto-disconnect), `/ping`, `/help`, dan stack Docker
 > (bot + migrasi + Lavalink + PostgreSQL + Redis).
-> Berikutnya: M2 (musik dengan Lavalink), M3 (moderasi).
+> Berikutnya: M3 (moderasi). Sisa fitur musik (`/volume`, `/loop`, `/seek`,
+> `/shuffle`, `/disconnect`) ada di Fase 2 PRD.
 
 ---
 
@@ -131,7 +134,47 @@ menyebut field bermasalahnya.
 
 ---
 
-## 4. Struktur proyek
+## 4. Perintah musik (M2)
+
+| Perintah | Fungsi | Izin |
+| --- | --- | --- |
+| `/play <query>` | Cari lalu putar, atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya | Semua (harus di voice channel) |
+| `/queue` | Lagu yang sedang diputar + 10 lagu berikutnya | Semua |
+| `/nowplaying` | Embed lagu aktif: progress bar, volume, sisa antrean | Semua |
+| `/skip` | Lewati lagu sekarang | DJ |
+| `/pause` / `/resume` | Jeda / lanjutkan pemutaran | DJ |
+| `/stop` | Hentikan dan bersihkan antrean (bot tetap di voice channel) | DJ |
+
+**Aturan yang berlaku**
+
+- **Role DJ** diambil dari konfigurasi server. Kalau belum diatur, semua orang
+  boleh mengontrol; pemegang **Manage Server** selalu boleh.
+- Bot yang sedang memutar di satu channel tidak bisa dikendalikan dari channel
+  lain — user diminta pindah (kecuali Manage Server).
+- Antrean dibatasi `MAX_QUEUE_SIZE` (default 500). Kelebihan lagu dari sebuah
+  playlist dipotong dan jumlahnya dilaporkan di embed.
+- Setelah antrean habis, bot menunggu `idleTimeoutSec` (lihat `/config set`)
+  lalu keluar sendiri dari voice channel.
+- Bot bergabung sebagai *deafened* supaya tidak memproses audio yang tidak perlu.
+- Kesalahan (bukan di voice channel, bukan DJ, antrean penuh) dibalas sebagai
+  pesan privat, sedangkan hasil yang perlu dilihat semua orang tetap publik.
+
+### Cara bot memegang state
+
+`player.track` milik Lavalink hanya berisi data base64 — tanpa judul, artis, atau
+metadata lain. Karena itu **antrean dan lagu aktif disimpan oleh bot**
+([queue.ts](src/modules/music/queue.ts), [musicService.ts](src/modules/music/musicService.ts)),
+dan perpindahan lagu dikendalikan event `end` dari Lavalink (event `replaced`
+diabaikan agar tidak melompat dua kali). Konsekuensinya wajar: restart bot
+mengosongkan antrean.
+
+Kalau Lavalink mati saat memutar, node akan dicoba sambung ulang dan player
+dipindahkan ke node lain bila ada (`moveOnDisconnect`). Perintah musik memberi
+pesan jelas “Lavalink belum terhubung” alih-alih gagal diam-diam.
+
+---
+
+## 5. Struktur proyek
 
 ```
 prisma/
@@ -141,14 +184,16 @@ prisma/
 
 src/
 ├─ commands/
-│  ├─ core/                 # /ping, /help, /config, /setup   (M0–M1 ✅)
-│  ├─ music/                # /play, /queue, ...              (M2)
-│  └─ admin/                # /ban, /warn, ...                (M3)
+│  ├─ core/                 # /ping, /help, /config, /setup         (M0–M1 ✅)
+│  ├─ music/                # /play, /queue, /nowplaying, /skip,
+│  │                        # /pause, /resume, /stop + _shared.ts   (M2 ✅)
+│  └─ admin/                # /ban, /warn, ...                      (M3)
 ├─ events/                  # satu file = satu event Discord
 ├─ handlers/                # loader perintah & event (auto-discovery)
 ├─ modules/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
-│  ├─ music/                # queue manager + pemutar (M2)
+│  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
+│  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
 │  ├─ moderation/           # case manager, cek hierarki role (M3)
 │  ├─ automod/              # rule engine (M4)
 │  └─ logging/              # event → embed log (M4)
@@ -184,6 +229,12 @@ export default {
 Loader akan menemukannya otomatis saat start. Setelah menambah/mengubah perintah,
 jalankan `npm run deploy` supaya Discord mengenalinya.
 
+> **Konvensi file `_`:** file yang diawali garis bawah (mis. `_shared.ts`) di
+> dalam `commands/` atau `events/` **tidak** didaftarkan sebagai perintah/event.
+> Pakai awalan itu untuk helper. File biasa tanpa `default export BotCommand`
+> akan membuat bot menolak start (memang disengaja: salah ketik tidak boleh
+> lewat diam-diam).
+
 ### Menambah event baru
 
 `src/events/<nama>.ts` dengan `name` dari `Events.*` discord.js. Loader otomatis
@@ -191,12 +242,13 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
 ---
 
-## 5. Perintah npm
+## 6. Perintah npm
 
 | Perintah | Fungsi |
 | --- | --- |
 | `npm run dev` | Jalankan bot dengan auto-reload (tsx watch) |
-| `npm run build` | Compile TypeScript ke `dist/` |
+| `npm run build` | Bersihkan `dist/` lalu compile TypeScript |
+| `npm run clean` | Hapus `dist/` (mencegah file lama ikut dimuat loader) |
 | `npm start` | Jalankan hasil build (produksi) |
 | `npm run deploy` | Daftarkan slash command (guild dev bila `DEV_GUILD_ID` diisi, jika tidak global) |
 | `npm run infra:up` / `infra:down` | Nyalakan/matikan Postgres + Lavalink + Redis untuk dev lokal |
@@ -213,11 +265,15 @@ setiap push/PR.
 
 ---
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | --- | --- |
 | `Used disallowed intents` | Privileged intents belum aktif di Developer Portal (lihat bagian 1) |
+| Pesan “Lavalink belum terhubung” | `docker compose ps` → pastikan `harmony-lavalink` jalan. Plugin diunduh saat start pertama, jadi butuh internet. Cek `docker compose logs lavalink` |
+| `Modul perintah tidak valid ...` saat start | Ada file di `src/commands/**` (atau `src/events/**`) tanpa `default export BotCommand` — beri nama diawali `_` atau pindahkan keluar folder itu |
+| Bot keluar sendiri dari voice channel | Auto-disconnect setelah `idleTimeoutSec` tanpa lagu. Atur lewat `/config set idle-timeout` |
+| `/play` bilang antrean penuh | Batas `MAX_QUEUE_SIZE` (default 500) tercapai — tunggu lagu selesai atau naikkan di `.env` |
 | `Konfigurasi environment tidak valid: • DISCORD_TOKEN: ...` | `.env` belum diisi / valuenya salah — pesannya menyebut variabel yang bermasalah |
 | Perintah `/setup` bilang database offline | Jalankan `npm run infra:up`, lalu cek `docker compose ps` |
 | `Cannot resolve environment variable: DATABASE_URL` | Prisma CLI butuh `DATABASE_URL` di `.env` — untuk `generate` saja, nilai placeholder otomatis dipakai |

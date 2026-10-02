@@ -3,6 +3,7 @@ import { BotClient } from './client.js';
 import { EnvError, getEnv } from './config/env.js';
 import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
+import { getMusicService, initMusic } from './modules/music/index.js';
 import { connectDatabase, disconnectDatabase } from './services/database.js';
 import { getLogger } from './services/logger.js';
 
@@ -18,6 +19,10 @@ async function main(): Promise<void> {
 
   await loadCommands(client.commands);
   await loadEvents(client);
+
+  // Wajib sebelum login: shoukaku memasang listener `clientReady` untuk
+  // mendaftarkan node Lavalink, dan listener itu hanya terpasang sekali.
+  initMusic(client);
 
   registerProcessHandlers(client);
 
@@ -47,7 +52,7 @@ function registerProcessHandlers(bot: BotClient): void {
     const forceExit = setTimeout(() => process.exit(1), 10_000);
     forceExit.unref();
 
-    void Promise.allSettled([disconnectDatabase(), bot.destroy()]).then(() => {
+    void Promise.allSettled([disconnectDatabase(), stopMusic(), bot.destroy()]).then(() => {
       logger.info('Bot berhenti dengan bersih');
       process.exit(0);
     });
@@ -64,6 +69,15 @@ function registerProcessHandlers(bot: BotClient): void {
     logger.fatal({ err: error }, 'Uncaught exception — proses dihentikan');
     process.exit(1);
   });
+}
+
+/** Tutup mesin musik tanpa membuat proses gagal kalau Lavalink sudah mati. */
+async function stopMusic(): Promise<void> {
+  try {
+    await getMusicService().shutdown();
+  } catch {
+    // Belum sempat diinisialisasi atau sudah ditutup — tidak perlu dilaporkan.
+  }
 }
 
 /** Ubah error startup yang umum menjadi petunjuk yang bisa langsung ditindak. */
@@ -98,7 +112,7 @@ try {
 
   // Tutup koneksi lebih dulu supaya proses keluar rapi: memanggil process.exit()
   // saat socket masih aktif memicu assertion libuv di Windows.
-  await Promise.allSettled([disconnectDatabase(), client?.destroy() ?? Promise.resolve()]);
+  await Promise.allSettled([disconnectDatabase(), stopMusic(), client?.destroy() ?? Promise.resolve()]);
   process.exitCode = 1;
 
   // Watchdog: kalau ada handle yang tidak menutup, jangan menggantung selamanya.
