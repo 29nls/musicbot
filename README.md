@@ -520,18 +520,21 @@ secara diam-diam — setiap perubahan selalu karena pilihan member.
 /config set reactions:true
 
 /reactionrole post channel:#pengaturan roles:@Pemain @Penggemar
+/reactionrole post channel:#acara roles:@Peserta duration:7d
 /reactionrole add panel:3 roles:@Developer
 /reactionrole remove panel:3 roles:@Developer
 /reactionrole list
+/reactionrole close panel:3
 /reactionrole delete panel:3
 ```
 
 | Perintah | Fungsi |
 | --- | --- |
-| `/reactionrole post` | Kirim panel baru + select menu (maks 25 role) |
+| `/reactionrole post` | Kirim panel baru + select menu (maks 25 role), opsional `duration` |
 | `/reactionrole add panel roles` | Tambah role ke panel yang ada; pesan panel diedit otomatis |
 | `/reactionrole remove panel roles` | Hapus role dari panel (opsi terakhir tidak boleh dihapus) |
-| `/reactionrole list` | Daftar panel: nomor, channel, jumlah role |
+| `/reactionrole list` | Daftar panel: nomor, channel, jumlah role, sisa masa hidup |
+| `/reactionrole close panel` | Tutup panel sekarang: select menu dilepas, pesan & data tetap ada |
 | `/reactionrole delete panel` | Hapus panel beserta pesannya di channel |
 
 Butuh izin **Manage Server**.
@@ -557,6 +560,51 @@ bisa dibaca — bot hanya menerima ID.
 Data panel disimpan di `reaction_role_panel` + `reaction_role_option`. Opsi
 memakai ID baris sebagai `customId`, jadi mengganti label atau urutan tidak
 mematahkan tombol yang sudah aktif.
+
+### Panel sementara (basi bayangan)
+
+Panel yang hanya perlu hidup selama acara bisa diberi masa hidup:
+
+```bash
+/reactionrole post channel:#acara roles:@Peserta @Panitia duration:7d
+```
+
+| Input | Arti |
+| --- | --- |
+| `duration:7d`, `6h`, `30m` | Panel mati otomatis setelah itu |
+| `duration:2` | Tanpa satuan dibaca sebagai **jam** |
+| `duration:permanen` | Sama seperti tidak diberi `duration` |
+| *(kosong)* | **Permanen** — perilaku bawaan, tidak berubah |
+
+Batasnya 10 menit sampai 365 hari. Input yang tidak terbaca ditolak **saat
+perintah dijalankan**, bukan diabaikan diam-diam — panel yang tanpa sengaja
+menjadi permanen baru ketahuan berminggu-minggu kemudian.
+
+**Yang terjadi saat panel berakhir**
+
+1. Job penyapuan (setiap `PANEL_EXPIRY_SWEEP_MINUTES`, default 15 menit) mengedit
+   pesan panel: **select menu dilepas** dan embed diganti pengumuman "sudah
+   ditutup". Pesannya **tidak dihapus** — jejaknya tetap bisa dibaca admin, dan
+   member yang masih menyimpan tautan ke pesan lama punya penjelasan.
+2. Baris datanya tetap ada dengan `closedAt` terisi, jadi `/reactionrole list`
+   membedakan "sudah ditutup" dari "aktif" dan sapuan berikutnya tidak bekerja
+   dua kali untuk panel yang sama.
+
+Penegasannya ada di dua tempat, karena keduanya menutup celah yang berbeda:
+
+- **Penjaga utama ada di select menu.** Bahkan kalau bot mati atau keceplosan
+  tepat saat masa hidup habis — sehingga pesan di Discord masih punya select
+  menu — member tetap ditolak dengan jelas. Panel yang terlihat aktif tapi sudah
+  berakhir adalah kondisi yang membingungkan; ini yang paling sering dikeluhkan
+  orang soal bot sejenis.
+- **Penyapuan hanya-appearance work.** Ia membersihkan tampilan, tidak
+  memegang kebenaran. Kalau Discord sedang lambat atau guild-nya belum ada di
+  cache, panel tetap benar-benar ditolak.
+
+`/reactionrole close` memakai jalur yang sama persis dengan penyapuan otomatis,
+seperti penutupan tiket: database dan pesan tidak mungkin berbeda pendapat.
+
+Untuk menutup total beserta pesannya, tetap pakai `/reactionrole delete`.
 
 ---
 

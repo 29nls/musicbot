@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   panelEmbed,
   panelListEmbed,
+  panelClosedEmbed,
   buildRoleSelect,
 } from '../src/modules/reactionroles/embeds.js';
 import { ReactionRoleService } from '../src/modules/reactionroles/service.js';
 import type { ReactionRoleRepository } from '../src/modules/reactionroles/repository.js';
 import {
   MAX_PANEL_OPTIONS,
+  isPanelActive,
   parseRoleOptionCustomId,
   roleOptionCustomId,
   type CreatePanelInput,
@@ -19,7 +21,9 @@ import {
 import {
   ReactionRoleValidationError,
   assertPanelKeepsOneOption,
+  describePanelLifetime,
   normalizeRoleInputs,
+  parsePanelDuration,
   parseRoleMentions,
 } from '../src/modules/reactionroles/validation.js';
 
@@ -47,6 +51,8 @@ function panel(overrides: Partial<ReactionRolePanel> = {}): ReactionRolePanel {
     guildId: GUILD_ID,
     channelId: CHANNEL_ID,
     messageId: null,
+    expiresAt: null,
+    closedAt: null,
     createdAt: new Date('2026-10-02T00:00:00.000Z'),
     updatedAt: new Date('2026-10-02T00:00:00.000Z'),
     options: [option()],
@@ -69,6 +75,7 @@ class FakeReactionRoleRepository implements ReactionRoleRepository {
       id: this.nextPanelId++,
       guildId: input.guildId,
       channelId: input.channelId,
+      expiresAt: input.expiresAt,
       options: input.roles.map((role, index) =>
         option({
           id: this.nextOptionId++,
@@ -148,6 +155,29 @@ class FakeReactionRoleRepository implements ReactionRoleRepository {
     this.messages.push({ panelId, messageId });
     const found = this.findPanel(panelId);
     if (found) found.messageId = messageId;
+  }
+
+  async markClosed(
+    guildId: string,
+    panelId: number,
+    now: Date,
+  ): Promise<ReactionRolePanel | null> {
+    const found = this.findPanel(panelId);
+    if (!found || found.guildId !== guildId || found.closedAt) return null;
+
+    found.closedAt = now;
+
+    return { ...found };
+  }
+
+  async findDueForExpiry(now: Date, limit: number): Promise<ReactionRolePanel[]> {
+    return this.panels
+      .filter(
+        (item) => !item.closedAt && item.expiresAt !== null && item.expiresAt <= now,
+      )
+      .sort((a, b) => (a.expiresAt?.getTime() ?? 0) - (b.expiresAt?.getTime() ?? 0))
+      .slice(0, limit)
+      .map((item) => ({ ...item }));
   }
 }
 
@@ -257,6 +287,7 @@ describe('ReactionRoleService', () => {
     const created = await service.create({
       guildId: GUILD_ID,
       channelId: CHANNEL_ID,
+      expiresAt: null,
       roles: [{ roleId: ROLE_A, label: 'Pemain' }, { roleId: ROLE_B, label: 'Penggemar' }],
     });
 
@@ -269,13 +300,13 @@ describe('ReactionRoleService', () => {
     const { service } = makeService();
 
     await expect(
-      service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, roles: [] }),
+      service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, expiresAt: null, roles: [] }),
     ).rejects.toThrow(/minimal satu role/);
   });
 
   it('menolak menambah role yang sudah ada', async () => {
     const { service } = makeService();
-    await service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, roles: [{ roleId: ROLE_A }] });
+    await service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, expiresAt: null, roles: [{ roleId: ROLE_A }] });
 
     await expect(service.addRoles(GUILD_ID, 1, [{ roleId: ROLE_A }])).rejects.toThrow(
       /sudah ada di panel/,
@@ -284,7 +315,7 @@ describe('ReactionRoleService', () => {
 
   it('menambah role baru ke panel', async () => {
     const { service } = makeService();
-    await service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, roles: [{ roleId: ROLE_A }] });
+    await service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, expiresAt: null, roles: [{ roleId: ROLE_A }] });
 
     const panel = await service.addRoles(GUILD_ID, 1, [{ roleId: ROLE_B }]);
 
@@ -293,7 +324,7 @@ describe('ReactionRoleService', () => {
 
   it('panel di server lain tidak bisa diubah', async () => {
     const { service } = makeService();
-    await service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, roles: [{ roleId: ROLE_A }] });
+    await service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, expiresAt: null, roles: [{ roleId: ROLE_A }] });
 
     await expect(service.addRoles('999999999999999999', 1, [{ roleId: ROLE_B }])).resolves.toBeNull();
     await expect(service.removeRoles('999999999999999999', 1, [ROLE_A])).resolves.toBeNull();
@@ -302,7 +333,7 @@ describe('ReactionRoleService', () => {
 
   it('menolak menghapus semua opsi dari panel', async () => {
     const { service } = makeService();
-    await service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, roles: [{ roleId: ROLE_A }] });
+    await service.create({ guildId: GUILD_ID, channelId: CHANNEL_ID, expiresAt: null, roles: [{ roleId: ROLE_A }] });
 
     await expect(service.removeRoles(GUILD_ID, 1, [ROLE_A])).rejects.toThrow(/opsi terakhir/);
   });
@@ -312,6 +343,7 @@ describe('ReactionRoleService', () => {
     await service.create({
       guildId: GUILD_ID,
       channelId: CHANNEL_ID,
+      expiresAt: null,
       roles: [{ roleId: ROLE_A }, { roleId: ROLE_B }],
     });
 
@@ -325,6 +357,7 @@ describe('ReactionRoleService', () => {
     const created = await service.create({
       guildId: GUILD_ID,
       channelId: CHANNEL_ID,
+      expiresAt: null,
       roles: [{ roleId: ROLE_A }],
     });
 
@@ -424,5 +457,203 @@ describe('embed & komponen panel', () => {
     expect(json.description).toContain('**#1**');
     expect(json.description).toContain(`<#${CHANNEL_ID}>`);
     expect(json.description).toContain('2 role');
+  });
+});
+
+describe('masa hidup panel', () => {
+  const NOW = new Date('2026-10-02T12:00:00.000Z');
+
+  it('input kosong berarti permanen, bukan kesalahan', () => {
+    expect(parsePanelDuration(undefined, NOW)).toBeNull();
+    expect(parsePanelDuration('', NOW)).toBeNull();
+  });
+
+  it('kata permanen eksplisit juga berarti permanen', () => {
+    expect(parsePanelDuration('permanen', NOW)).toBeNull();
+    expect(parsePanelDuration('  Selamanya ', NOW)).toBeNull();
+  });
+
+  it('menerima menit, jam, dan hari', () => {
+    expect(parsePanelDuration('30m', NOW)?.toISOString()).toBe('2026-10-02T12:30:00.000Z');
+    expect(parsePanelDuration('6h', NOW)?.toISOString()).toBe('2026-10-02T18:00:00.000Z');
+    expect(parsePanelDuration('7d', NOW)?.toISOString()).toBe('2026-10-09T12:00:00.000Z');
+  });
+
+  it('tanpa satuan dibaca sebagai jam', () => {
+    expect(parsePanelDuration('2', NOW)?.toISOString()).toBe('2026-10-02T14:00:00.000Z');
+  });
+
+  it('menolak satuan yang tidak dikenal', () => {
+    expect(() => parsePanelDuration('7minggu', NOW)).toThrow(/tidak dikenal/);
+  });
+
+  it('menolak input yang sama sekali tidak terbaca', () => {
+    expect(() => parsePanelDuration('seminggu', NOW)).toThrow(/tidak terbaca/);
+  });
+
+  it('menolak masa hidup yang terlalu pendek', () => {
+    expect(() => parsePanelDuration('5m', NOW)).toThrow(/minimal 10 menit/);
+  });
+
+  it('menolak masa hidup yang melebihi setahun', () => {
+    expect(() => parsePanelDuration('400d', NOW)).toThrow(/maksimal 365 hari/);
+  });
+
+  it('mendeskripsikan masa hidup dalam bahasa manusia', () => {
+    expect(describePanelLifetime(7 * 86_400_000)).toBe('7 hari');
+    expect(describePanelLifetime(6 * 3_600_000)).toBe('6 jam');
+    expect(describePanelLifetime(30 * 60_000)).toBe('30 menit');
+  });
+});
+
+describe('isPanelActive', () => {
+  const NOW = new Date('2026-10-02T12:00:00.000Z');
+
+  it('panel permanen tanpa masa hidup selalu aktif', () => {
+    expect(isPanelActive(panel(), NOW)).toBe(true);
+  });
+
+  it('panel dengan masa hidup yang belum habis masih aktif', () => {
+    const future = panel({ expiresAt: new Date('2026-10-03T12:00:00.000Z') });
+
+    expect(isPanelActive(future, NOW)).toBe(true);
+  });
+
+  it('panel yang sudah lewat masa hidup tidak aktif walau belum disapu', () => {
+    const past = panel({ expiresAt: new Date('2026-10-01T12:00:00.000Z') });
+
+    expect(isPanelActive(past, NOW)).toBe(false);
+  });
+
+  it('panel yang sudah ditutup tidak aktif walau masa hidupnya panjang', () => {
+    const closed = panel({ expiresAt: null, closedAt: new Date('2026-10-01T12:00:00.000Z') });
+
+    expect(isPanelActive(closed, NOW)).toBe(false);
+  });
+
+  it('tepat di detik kedaluwarsa sudah dianggap habis', () => {
+    const exact = panel({ expiresAt: NOW });
+
+    expect(isPanelActive(exact, NOW)).toBe(false);
+  });
+});
+
+describe('penyapuan masa hidup', () => {
+  const NOW = new Date('2026-10-02T12:00:00.000Z');
+
+  async function seed(): Promise<{ repository: FakeReactionRoleRepository; service: ReactionRoleService }> {
+    const { repository, service } = makeService();
+
+    await service.create({
+      guildId: GUILD_ID,
+      channelId: CHANNEL_ID,
+      expiresAt: new Date('2026-10-01T12:00:00.000Z'),
+      roles: [{ roleId: ROLE_A }],
+    });
+    await service.create({
+      guildId: GUILD_ID,
+      channelId: CHANNEL_ID,
+      expiresAt: new Date('2026-10-05T12:00:00.000Z'),
+      roles: [{ roleId: ROLE_B }],
+    });
+
+    return { repository, service };
+  }
+
+  it('hanya panel yang sudah lewat masa hidup yang ikut disapu', async () => {
+    const { service } = await seed();
+
+    const due = await service.findDueForExpiry(NOW, 10);
+
+    expect(due.map((item) => item.id)).toEqual([1]);
+  });
+
+  it('panel yang sudah ditutup tidak muncul lagi di sapuan berikutnya', async () => {
+    const { service } = await seed();
+    await service.markClosed(GUILD_ID, 1, NOW);
+
+    expect(await service.findDueForExpiry(NOW, 10)).toEqual([]);
+  });
+
+  it('panel permanen tidak pernah masuk daftar sapuan', async () => {
+    const { service } = makeService();
+    await service.create({
+      guildId: GUILD_ID,
+      channelId: CHANNEL_ID,
+      expiresAt: null,
+      roles: [{ roleId: ROLE_A }],
+    });
+
+    expect(await service.findDueForExpiry(NOW, 10)).toEqual([]);
+  });
+
+  it('menandai panel tertutup hanya sekali', async () => {
+    const { service } = await seed();
+
+    const first = await service.markClosed(GUILD_ID, 1, NOW);
+    const second = await service.markClosed(GUILD_ID, 1, new Date('2026-10-03T00:00:00.000Z'));
+
+    expect(first?.closedAt).toEqual(NOW);
+    expect(second).toBeNull();
+  });
+
+  it('panel di server lain tidak bisa ditandai tertutup', async () => {
+    const { service } = await seed();
+
+    expect(await service.markClosed('999999999999999999', 1, NOW)).toBeNull();
+  });
+
+  it('batas batch dipatuhi supaya satu guild tidak meledakkan API', async () => {
+    const { repository, service } = makeService();
+    for (let index = 0; index < 3; index += 1) {
+      repository.panels.push(
+        panel({ id: index + 1, expiresAt: new Date('2026-10-01T12:00:00.000Z') }),
+      );
+    }
+
+    expect(await service.findDueForExpiry(NOW, 2)).toHaveLength(2);
+  });
+});
+
+describe('embed panel tanpa masa hidup', () => {
+  it('panel permanen menyebut kata permanen', () => {
+    const json = panelEmbed(panel(), new Map()).toJSON();
+
+    expect(json.footer?.text).toContain('tanpa masa hidup');
+  });
+
+  it('panel berjangka memuat timestamp Discord', () => {
+    const json = panelEmbed(
+      panel({ expiresAt: new Date('2026-10-09T12:00:00.000Z') }),
+      new Map(),
+    ).toJSON();
+
+    // Unix 9 Okt 2026 12:00 UTC, format relatif supaya ikut zona waktu member.
+    expect(json.footer?.text).toContain('<t:1791547200:R>');
+  });
+
+  it('embed tertutup menyatakan select menu sudah dilepas', () => {
+    const json = panelClosedEmbed(panel({ closedAt: new Date() }), 'Sudah habis.').toJSON();
+
+    expect(json.description).toContain('Sudah habis.');
+    expect(json.description).toContain('sudah tidak bisa dipakai');
+  });
+
+  it('daftar membedakan panel yang ditutup dari yang masih aktif', () => {
+    const closed = panel({ id: 1, messageId: '555', closedAt: new Date() });
+    const alive = panel({ id: 2, messageId: '555', expiresAt: null });
+
+    const json = panelListEmbed([closed, alive]).toJSON() as { description: string };
+
+    expect(json.description).toContain('sudah ditutup');
+    expect(json.description).toContain('🟢 aktif');
+  });
+
+  it('panel yang lewat masa hidup tapi belum disapu ditandai berbeda', () => {
+    const stale = panel({ id: 1, expiresAt: new Date('2026-10-01T00:00:00.000Z') });
+
+    const json = panelListEmbed([stale]).toJSON() as { description: string };
+
+    expect(json.description).toContain('menunggu sapuan');
   });
 });

@@ -19,6 +19,27 @@ export const MAX_OPTION_DESCRIPTION_LENGTH = 100;
 /** Panjang maksimum nama channel Discord. */
 export const MAX_CHANNEL_NAME_LENGTH = 100;
 
+/** Masa hidup panel paling pendek yang masuk akal (10 menit). */
+export const MIN_PANEL_LIFETIME_MS = 10 * 60_000;
+
+/** Masa hidup panel paling panjang yang bisa diminta (365 hari). */
+export const MAX_PANEL_LIFETIME_MS = 365 * 86_400_000;
+
+/**
+ * Input yang berarti "tidak ada masa hidup" — panel permanen.
+ *
+ * Default `/reactionrole post` jadi permanen supaya perilaku yang sudah ada
+ * tidak berubah; kata-kata ini hanya tersedia kalau admin memang memintanya.
+ */
+export const PERMANENT_DURATION_TOKENS: readonly string[] = [
+  'permanen',
+  'permanan',
+  'selamanya',
+  'tanpa',
+  'none',
+  '0',
+];
+
 export interface ReactionRoleOption {
   id: number;
   panelId: number;
@@ -37,9 +58,27 @@ export interface ReactionRolePanel {
   channelId: string;
   /** ID pesan panel; null kalau pesan belum sempat terkirim. */
   messageId: string | null;
+  /** Kapan select menu harus mati; null = panel permanen. */
+  expiresAt: Date | null;
+  /** Kapan panel dinonaktifkan; null = masih aktif. */
+  closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   options: ReactionRoleOption[];
+}
+
+/**
+ * Apakah panel masih bisa memberi role.
+ *
+ * `expiresAt` ikut diperiksa walau `closedAt` masih null: bot bisa mati atau
+ * connection terputus tepat saat masa hidup habis, sehingga penyapuan belum
+ * sempat menonaktifkan pesannya. Tanpa cek ini, member yang masih menyimpan
+ * pesan lama bisa tetap mengambil role dari panel yang sudah "berakhir".
+ */
+export function isPanelActive(panel: ReactionRolePanel, now = new Date()): boolean {
+  if (panel.closedAt) return false;
+
+  return panel.expiresAt === null || panel.expiresAt > now;
 }
 
 /** Satu role yang akan ditambahkan ke panel. */
@@ -54,6 +93,8 @@ export interface CreatePanelInput {
   guildId: string;
   channelId: string;
   roles: RoleInput[];
+  /** Kapan panel harus mati; null = permanen. */
+  expiresAt: Date | null;
 }
 
 /** Hasil pencarian opsi: opsi + panelnya, untuk handler select menu. */

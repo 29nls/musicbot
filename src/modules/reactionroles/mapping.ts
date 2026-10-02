@@ -9,6 +9,8 @@ export interface ReactionRolePanelRow {
   guildId: string;
   channelId: string;
   messageId: string | null;
+  expiresAt: Date | null;
+  closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +47,8 @@ export function toPanelDomain(row: ReactionRolePanelWithOptions): ReactionRolePa
     guildId: row.guildId,
     channelId: row.channelId,
     messageId: row.messageId,
+    expiresAt: row.expiresAt,
+    closedAt: row.closedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     options: [...row.options]

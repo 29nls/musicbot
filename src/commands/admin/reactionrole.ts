@@ -9,10 +9,13 @@ import { getGuildConfigService } from '../../modules/config/index.js';
 import {
   MAX_PANEL_OPTIONS,
   buildPanelComponents,
+  closePanel,
+  describePanelLifetime,
   getReactionRoleService,
   panelEmbed,
   panelListEmbed,
   panelUpdatedEmbed,
+  parsePanelDuration,
   parseRoleMentions,
   toReactionRoleErrorEmbed,
   type ReactionRolePanel,
@@ -51,6 +54,14 @@ export default {
             .setName('deskripsi')
             .setDescription('Teks singkat di atas select menu')
             .setMaxLength(1_000),
+        )
+        .addStringOption((option) =>
+          option
+            .setName('duration')
+            .setDescription(
+              'Masa hidup panel, mis. 30m, 6h, 7d. Kosongkan untuk permanen.',
+            )
+            .setMaxLength(20),
         ),
     )
     .addSubcommand((sub) =>
@@ -94,6 +105,20 @@ export default {
       sub
         .setName('delete')
         .setDescription('Hapus panel beserta pesannya')
+        .addIntegerOption((option) =>
+          option
+            .setName('panel')
+            .setDescription('Nomor panel')
+            .setMinValue(1)
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('close')
+        .setDescription(
+          'Tutup panel sekarang: select menu dilepas, pesan & datanya tetap ada',
+        )
         .addIntegerOption((option) =>
           option
             .setName('panel')
@@ -147,6 +172,37 @@ export default {
       }
 
       const panelId = interaction.options.getInteger('panel', true);
+
+      if (sub === 'close') {
+        const panel = await service.find(guildId, panelId);
+        if (!panel) {
+          await interaction.editReply({
+            embeds: [warningEmbed(`Panel #${panelId} tidak ada di server ini.`)],
+          });
+          return;
+        }
+
+        const outcome = await closePanel(service, guild, panel, 'manual');
+        if (!outcome.changed) {
+          await interaction.editReply({
+            embeds: [warningEmbed(`Panel **#${panelId}** sudah ditutup sebelumnya.`)],
+          });
+          return;
+        }
+
+        await interaction.editReply({
+          embeds: [
+            successEmbed(
+              outcome.messageUpdated
+                ? `Panel **#${panelId}** ditutup. Select menu-nya sudah dilepas; pesan & datanya tetap tersimpan.`
+                : `Panel **#${panelId}** ditandai sudah tertutup, tapi pesannya tidak bisa diedit ` +
+                    '(kemungkinan sudah dihapus manual). Datanya sudah aman.',
+              '🎭 Panel Ditutup',
+            ),
+          ],
+        });
+        return;
+      }
 
       if (sub === 'delete') {
         const removed = await service.delete(guildId, panelId);
@@ -238,10 +294,15 @@ async function postPanel(interaction: Interaction, guild: Guild): Promise<void> 
   }
 
   const description = interaction.options.getString('deskripsi');
+  // Masa hidup yang tidak terbaca harus ditolak di sini, sebelum panel & pesan
+  // dibuat — menjadikan panel permanen karena salah ketik adalah kegagalan yang
+  // baru ketahuan berminggu-minggu kemudian.
+  const expiresAt = parsePanelDuration(interaction.options.getString('duration'));
   const panel = await getReactionRoleService().create({
     guildId: guild.id,
     channelId: channel.id,
     roles,
+    expiresAt,
   });
 
   const names = roleNameMap(panel);
@@ -250,11 +311,17 @@ async function postPanel(interaction: Interaction, guild: Guild): Promise<void> 
     components: buildPanelComponents(panel, names),
   });
 
-  await getReactionRoleService().attachMessage(panel.id, sent.id);
+  const service = getReactionRoleService();
+  await service.attachMessage(panel.id, sent.id);
+
+  const lifetime = expiresAt
+    ? ` Panel mati otomatis dalam ${describePanelLifetime(expiresAt.getTime() - Date.now())}.`
+    : ' Panel ini permanen.';
+
   await interaction.editReply({
     embeds: [
       successEmbed(
-        `Panel **#${panel.id}** dibuat di ${channel} dengan ${panel.options.length} role.`,
+        `Panel **#${panel.id}** dibuat di ${channel} dengan ${panel.options.length} role.${lifetime}`,
         '🎭 Panel Dibuat',
       ),
     ],

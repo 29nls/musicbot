@@ -6,6 +6,7 @@ import type {
   ReactionRolePanel,
   RoleInput,
 } from './types.js';
+import { MAX_PANEL_OPTIONS } from './types.js';
 import { assertPanelKeepsOneOption, normalizeRoleInputs } from './validation.js';
 
 /**
@@ -24,6 +25,27 @@ export class ReactionRoleService {
     }
 
     return this.repository.create({ ...input, roles });
+  }
+
+  /**
+   * Tandai panel sudah dinonaktifkan; null kalau panel sudah tertutup sebelumnya.
+   *
+   * Penandaan dilakukan **sebelum** pesan diedit supaya bot yang mati di tengah
+   * jalan tidak menyapu panel yang sama berulang kali. Kalau pengeditan pesan
+   * kemudian gagal, panel tetap ditandai tertutup: member lebih baik melihat
+   * select menu yang ditolak daripada panel yang terlihat aktif tapi sudah mati.
+   */
+  async markClosed(
+    guildId: string,
+    panelId: number,
+    now = new Date(),
+  ): Promise<ReactionRolePanel | null> {
+    return this.repository.markClosed(guildId, panelId, now);
+  }
+
+  /** Panel yang masa hidupnya sudah habis — bahan baku job penyapuan. */
+  async findDueForExpiry(now = new Date(), limit = MAX_PANEL_OPTIONS): Promise<ReactionRolePanel[]> {
+    return this.repository.findDueForExpiry(now, limit);
   }
 
   async list(guildId: string): Promise<ReactionRolePanel[]> {

@@ -7,11 +7,13 @@ import { getMusicService, initMusic } from './modules/music/index.js';
 import { clearCaseLinks } from './modules/moderation/index.js';
 import { connectDatabase, disconnectDatabase } from './services/database.js';
 import { getLogger } from './services/logger.js';
+import { startPanelExpiryJob, type PanelExpiryJob } from './services/panelExpiryJob.js';
 import { startRetentionJob, type RetentionJob } from './services/retentionJob.js';
 
 // Disimpan di scope modul supaya bisa ditutup dengan bersih saat startup gagal.
 let client: BotClient | undefined;
 let retentionJob: RetentionJob | undefined;
+let panelExpiryJob: PanelExpiryJob | undefined;
 
 async function main(): Promise<void> {
   // Validasi config lebih dulu: gagal cepat kalau .env belum lengkap.
@@ -43,6 +45,13 @@ async function main(): Promise<void> {
   );
 
   await client.login(env.DISCORD_TOKEN);
+
+  // Baru setelah login: job ini mengubah pesan Discord, jadi butuh guild yang
+  // sudah ada di cache. Dijalankan setelah login supaya sapuan pertamanya tidak
+  // dilewati begitu saja.
+  panelExpiryJob = startPanelExpiryJob({
+    guilds: () => [...(client?.guilds.cache.values() ?? [])],
+  });
 }
 
 function registerProcessHandlers(bot: BotClient): void {
@@ -58,6 +67,7 @@ function registerProcessHandlers(bot: BotClient): void {
     // Tautan kasus berumur pendek dan tidak perlu bertahan melewati restart.
     clearCaseLinks();
     retentionJob?.stop();
+    panelExpiryJob?.stop();
 
     // Jaring pengaman kalau destroy() menggantung (mis. socket tidak menutup).
     const forceExit = setTimeout(() => process.exit(1), 10_000);

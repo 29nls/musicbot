@@ -32,6 +32,7 @@ export function panelEmbed(
   roleNames: ReadonlyMap<string, string>,
   description?: string | null,
 ): EmbedBuilder {
+  const lifetime = panelLifetimeFooter(panel);
   const lines = panel.options.map((option) => {
     const roleName = roleNames.get(option.roleId) ?? 'Role tidak ditemukan';
     const shown = optionLabel(option, roleName);
@@ -53,8 +54,37 @@ export function panelEmbed(
       `${intro}\n\n${lines.join('\n')}` +
         '\n\n*Role yang tidak bisa kamu ambil sendiri? Minta ke moderator server.*',
     )
-    .setFooter({ text: `Panel #${panel.id} · ${panel.options.length} role tersedia` })
+    .setFooter({ text: `Panel #${panel.id} · ${panel.options.length} role tersedia · ${lifetime}` })
     .setTimestamp();
+}
+
+/**
+ * Embed panel yang sudah lewat masa hidup.
+ *
+ * Pesan **tidak dihapus** — jejaknya dibiarkan supaya member yang masih
+ * menyimpan tautan ke panel lama punya penjelasan, dan admin bisa mengaudit
+ * panel mana yang sudah ditutup. Select menu-nya yang dilepas.
+ */
+export function panelClosedEmbed(panel: ReactionRolePanel, reason: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(EMBED_COLORS.warning)
+    .setTitle('🎭 Panel Ini Sudah Ditutup')
+    .setDescription(
+      `Panel **#${panel.id}** sudah tidak bisa dipakai untuk mengambil role.\n\n${reason}\n\n` +
+        'Minta moderator server kalau kamu masih butuh role ini.',
+    )
+    .setFooter({ text: 'Panel · select menu sudah dilepas' })
+    .setTimestamp();
+}
+
+/** "permanen" atau "aktif sampai <t:…:R>" — timestamp Discord ikut zona waktu member. */
+function panelLifetimeFooter(panel: ReactionRolePanel): string {
+  if (!panel.expiresAt) return 'tanpa masa hidup';
+  if (panel.closedAt) return 'sudah ditutup';
+
+  const unix = Math.floor(panel.expiresAt.getTime() / 1_000);
+
+  return `aktif sampai <t:${unix}:R>`;
 }
 
 /**
@@ -127,7 +157,7 @@ export function panelListEmbed(panels: readonly ReactionRolePanel[]): EmbedBuild
       .slice(0, 8)
       .join(', ');
     const more = panel.options.length > 8 ? `, +${panel.options.length - 8} lagi` : '';
-    const state = panel.messageId ? '🟢 aktif' : '🟡 pesan belum terkirim';
+    const state = panelStateLabel(panel);
 
     return `**#${panel.id}** · <#${panel.channelId}> · ${state} · ${panel.options.length} role\n${roles}${more}`;
   });
@@ -150,6 +180,24 @@ export function panelUpdatedEmbed(
 function truncate(value: string, max: number): string {
   const trimmed = value.trim();
   return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
+}
+
+/**
+ * Status panel untuk `/reactionrole list`.
+ *
+ * Panel yang sudah lewat masa hidup tapi belum disapu tetap ditulis "⏳ habis
+ * menunggu sapuan" — itu kondisi nyata yang bisa terjadi selama bot mati, dan
+ * admin perlu tahu bedanya dari panel yang benar-benar sudah ditutup.
+ */
+function panelStateLabel(panel: ReactionRolePanel): string {
+  if (panel.closedAt) return '⚫ sudah ditutup';
+  if (panel.expiresAt && panel.expiresAt <= new Date()) return '⏳ habis, menunggu sapuan';
+  if (panel.expiresAt) {
+    return `🟢 aktif sampai <t:${Math.floor(panel.expiresAt.getTime() / 1_000)}:R>`;
+  }
+  if (!panel.messageId) return '🟡 pesan belum terkirim';
+
+  return '🟢 aktif';
 }
 
 export { roleOptionCustomId };

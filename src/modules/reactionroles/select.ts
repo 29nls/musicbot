@@ -9,7 +9,11 @@ import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService } from '../config/index.js';
 import { toReactionRoleErrorEmbed } from './errors.js';
 import { getReactionRoleService } from './singleton.js';
-import { parseRoleOptionCustomId } from './types.js';
+import { isPanelActive, parseRoleOptionCustomId } from './types.js';
+
+/** Pesan yang sama untuk panel yang sudah ditutup dan yang sudah lewat masa hidup. */
+const CLOSED_PANEL_MESSAGE =
+  'Panel role ini sudah ditutup, jadi role-nya tidak bisa diambil lagi. Minta moderator server.';
 
 /**
  * Tangani pilihan dari select menu panel reaction role.
@@ -45,6 +49,16 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
   }
 
   const { panel, option } = lookup;
+
+  // Penjaga utama, bukan sekadar-operational: bot bisa mati atau keceplosan tepat
+  // saat masa hidup panel habis, sehingga select menu-nya masih ada di Discord
+  // padahal panelnya sudah closed. Member yang masih menyimpan pesan lama tidak
+  // boleh bisa mengambil role dari panel yang sudah berakhir.
+  if (!isPanelActive(panel)) {
+    await reply(interaction, warningEmbed(CLOSED_PANEL_MESSAGE));
+    return;
+  }
+
   const config = await getGuildConfigService().get(panel.guildId);
   if (!config.modules.reactions) {
     await reply(interaction, warningEmbed('Modul reaction role sedang mati di server ini.'));

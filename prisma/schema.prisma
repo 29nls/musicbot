@@ -171,12 +171,19 @@ model ReactionRolePanel {
   channelId String @db.VarChar(20)
   /// ID pesan panel; null kalau pesan belum sempat terkirim.
   messageId String? @db.VarChar(20)
+  /// Kapan select menu harus mati; null = panel permanen.
+  expiresAt DateTime?
+  /// Kapan panel benar-benar dinonaktifkan (oleh job atau perintah close).
+  /// Panel yang punya nilai ini tidak akan disapu lagi.
+  closedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   options ReactionRoleOption[]
 
   @@index([guildId, createdAt(sort: Desc)])
+  /// Disapu job penyapuan: panel dengan masa hidup yang sudah lewat.
+  @@index([expiresAt])
   @@map("reaction_role_panel")
 }
 

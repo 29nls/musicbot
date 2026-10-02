@@ -31,6 +31,10 @@ const envSchema = z.object({
   // Retensi data: berapa jam sekali job membersihkan kasus/peringatan lama.
   // 0 = matikan penjadwalan (mis. kalau pembersihan dijalankan dari cron luar).
   RETENTION_SWEEP_HOURS: z.coerce.number().int().min(0).max(24 * 30).default(6),
+
+  // Berapa menit sekali job menonaktifkan panel reaction role yang lewat masa
+  // hidup. 0 = matikan penjadwalan.
+  PANEL_EXPIRY_SWEEP_MINUTES: z.coerce.number().int().min(0).max(24 * 60).default(15),
 });
 
 export type Env = z.infer<typeof envSchema>;

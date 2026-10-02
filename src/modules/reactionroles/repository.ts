@@ -14,6 +14,8 @@ export interface ReactionRoleRepository {
   delete(guildId: string, panelId: number): Promise<ReactionRolePanel | null>;
   findOption(optionId: number): Promise<PanelOptionLookup | null>;
   attachMessage(panelId: number, messageId: string): Promise<void>;
+  markClosed(guildId: string, panelId: number, now: Date): Promise<ReactionRolePanel | null>;
+  findDueForExpiry(now: Date, limit: number): Promise<ReactionRolePanel[]>;
 }
 
 export class PrismaReactionRoleRepository implements ReactionRoleRepository {
@@ -24,6 +26,7 @@ export class PrismaReactionRoleRepository implements ReactionRoleRepository {
       data: {
         guildId: input.guildId,
         channelId: input.channelId,
+        expiresAt: input.expiresAt,
         options: {
           create: input.roles.map((role, index) => ({
             roleId: role.roleId,
@@ -146,6 +149,50 @@ export class PrismaReactionRoleRepository implements ReactionRoleRepository {
       where: { id: panelId },
       data: { messageId },
     });
+  }
+
+  /**
+   * Tandai panel sudah dinonaktifkan.
+   *
+   * `closedAt: null` sebagai syarat: panel yang sudah tertutup oleh sweep atau
+   * perintah `close` tidak perlu disentuh lagi, dan pengaman ini membuat dua
+   * pemanggil yang berebut (job + perintah admin) aman.
+   */
+  async markClosed(
+    guildId: string,
+    panelId: number,
+    now: Date,
+  ): Promise<ReactionRolePanel | null> {
+    const row = await this.prisma.reactionRolePanel.findFirst({
+      where: { id: panelId, guildId },
+      include: PANEL_INCLUDE,
+    });
+    if (!row || row.closedAt) return null;
+
+    await this.prisma.reactionRolePanel.updateMany({
+      where: { id: panelId, closedAt: null },
+      data: { closedAt: now },
+    });
+
+    return toPanelDomain(row);
+  }
+
+  /**
+   * Panel yang masa hidupnya sudah habis dan belum pernah dinonaktifkan.
+   *
+   * `closedAt: null` membuat hasil ini shrinking: panel yang sudah diurus
+   * tidak akan muncul lagi di sapuan berikutnya, jadi tidak ada pekerjaan
+   * berulang setiap 15 menit.
+   */
+  async findDueForExpiry(now: Date, limit: number): Promise<ReactionRolePanel[]> {
+    const rows = await this.prisma.reactionRolePanel.findMany({
+      where: { closedAt: null, expiresAt: { lte: now } },
+      include: PANEL_INCLUDE,
+      orderBy: { expiresAt: 'asc' },
+      take: limit,
+    });
+
+    return rows.map(toPanelDomain);
   }
 
   private async findById(panelId: number): Promise<ReactionRolePanel | null> {

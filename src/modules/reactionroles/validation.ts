@@ -1,7 +1,10 @@
 import {
   MAX_OPTION_DESCRIPTION_LENGTH,
   MAX_OPTION_LABEL_LENGTH,
+  MAX_PANEL_LIFETIME_MS,
   MAX_PANEL_OPTIONS,
+  MIN_PANEL_LIFETIME_MS,
+  PERMANENT_DURATION_TOKENS,
   type RoleInput,
 } from './types.js';
 
@@ -122,4 +125,74 @@ function trimToNull(value: string | null | undefined, max: number): string | nul
   if (!trimmed) return null;
 
   return trimmed.length > max ? trimmed.slice(0, max) : trimmed;
+}
+
+const DURATION_UNIT_MS: Record<string, number> = {
+  d: 86_400_000,
+  hari: 86_400_000,
+  h: 3_600_000,
+  jam: 3_600_000,
+  m: 60_000,
+  menit: 60_000,
+};
+
+/**
+ * Baca masa hidup panel dari input `/reactionrole post duration:`.
+ *
+ * null berarti **permanen** — entah karena opsi-nya dikosongkan (default) atau
+ * admin menulis `permanen`. Input kosong bukan kesalahan, sedangkan input yang
+ * tidak terbaca harus ditolak supaya admin tidak tanpa sadar membuat panel
+ * yang tidak pernah berakhir.
+ *
+ * Mengembalikan waktu kedaluwarsa (bukan durasinya) supaya pemanggil tidak
+ * perlu menghitung ulang; `now` bisa disuntikkan agar aturannya bisa diuji.
+ */
+export function parsePanelDuration(
+  input: string | null | undefined,
+  now = new Date(),
+): Date | null {
+  const trimmed = input?.trim().toLowerCase();
+  if (!trimmed) return null;
+  if (PERMANENT_DURATION_TOKENS.includes(trimmed)) return null;
+
+  const match = /^(\d{1,5})\s*([a-z]*)$/.exec(trimmed);
+  const amountText = match?.[1];
+  if (!amountText) {
+    throw new ReactionRoleValidationError(
+      `Masa hidup \`${input?.trim()}\` tidak terbaca. ` +
+        'Contoh yang benar: `30m`, `6h`, `7d`, atau `permanen`.',
+    );
+  }
+
+  const amount = Number(amountText);
+  const unit = match?.[2] ?? '';
+  // Tanpa satuan dianggap jam — panel biasanya dipakai per acara, bukan per menit.
+  const multiplier = unit === '' ? 3_600_000 : DURATION_UNIT_MS[unit];
+  if (multiplier === undefined) {
+    throw new ReactionRoleValidationError(
+      `Satuan \`${unit}\` tidak dikenal. Pakai \`m\` (menit), \`h\` (jam), atau \`d\` (hari).`,
+    );
+  }
+
+  const ms = amount * multiplier;
+  if (ms < MIN_PANEL_LIFETIME_MS) {
+    throw new ReactionRoleValidationError(
+      'Masa hidup panel minimal 10 menit. Pakai `permanen` kalau memang tidak ingin berakhir.',
+    );
+  }
+  if (ms > MAX_PANEL_LIFETIME_MS) {
+    throw new ReactionRoleValidationError('Masa hidup panel maksimal 365 hari.');
+  }
+
+  return new Date(now.getTime() + ms);
+}
+
+/** 604_800_000 → "7 hari" (untuk embed & balasan perintah). */
+export function describePanelLifetime(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '0 menit';
+  if (ms % 86_400_000 === 0) return `${ms / 86_400_000} hari`;
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000} jam`;
+  if (ms % 60_000 === 0) return `${ms / 60_000} menit`;
+
+  return `${Math.round(ms / 60_000)} menit`;
 }
