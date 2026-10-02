@@ -105,3 +105,17 @@ model AutomodRule {
   @@unique([guildId, type])
   @@map("automod_rule")
 }
+
+/// Routing log per kategori (PRD §7.3). Tanpa baris = pakai logChannelId global.
+model LogSubscription {
+  id        Int      @id @default(autoincrement())
+  guildId   String   @db.VarChar(20)
+  /// member | message | channel | role | voice | server
+  category  String   @db.VarChar(20)
+  channelId String   @db.VarChar(20)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([guildId, category])
+  @@map("guild_log_subscription")
+}

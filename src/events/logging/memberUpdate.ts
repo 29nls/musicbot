@@ -1,0 +1,75 @@
+import {
+  AuditLogEvent,
+  Events,
+  type GuildMember,
+  type PartialGuildMember,
+} from 'discord.js';
+import { findAuditEntry } from '../../modules/logging/audit.js';
+import { diffIdSets } from '../../modules/logging/diff.js';
+import { dispatchLog } from '../../modules/logging/dispatch.js';
+import { changesField, compactFields, executorFields, logEmbed } from '../../modules/logging/embeds.js';
+import type { BotEvent } from '../../types/event.js';
+
+export default {
+  name: Events.GuildMemberUpdate,
+  async execute(
+    _client,
+    oldMember: GuildMember | PartialGuildMember,
+    newMember: GuildMember,
+  ): Promise<void> {
+    const guild = newMember.guild;
+    const lines: string[] = [];
+
+    if (oldMember.nickname !== newMember.nickname) {
+      lines.push(
+        `• **Nama panggilan**: ${oldMember.nickname ?? '—'} → ${newMember.nickname ?? '—'}`,
+      );
+    }
+
+    let rolesChanged = false;
+    if (!oldMember.partial) {
+      const { added, removed } = diffIdSets(
+        [...oldMember.roles.cache.keys()],
+        [...newMember.roles.cache.keys()],
+      );
+
+      if (added.length > 0) {
+        lines.push(`• **Role ditambahkan**: ${added.map((id) => `<@&${id}>`).join(', ')}`);
+      }
+      if (removed.length > 0) {
+        lines.push(`• **Role dihapus**: ${removed.map((id) => `<@&${id}>`).join(', ')}`);
+      }
+      rolesChanged = added.length > 0 || removed.length > 0;
+    }
+
+    const timeoutBefore = oldMember.communicationDisabledUntilTimestamp;
+    const timeoutAfter = newMember.communicationDisabledUntilTimestamp;
+    const timeoutChanged = timeoutBefore !== timeoutAfter;
+
+    if (timeoutChanged) {
+      const format = (timestamp: number | null): string =>
+        timestamp ? `<t:${Math.floor(timestamp / 1_000)}:R>` : '—';
+      lines.push(`• **Timeout**: ${format(timeoutBefore)} → ${format(timeoutAfter)}`);
+    }
+
+    if (lines.length === 0) return;
+
+    const change = changesField(lines);
+    const auditType = rolesChanged && !timeoutChanged
+      ? AuditLogEvent.MemberRoleUpdate
+      : AuditLogEvent.MemberUpdate;
+    const entry = await findAuditEntry(guild, auditType, { targetId: newMember.id });
+
+    const embed = logEmbed({
+      category: 'member',
+      title: '📝 Member Diperbarui',
+      fields: compactFields([
+        { name: 'Member', value: `<@${newMember.id}> (\`${newMember.user.tag}\`)`, inline: true },
+        change,
+        ...executorFields(entry),
+      ]),
+    });
+
+    await dispatchLog(guild, 'member', embed);
+  },
+} satisfies BotEvent<'guildMemberUpdate'>;

@@ -290,7 +290,50 @@ dibuang setiap kali rule diubah).
 
 ---
 
-## 7. Struktur proyek
+## 7. Logging (M4)
+
+Aktifkan modulnya lewat `/config set logging:true` (atau wizard `/setup`).
+Semua event Discord penting dipetakan ke **6 kategori**, masing-masing dengan
+embed berwarna, timestamp, executor (dari audit log bila tersedia), target, dan
+alasan bila ada:
+
+| Kategori | Event yang dicatat |
+| --- | --- |
+| 👤 Member | join, leave, nickname, role ditambah/dihapus, timeout, ban, unban |
+| 💬 Pesan | hapus, edit (sebelum → sesudah), hapus massal |
+| 📁 Channel | dibuat, dihapus, diubah (nama, topik, NSFW, slowmode, kategori, batas user, overwrite izin) |
+| 🎭 Role | dibuat, dihapus, diubah (nama, warna, tampil terpisah, mentionable, izin) |
+| 🔊 Voice | join, leave, pindah, mute/deafen self & server, streaming |
+| 🏠 Server | emoji & sticker (tambah/ubah/hapus), boost tier, jumlah boost, vanity URL, nama/pemilik/ikon server |
+
+### `/logging` — routing per kategori
+
+| Perintah | Fungsi |
+| --- | --- |
+| `/logging show` | Tampilkan routing semua kategori + status modul |
+| `/logging set <category> <channel>` | Arahkan satu kategori ke channel tertentu |
+| `/logging reset <category>` | Hapus routing kategori → kembali memakai channel log global |
+
+Butuh izin **Manage Server**. Routing bersifat dua tingkat: kategori yang belum
+diarahkan otomatis memakai `logChannelId` global, sehingga server kecil cukup
+satu channel dan server besar bisa memisahkan misalnya `#log-pesan` dan
+`#log-member`. Perubahan berlaku seketika (cache 60 detik dibuang tiap kali
+diubah).
+
+**Catatan operasional**
+
+- Best-effort: channel belum diatur/hilang atau modul logging mati tidak pernah
+  menggagalkan alur event — kegagalan hanya dicatat di log internal bot.
+- Executor diambil dari audit log Discord; perubahan yang tidak tercatat di
+  audit log (misalnya member mengganti nickname sendiri) tampil tanpa executor.
+- Edit/hapus pesan memakai snapshot cache Discord — pesan lama yang tidak
+  ter-cache tampil sebagai *isi tidak tersedia*.
+- Boost dipantau lewat perubahan `premiumTier`/jumlah boost di event
+  `guildUpdate`, karena discord.js 14.27 tidak punya event boost tersendiri.
+
+---
+
+## 8. Struktur proyek
 
 ```
 prisma/
@@ -303,10 +346,10 @@ src/
 │  ├─ core/                 # /ping, /help, /config, /setup         (M0–M1 ✅)
 │  ├─ music/                # /play, /queue, /nowplaying, /skip,
 │  │                        # /pause, /resume, /stop + _shared.ts   (M2 ✅)
-│  └─ admin/                # /ban … /purge (M3 ✅) + /automod (M4 ✅)
+│  └─ admin/                # /ban … /note (M3 ✅), /automod & /logging (M4 ✅)
 │                           # _shared.ts berisi gate & alur aksi bersama
 ├─ events/                  # satu file = satu event Discord
-│                           # + guildMemberAdd/Remove & messageCreate (automod)
+│  └─ logging/              # 22 event → embed 6 kategori (M4 ✅)
 ├─ handlers/                # loader perintah & event (auto-discovery)
 ├─ modules/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
@@ -314,7 +357,7 @@ src/
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
 │  ├─ automod/              # engine 7 rule + tracker state          (M4 ✅)
-│  └─ logging/              # event → embed log 6 kategori (sisa M4)
+│  └─ logging/              # routing channel per kategori + diff/audit helper (M4 ✅)
 ├─ services/                # logger, Prisma client, deteksi error database
 ├─ utils/                   # cooldown, embed, durasi, izin, module loader
 ├─ config/                  # env (zod) + konstanta
@@ -360,7 +403,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
 ---
 
-## 8. Perintah npm
+## 9. Perintah npm
 
 | Perintah | Fungsi |
 | --- | --- |
@@ -383,7 +426,7 @@ setiap push/PR.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | --- | --- |
