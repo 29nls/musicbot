@@ -159,6 +159,7 @@ menyebut field bermasalahnya.
 | `/seek <posisi>` | Lompat ke posisi (`90`, `1:30`, `1m30s`) | DJ |
 | `/playlist <subcommand>` | Simpan & putar playlist: `create` `add` `remove` `list` `show` `play` `delete` `public` | Semua (harus di voice channel untuk `play`) |
 | `/filter <mode>` | Ubah warna suara: bassboost, nightcore, vaporwave, 8D, atau `off` | DJ |
+| `/lyrics [judul]` | Lirik lagu yang sedang diputar (baris aktif ditandai `▶`), atau cari lirik lewat judul | Semua |
 | `/disconnect` | Bot keluar dari voice channel, antrean dikosongkan | DJ |
 
 **Playlist: simpan, buka lagi, dan bagikan ke server ini**
@@ -213,11 +214,42 @@ Tiga hal yang perlu diketahui:
 - **`/disconnect` mengembalikan filter ke `off`** bersama seluruh state server;
   `/stop` tidak — sama seperti mode loop dan volume.
 
+**Lirik: mengikuti baris yang sedang berbunyi**
+
+`/lyrics` menampilkan lirik lagu yang **sedang diputar**; `/lyrics <judul>`
+mencari lirik lagu apa pun dari kanal teks, tanpa perlu ada musik yang berbunyi.
+
+Sumbernya **LRCLIB** (gratis, tanpa API key) dengan **lirik ikut timing**.
+Kalau LRCLIB tidak punya lirik untuk sebuah lagu, bot memakai Genius — tapi
+**hanya kalau `GENIUS_ACCESS_TOKEN` diisi** di `.env`; kosong (default) berarti
+bot tidak pernah menyentuh Genius sama sekali.
+
+Yang perlu diketahui:
+
+- **Baris aktif ditandai `▶`.** Lirik sinkron tidak ditampilkan semuanya
+  sekaligus: yang muncul adalah 3 baris sebelum + baris aktif + 4 baris
+  sesudah, jadi orang bisa ikut menyanyikan tanpa menggulir ratusan baris.
+  Lirik tanpa timing (atau lirik polos dari Genius) ditampilkan dari atas
+  sampai 20 baris, lalu dipotong dan jumlah barisnya disebut di footer.
+- **Tidak ada lirik ≠ ada yang rusak.** Sumber yang memang tidak punya lirik
+  dibalas "tidak ditemukan" (dengan saran pakai `/lyrics <judul>`), sedangkan
+  sumber yang sedang bermasalah dibalas berbeda — jadi tidak ada pesan "tidak
+  ada lirik" yang sebenarnya berarti "LRCLIB sedang down".
+- **Tidak ada yang disimpan ke database.** Lirik disimpan di memori selama 6 jam
+  supaya orang tidak mengetuk API berulang, lalu dibuang — tidak ada satu pun
+  baris lirik yang ditulis ke database Harmony.
+- **Pencarian lagunya dibersihkan dulu**: `(Official Music Video)`, `[HD]`,
+  `feat. ...`, dan akhiran `- Topic` dibuang sebelum dikirim ke sumber, karena
+  judul mentah dari YouTube hampir tidak pernah cocok dengan judul di
+  database lirik.
+- Genre instrumental sengaja dilewati — liriknya cuma "[Instrumental]", bukan
+  sesuatu yang perlu ditampilkan.
+
 **`/search`: pilih dari daftar, bukan mengetik URL**
 
 `/search <kata kunci>` mencari lewat YouTube lalu menampilkan **5 hasil teratas**
 dalam string select menu. Memilih satu akan memutar lagu itu (atau menambahkannya
-ke antrean kalau sudah ada yangberbunyi sedang berbunyi).
+ke antrean kalau sudah ada yang berbunyi).
 
 Dua hal yang perlu diketahui:
 
@@ -1052,6 +1084,9 @@ src/
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
 │  │                        # searchSession.ts = state /search, searchSelect.ts = pilihannya
+│  ├─ lyrics/               # lirik LRCLIB + cadangan Genius (Fase 2 ✅)
+│  │                        # lrc.ts = parser LRC & baris aktif, query.ts = judul + HTML Genius
+│  │                        # service.ts = sumber lirik + cache, embeds.ts = tampilan
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
 │  │                        # caseLink.ts menjembatani aksi ↔ event Discord
 │  │                        # caseView.ts = isi halaman /case
@@ -1147,12 +1182,12 @@ berulang, bukan disembunyikan.
 yang tidak di-commit). Angka baseline saat hardening M5: **~43% statements**.
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
-fungsi `execute` 40 perintah, repository Prisma, dan barrel `index.ts` — yang
+fungsi `execute` 43 perintah, repository Prisma, dan barrel `index.ts` — yang
 sengaja dibuat tipis dan hanya bisa diuji dengan Discord/Postgres yang hidup.
 Logika inti justru tercover tinggi: mesin automod, mapping & hierarki
-moderasi, agregasi log, loop/posisi/shuffle musik, privasi, dan validasi
-tiket semuanya di atas 90%. Menaikkan angka global dengan mem-bypass lapisan
-lem lewat mock besar akan menguji mock itu sendiri, bukan bot.
+moderasi, agregasi log, loop/posisi/shuffle/filter musik, parser lirik, privasi,
+dan validasi tiket semuanya di atas 90%. Menaikkan angka global dengan
+mem-bypass lapisan lem lewat mock besar akan menguji mock itu sendiri, bukan bot.
 ---
 
 ## 13. Perintah npm

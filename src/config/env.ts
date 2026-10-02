@@ -35,6 +35,10 @@ const envSchema = z.object({
   // Berapa menit sekali job menonaktifkan panel reaction role yang lewat masa
   // hidup. 0 = matikan penjadwalan.
   PANEL_EXPIRY_SWEEP_MINUTES: z.coerce.number().int().min(0).max(24 * 60).default(15),
+
+  // Lirik (PRD 5.2). LRCLIB gratis dan tanpa API key, jadi ini default-nya.
+  GENIUS_ACCESS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  LYRCLIB_BASE_URL: z.string().min(1).default('https://lrclib.net/api'),
 });
 
 export type Env = z.infer<typeof envSchema>;
