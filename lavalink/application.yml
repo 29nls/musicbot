@@ -1,0 +1,107 @@
+# Konfigurasi Lavalink v4 — mesin audio Harmony.
+# Dipasang read-only ke container oleh docker-compose.yml.
+#
+# Password dibaca dari environment LAVALINK_SERVER_PASSWORD (lihat compose).
+# Jangan simpan password asli di file ini.
+
+server:
+  port: ${SERVER_PORT:2333}
+  address: 0.0.0.0
+
+# ── Konfigurasi plugin (level root, bukan di dalam `lavalink:`) ────────────
+plugins:
+  # Sumber audio utama: YouTube lewat plugin resmi lavalink-devs.
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    # Urutan klien penting: yang pertama dicoba lebih dulu.
+    # Kalau muncul error "sign in to confirm you're not a bot", aktifkan OAuth:
+    # https://github.com/lavalink-devs/youtube-source#using-oauth-tokens
+    clients:
+      - MUSIC
+      - ANDROID_VR
+      - WEB
+      - WEBEMBEDDED
+
+  # LavaSrc: metadata Spotify/Apple Music + lirik (dipakai mulai Fase 2).
+  # Semua sumber dibiarkan false supaya tidak butuh kredensial di M0.
+  # Aktifkan satu per satu sambil mengisi clientId/clientSecret-nya.
+  lavasrc:
+    sources:
+      spotify: false
+      applemusic: false
+      deezer: false
+      yandexmusic: false
+      vkmusic: false
+      tidal: false
+      qobuz: false
+      ytdlp: false
+      jiosaavn: false
+      flowerytts: false
+      youtube: false
+    lyrics-sources:
+      lrcLib: true # lirik gratis tanpa kredensial, siap dipakai nanti
+    spotify:
+      countryCode: "ID"
+
+lavalink:
+  # Plugin diunduh otomatis saat container pertama kali start.
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
+      snapshot: false
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
+      snapshot: false
+
+  server:
+    password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
+    sources:
+      youtube: false # WAJIB false: sudah ditangani youtube-plugin di atas
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      nico: false
+      http: false
+      local: false
+    filters:
+      volume: true
+      equalizer: true
+      karaoke: false
+      timescale: false
+      tremolo: false
+      vibrato: false
+      distortion: false
+      rotation: false
+      channelMix: false
+      lowPass: false
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: HIGH
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+    gc-warnings: true
+    ratelimit:
+      ipBlocks: []
+      excludedIps: []
+      strategy: RotateOnBan
+      searchTriggersFail: true
+      retryLimit: 3
+
+metrics:
+  prometheus:
+    enabled: false
+    endpoint: /metrics
+
+logging:
+  file:
+    path: ./logs/
+  level:
+    root: INFO
+    lavalink: INFO

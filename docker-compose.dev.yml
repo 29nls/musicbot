@@ -1,0 +1,20 @@
+# Overlay untuk development: bot dijalankan dari host (`npm run dev`), jadi
+# Lavalink/Postgres/Redis perlu bisa diakses lewat localhost.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Port sengaja di-bind ke 127.0.0.1 saja (tidak terbuka ke jaringan luar).
+# Untuk produksi, pakai docker-compose.yml saja — bot ikut jalan di container.
+
+services:
+  lavalink:
+    ports:
+      - "127.0.0.1:2333:2333"
+
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"

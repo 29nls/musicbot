@@ -406,7 +406,7 @@ Bagian ini **tidak boleh dilewati** — inilah yang menumbangkan Groovy & Rythm.
 
 | Fase | Durasi | Deliverable | Kriteria Selesai |
 | --- | --- | --- | --- |
-| **M0 — Riset & Setup** | 3 hari | Repo, CI, Docker Compose, skeleton bot, deploy command ke 1 test server | `/ping` jalan di server test |
+| **M0 — Riset & Setup** | 3 hari | Repo, CI, Docker Compose, skeleton bot, deploy command ke 1 test server | `/ping` jalan di server test — 🟡 *kode & infra selesai (lihat [README.md](README.md)); deploy ke server test menunggu token Discord* |
 | **M1 — Fondasi** | 1 minggu | Koneksi DB, config service, `/setup`, `/config`, logging infra | Konfigurasi per-server tersimpan & terbaca |
 | **M2 — Music MVP** | 2 minggu | Lavalink terpasang, `/play`, `/queue`, `/skip`, `/pause`, `/stop`, `/nowplaying`, loop, volume | Bisa memutar & mengelola antrean 20 lagu berturut-turut tanpa error |
 | **M3 — Admin MVP** | 2 minggu | Moderation commands + case system + welcome + autorole | Semua AC US-04 & US-05 lolos |
@@ -490,3 +490,4 @@ Bagian ini **tidak boleh dilewati** — inilah yang menumbangkan Groovy & Rythm.
 | Versi | Tanggal | Perubahan | Penulis |
 | --- | --- | --- | --- |
 | v1.0 | 2 Okt 2026 | Draft awal | (isi nama) |
+| v1.0 | 2 Okt 2026 | M0 dieksekusi: scaffold proyek (TypeScript strict + ESLint + Vitest), validasi env dengan zod, loader perintah/event otomatis, `/ping` + `/help`, Docker Compose (bot + Lavalink v4 + PostgreSQL + Redis), CI GitHub Actions | Buffy |

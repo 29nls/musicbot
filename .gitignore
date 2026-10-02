@@ -1,1 +1,25 @@
-.freebuff
+# Dependency & build
+node_modules/
+dist/
+coverage/
+
+# Environment (rahasia!)
+.env
+.env.*
+!.env.example
+
+# Log
+*.log
+logs/
+lavalink/logs/
+lavalink/plugins/
+
+# Editor & OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Tooling metadata
+.freebuff/

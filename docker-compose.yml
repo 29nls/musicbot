@@ -1,0 +1,87 @@
+# Stack lengkap Harmony: bot + mesin audio (Lavalink) + database + cache.
+#
+#   docker compose up -d --build      # semua service
+#   docker compose up -d lavalink     # mesin audio saja (untuk `npm run dev` dari host)
+#   docker compose logs -f bot        # lihat log bot
+#
+# Nilai rahasia dibaca dari file .env di folder ini (lihat .env.example).
+
+name: harmony
+
+services:
+  bot:
+    build: .
+    image: harmony-bot:local
+    container_name: harmony-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      # Hostname diganti ke nama service supaya bot bisa menemukan container lain.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
+      REDIS_URL: redis://redis:6379
+      LAVALINK_HOST: lavalink
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      lavalink:
+        condition: service_started
+
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4-alpine
+    container_name: harmony-lavalink
+    restart: unless-stopped
+    environment:
+      # Harus sama dengan LAVALINK_PASSWORD di .env (dipakai bot untuk login).
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env}
+      # Heap Lavalink. Naikkan (mis. -Xmx2G) kalau sering memutar lagu panjang.
+      JAVA_TOOL_OPTIONS: -Xmx1G
+    volumes:
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+      # Plugin (youtube-source, LavaSrc) diunduh sekali lalu disimpan di sini.
+      - lavalink_plugins:/opt/Lavalink/plugins
+    # Sengaja TIDAK memakai ports: agar hanya bisa diakses dari jaringan compose.
+    # Butuh debug dari host? Tambahkan:  ports: ["127.0.0.1:2333:2333"]
+    expose:
+      - "2333"
+    # Lavalink belum punya healthcheck bawaan; bot akan mencoba reconnect sendiri.
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: harmony-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-harmony}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}
+      POSTGRES_DB: ${POSTGRES_DB:-harmony}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-harmony} -d ${POSTGRES_DB:-harmony}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Butuh akses dari host (mis. Prisma Studio)? Buka sebaris ini:
+    # ports: ["127.0.0.1:5432:5432"]
+
+  redis:
+    image: redis:7-alpine
+    container_name: harmony-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  lavalink_plugins:
