@@ -4,10 +4,10 @@ Bot Discord serbaguna: pemutaran musik berkualitas tinggi (Lavalink) + moderasi
 komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 
 > **Status: M5 selesai + Fase 3 (statistik).**
-> **46 slash command** terdaftar: 19 admin/moderasi (`/ban`, `/unban`, `/kick`,
+> **46 slash command** terdaftar: 20 admin/moderasi (`/ban`, `/unban`, `/kick`,
 > `/timeout`, `/warn`, `/warnings`, `/unwarn`, `/purge`, `/slowmode`, `/lock`,
 > `/unlock`, `/note`, `/case`, `/modprofile`, `/automod`, `/logging`, `/logs`,
-> `/customcommand`, `/reactionrole`, `/ticket`, `/config`), 18 musik (`/play`,
+> `/customcommand`, `/reactionrole`, `/ticket`), 20 musik (`/play`,
 > `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`, `/disconnect`,
 > `/volume`, `/loop`, `/seek`, `/shuffle`, `/move`, `/remove`, `/filter`,
 > `/lyrics`, `/search`, `/playlist`, `/stats`, `/247`), dan 6 inti (`/setup`,
@@ -1763,7 +1763,7 @@ Tanpa opsi `user`, perintahnya untuk dirimu sendiri. Dengan `user:<member>`,
 butuh izin **Moderate Members** — sama persis dengan `/case`, karena membaca
 inventaris orang lain setara dengan membaca kasusnya.
 
-### `/data-delete` — meminta data pribvim dihapus
+### `/data-delete` — meminta data pribadi dihapus
 
 Dua langkah: jalankan tanpa `confirm:true` untuk melihat proyeksi dampaknya,
 lalu ulangi dengan `confirm:true` untuk mengeksekusi. Ini satu-satunya perintah
