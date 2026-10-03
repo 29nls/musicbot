@@ -21,6 +21,7 @@ export interface GuildConfigRow {
   ticketCategoryId: string | null;
   ticketStaffRoleId: string | null;
   ticketPanelMessageId: string | null;
+  stayChannelId: string | null;
   modulesEnabled: unknown;
   locale: string;
 }
@@ -43,6 +44,7 @@ export function toDomain(row: GuildConfigRow): GuildConfig {
     ticketCategoryId: row.ticketCategoryId,
     ticketStaffRoleId: row.ticketStaffRoleId,
     ticketPanelMessageId: row.ticketPanelMessageId,
+    stayChannelId: row.stayChannelId,
     modules: parseModules(row.modulesEnabled),
     locale: row.locale,
   };
@@ -68,6 +70,7 @@ export function toPrismaData(config: GuildConfig) {
     ticketCategoryId: config.ticketCategoryId,
     ticketStaffRoleId: config.ticketStaffRoleId,
     ticketPanelMessageId: config.ticketPanelMessageId,
+    stayChannelId: config.stayChannelId,
     modulesEnabled: { ...config.modules },
     locale: config.locale,
   };

@@ -2,12 +2,31 @@ import type { EmbedBuilder, StringSelectMenuInteraction } from 'discord.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { componentCooldownKey, routeComponent } from '../src/handlers/componentRouter.js';
 import { getSearchSessionStore, SEARCH_SELECT_PREFIX } from '../src/modules/music/index.js';
-import { checkCooldown } from '../src/utils/cooldown.js';
+import { checkCooldown, setCooldownStore } from '../src/utils/cooldown.js';
+import { MemoryKeyValueStore } from '../src/services/kvStore.js';
 import type { TrackInfo } from '../src/modules/music/types.js';
 
 const GUILD = 'guild-1';
 
 type Kind = 'button' | 'select' | 'modal';
+
+/**
+ * Simpan session pencarian untuk tes.
+ *
+ * `put` mengembalikan null kalau session tidak bisa disimpan; di sini itu
+ * kegagalan setup, bukan keadaan yang sedang diuji, jadi tes berhenti langsung.
+ */
+async function putSession(input: { requesterId: string; query?: string; title?: string }) {
+  const session = await getSearchSessionStore().put({
+    guildId: GUILD,
+    requesterId: input.requesterId,
+    query: input.query ?? 'lofi',
+    tracks: [track(input.title ?? 'Lagu Satu')],
+  });
+
+  if (!session) throw new Error('session tidak tersimpan');
+  return session;
+}
 
 interface CapturedReply {
   embeds: EmbedBuilder[];
@@ -73,7 +92,13 @@ function track(title: string): TrackInfo {
 
 describe('routeComponent', () => {
   beforeEach(() => {
-    getSearchSessionStore().clear();
+    // Store cooldown terisolasi per file tes: store yang sama akan ikut
+    // state-nya akan ikut bercampur dengan file tes lain kalau tidak
+    // dipasang ulang di sini.
+    setCooldownStore(new MemoryKeyValueStore());
+  });
+  beforeEach(async () => {
+    await getSearchSessionStore().clear();
   });
 
   it('membiarkan komponen milik collector lain lewat tanpa membalas', async () => {
@@ -107,12 +132,7 @@ describe('routeComponent', () => {
 
   it('menyerahkan session kepada handler sampai habis', async () => {
     const store = getSearchSessionStore();
-    const session = store.put({
-      guildId: GUILD,
-      requesterId: 'u-consume',
-      query: 'lofi',
-      tracks: [track('Lagu Satu')],
-    });
+    const session = await putSession({ requesterId: 'u-consume' });
 
     const { interaction, replies } = fakeComponent(
       'select',
@@ -121,22 +141,17 @@ describe('routeComponent', () => {
     );
 
     expect(await routeComponent(interaction)).toBe(true);
-    expect(store.peek(session.token)).toBeUndefined();
+    expect(await store.peek(session.token)).toBeUndefined();
     expect(replies).toHaveLength(1);
   });
 
   it('menahan klik yang terlalu cepat dan tidak memakai session', async () => {
     const store = getSearchSessionStore();
-    const session = store.put({
-      guildId: GUILD,
-      requesterId: 'u-fast',
-      query: 'lofi',
-      tracks: [track('Lagu Satu')],
-    });
+    const session = await putSession({ requesterId: 'u-fast' });
 
     // Isi bucket langsung: klik pertama yang memicu cooldown sudah diuji di
     // tests/cooldown.test.ts, jadi di sini cukup kondisi "bucket sudah penuh".
-    checkCooldown(componentCooldownKey(SEARCH_SELECT_PREFIX, 'select', 'u-fast'), 3);
+    await checkCooldown(componentCooldownKey(SEARCH_SELECT_PREFIX, 'select', 'u-fast'), 3);
 
     const { interaction, replies } = fakeComponent(
       'select',
@@ -146,11 +161,11 @@ describe('routeComponent', () => {
 
     expect(await routeComponent(interaction)).toBe(true);
     expect(replyText(replies)).toContain('Tunggu');
-    expect(store.peek(session.token)).toBeDefined();
+    expect(await store.peek(session.token)).toBeDefined();
   });
 
   it('cooldown satu user tidak mengenai user lain', async () => {
-    checkCooldown(componentCooldownKey(SEARCH_SELECT_PREFIX, 'select', 'u-slow-a'), 3);
+    await checkCooldown(componentCooldownKey(SEARCH_SELECT_PREFIX, 'select', 'u-slow-a'), 3);
 
     const { interaction, replies } = fakeComponent('select', `${SEARCH_SELECT_PREFIX}deadbeef`, 'u-slow-b');
 

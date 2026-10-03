@@ -3,12 +3,11 @@ import { EMBED_COLORS } from '../../config/constants.js';
 import { formatDuration } from '../../utils/duration.js';
 import { filterModeLabel } from './filters.js';
 import { trackLimitReason } from './limits.js';
+import { buildQueuePage, type QueuePage } from './queuePage.js';
 import { loopModeLabel } from './loop.js';
 import { formatSeconds } from './searchSession.js';
 import { describeTrack, formatTrackDuration, progressBar } from './track.js';
 import type { PlayOutcome, QueueSnapshot, TrackInfo } from './types.js';
-
-const MAX_QUEUE_LINES = 10;
 
 /** Batas baris hasil pencarian pada satu embed. */
 const MAX_SEARCH_LINES = 5;
@@ -58,8 +57,11 @@ export function nowPlayingEmbed(track: TrackInfo, snapshot: QueueSnapshot): Embe
   return embed;
 }
 
-/** Daftar antrean (maksimal 10 baris supaya tetap terbaca di ponsel). */
-export function queueEmbed(snapshot: QueueSnapshot): EmbedBuilder {
+/** Daftar antrean, satu halaman 10 lagu (AC §8 US-02). */
+export function queueEmbed(
+  snapshot: QueueSnapshot,
+  page?: QueuePage<TrackInfo>,
+): EmbedBuilder {
   const embed = new EmbedBuilder().setColor(EMBED_COLORS.music).setTitle('🎶 Antrean Musik').setTimestamp();
 
   if (snapshot.current) {
@@ -69,23 +71,37 @@ export function queueEmbed(snapshot: QueueSnapshot): EmbedBuilder {
     });
   }
 
-  const upcoming = snapshot.upcoming.slice(0, MAX_QUEUE_LINES);
+  // Tanpa halaman eksplisit, embed tetap memakai potongan pertama seperti
+  // sebelumnya, supaya pemanggil lain tidak ikut berubah perilakunya.
+  const current: QueuePage<TrackInfo> = page ?? buildQueuePage(snapshot.upcoming, 1);
+  const upcoming = current.items;
+  const offset = current.startIndex;
+  const pageDurationMs = upcoming.reduce((total, track) => total + track.durationMs, 0);
+  const paged = current.totalPages > 1;
 
   if (upcoming.length > 0) {
+    const title = paged
+      ? `Berikutnya (halaman ${current.page}/${current.totalPages}) — ${upcoming.length} lagu • ${formatDuration(pageDurationMs)}`
+      : `Berikutnya — ${upcoming.length} lagu • ${formatDuration(snapshot.upcomingDurationMs)}`;
+
     embed.addFields({
-      name: `Berikutnya — ${upcoming.length} lagu • ${formatDuration(snapshot.upcomingDurationMs)}`,
+      name: title,
+      // Nomor dihitung dari posisi di antrean utuh: di halaman 3, baris
+      // pertama tetap "21." supaya `/remove 21` menunjuk lagu yang sama.
       value: upcoming
-        .map((track, index) => `\`${index + 1}.\` ${describeTrack(track)} \`${formatTrackDuration(track)}\``)
+        .map((track, index) => `\`${offset + index + 1}.\` ${describeTrack(track)} \`${formatTrackDuration(track)}\``)
         .join('\n'),
     });
   } else {
     embed.addFields({ name: 'Berikutnya', value: '*antrean kosong*' });
   }
 
-  if (snapshot.upcoming.length > MAX_QUEUE_LINES) {
+  if (paged) {
     embed.setFooter({
-      text: `+${snapshot.upcoming.length - MAX_QUEUE_LINES} lagu lain tidak ditampilkan`,
+      text: `+${current.hiddenCount} lagu lain di halaman lain • pakai tombol untuk berpindah`,
     });
+  } else if (current.hiddenCount > 0) {
+    embed.setFooter({ text: `+${current.hiddenCount} lagu lain tidak ditampilkan` });
   }
 
   return embed;

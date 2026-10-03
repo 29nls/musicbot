@@ -44,8 +44,12 @@ model GuildConfig {
   /// ID pesan panel tiket, supaya bisa diedit tanpa kirim ulang.
   ticketPanelMessageId String? @db.VarChar(20)
 
-  /// Modul aktif: { music, moderation, automod, logging, reactions, tickets }
-  modulesEnabled Json @default("{\"music\": true, \"moderation\": true, \"automod\": false, \"logging\": false, \"reactions\": false, \"tickets\": false}")
+  /// Channel voice 24/7: kalau diisi, bot menjaga channel ini tetap
+  /// tersambung dan tidak keluar otomatis saat antrean habis.
+  stayChannelId String? @db.VarChar(20)
+
+  /// Modul aktif: { music, moderation, automod, logging, reactions, tickets, customCommands }
+  modulesEnabled Json @default("{\"music\": true, \"moderation\": true, \"automod\": false, \"logging\": false, \"reactions\": false, \"tickets\": false, \"customCommands\": false}")
 
   locale String @default("id") @db.VarChar(5)
 
@@ -282,4 +286,33 @@ model CustomCommand {
   @@unique([guildId, name])
   @@index([guildId, createdBy])
   @@map("custom_command")
+}
+
+/// Statistik playback agregat per server (Fase 3, PRD 5.3).
+///
+/// Satu baris = satu (server, jenis, kunci, hari). **Tidak ada userId di
+/// sini, dan tidak pernah ada:** bot ini tidak merekam siapa yang memutar apa
+/// (Bab 12). `key` untuk `kind = "command"` juga cuma nama perintahnya, tanpa
+/// argumen — teks yang diketik member tidak pernah masuk ke baris mana pun.
+model PlaybackStat {
+  id      Int    @id @default(autoincrement())
+  guildId String @db.VarChar(20)
+  /// track = lagu yang selesai diputar, command = perintah yang dipakai.
+  kind    String @db.VarChar(20)
+  /// Pengenal stabil: `uri` lagu (judul kalau tanpa uri), atau nama perintah.
+  key     String @db.VarChar(200)
+  /// Label yang pertama terlihat supaya leaderboard bisa dibaca manusia.
+  label   String @db.VarChar(200)
+  /// Hari UTC tanpa jam. Menjadikan satu baris per hari, bukan per pemutaran.
+  day     DateTime @db.Date
+  /// Ber kali item ini diputar/dipakai pada hari itu.
+  count   Int      @default(0)
+  /// Total milidetik yang benar-benar terdengar (hanya `kind = "track"`).
+  listenedMs BigInt @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([guildId, kind, key, day])
+  @@index([guildId, kind, day])
+  @@index([guildId, kind, count(sort: Desc)])
+  @@map("playback_stat")
 }

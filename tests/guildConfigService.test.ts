@@ -152,6 +152,7 @@ describe('GuildConfigService', () => {
       ticketCategoryId: null,
       ticketStaffRoleId: null,
       ticketPanelMessageId: null,
+    stayChannelId: null,
       modules: DEFAULT_MODULES,
       locale: 'id',
     });

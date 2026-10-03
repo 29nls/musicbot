@@ -5,6 +5,7 @@ import { getModerationService } from '../modules/moderation/index.js';
 import type { RetentionResult } from '../modules/moderation/retention.js';
 import { getTicketService } from '../modules/tickets/index.js';
 import type { TicketRetentionResult } from '../modules/tickets/retention.js';
+import type { StatRetentionResult } from '../modules/stats/index.js';
 import { getLogger } from './logger.js';
 
 /** Yang dibutuhkan job ini dari service moderasi (dipisah supaya bisa diuji). */
@@ -15,6 +16,17 @@ export interface RetentionRunner {
 /** Sapuan retensi tiket — dijalankan setelah kasus, bukan menggantikannya. */
 export interface TicketRetentionRunner {
   purgeExpired(now?: Date): Promise<TicketRetentionResult>;
+}
+
+/**
+ * Sapuan retensi statistik playback (Fase 3).
+ *
+ * Opsional lewat opsi, bukan default: kalau tidak diberikan, sapuan statistik
+ * dilewati. Itu membuat job ini tetap bisa diuji tanpa repository sungguhan,
+ * dan `src/index.ts` yang memutuskan apakah bot ikut menyapu statistik.
+ */
+export interface StatsRetentionRunner {
+  purgeExpired(now?: Date): Promise<StatRetentionResult>;
 }
 
 /**
@@ -62,6 +74,8 @@ export function startRetentionJob(
   options: RetentionJobOptions & {
     ticketRunner?: TicketRetentionRunner;
     logRunner?: LogRetentionRunner;
+    /** Kalau diisi, statistik playback ikut disapu pada siklus yang sama. */
+    statsRunner?: StatsRetentionRunner;
   } = {},
 ): RetentionJob {
   const logger = getLogger();
@@ -103,6 +117,19 @@ export function startRetentionJob(
         logger.warn({ err: error }, 'Retensi tiket gagal — kasus & peringatan tetap aman');
       }
 
+      if (options.statsRunner) {
+        try {
+          const stats = await options.statsRunner.purgeExpired(now);
+          if (stats.deleted > 0) {
+            logger.info(
+              { cutoff: stats.cutoff.toISOString(), deleted: stats.deleted },
+              'Retensi: statistik playback lama dihapus',
+            );
+          }
+        } catch (error) {
+          logger.warn({ err: error }, 'Retensi statistik gagal — data lain tetap aman');
+        }
+      }
       try {
         const logs = await logRunner.purgeExpired(now);
         if (logs.logs > 0) {

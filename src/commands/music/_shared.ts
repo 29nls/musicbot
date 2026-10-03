@@ -145,8 +145,13 @@ export async function gateMusicCommand(
   };
 }
 
-/** Pastikan bot benar-benar boleh masuk dan berbicara di channel itu. */
-async function checkVoicePermissions(guild: Guild, channelId: string): Promise<EmbedBuilder | null> {
+/**
+ * Pastikan bot benar-benar boleh masuk dan berbicara di channel itu.
+ *
+ * Diekspor supaya `/247 join` bisa memakai pemeriksaan yang sama persis,
+ * bukan salinan yang bisa berbeda seiring waktu.
+ */
+export async function checkVoicePermissions(guild: Guild, channelId: string): Promise<EmbedBuilder | null> {
   const channel = await guild.channels.fetch(channelId).catch(() => null);
 
   if (!channel || !channel.isVoiceBased()) {

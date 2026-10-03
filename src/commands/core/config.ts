@@ -44,6 +44,12 @@ export default {
             .setDescription('Channel pesan member keluar')
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
         )
+        .addChannelOption((option) =>
+          option
+            .setName('stay-channel')
+            .setDescription('Voice channel yang dijaga 24/7 (matikan lewat /247 leave)')
+            .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice),
+        )
         .addRoleOption((option) =>
           option.setName('dj-role').setDescription('Role yang boleh mengontrol musik'),
         )
@@ -157,6 +163,9 @@ function buildPatch(interaction: ChatInputCommandInteraction): GuildConfigPatch 
 
   const goodbyeChannel = interaction.options.getChannel('goodbye-channel');
   if (goodbyeChannel) patch.goodbyeChannelId = goodbyeChannel.id;
+
+  const stayChannel = interaction.options.getChannel('stay-channel');
+  if (stayChannel) patch.stayChannelId = stayChannel.id;
 
   const djRole = interaction.options.getRole('dj-role');
   if (djRole) patch.djRoleId = djRole.id;

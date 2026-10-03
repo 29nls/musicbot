@@ -40,6 +40,12 @@ const envSchema = z.object({
   // hidup. 0 = matikan penjadwalan.
   PANEL_EXPIRY_SWEEP_MINUTES: z.coerce.number().int().min(0).max(24 * 60).default(15),
 
+  // Mode 24/7 (PRD 5.2): berapa menit sekali job memastikan bot tetap
+  // tersambung di channel 24/7 tiap server. Menutup kasus bot ter-kick,
+  // shard reconnect, atau perubahan channel saat bot sedang kosong.
+  // 0 = matikan penjadwalan.
+  STAY_SWEEP_MINUTES: z.coerce.number().int().min(0).max(24 * 60).default(5),
+
   // Lirik (PRD 5.2). LRCLIB gratis dan tanpa API key, jadi ini default-nya.
   GENIUS_ACCESS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   LYRCLIB_BASE_URL: z.string().min(1).default('https://lrclib.net/api'),

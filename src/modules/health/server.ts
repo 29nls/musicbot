@@ -1,20 +1,26 @@
 import { createServer, type ServerResponse } from 'node:http';
 import { getLogger } from '../../services/logger.js';
+import { renderMetrics, type MetricsSnapshot } from '../metrics/index.js';
 import { buildHealthReport, healthPayload, livenessPayload, type DependencyState } from './report.js';
 
 /**
  * Server HTTP kecil untuk health check (PRD §5.1).
  *
- * Hanya dua endpoint, keduanya tanpa autentikasi karena isinya bukan data
- * sensitif dan hanya berguna kalau bisa dipanggil tanpa ritual:
+ * Endpointnya tanpa autentikasi karena isinya bukan data sensitif dan hanya
+ * berguna kalau bisa dipanggil tanpa ritual:
  *
  * - `GET /health` (liveness): proses bot hidup? Selalu 200 selama server
  *   menyala. Gunanya untuk "restart saja kalau gagal".
  * - `GET /ready` (readiness): semua dependency ada? 200 kalau siap, 503 kalau
  *   database mati atau gateway belum siap — gunanya untuk "tunggu, jangan restart".
+ * - `GET /metrics` (metrik §11): angka proses dalam format teks Prometheus —
+ *   jumlah guild, lagu diputar, error rate perintah, dan latensi Lavalink.
  *
  * Endpoint lain menjawab 404 supaya port ini tidak jadi tempat mencari
  * endpoint yang tidak pernah ada.
+ *
+ * Ketiganya sengaja berbagi satu port: kebijakan membuka atau menutup endpoint cukup
+ * diatur di satu tempat, bukan tiga.
  */
 
 export interface HealthServerOptions {
@@ -29,6 +35,8 @@ export interface HealthServerOptions {
   guildCount: () => number;
   /** Pingan database; mengembalikan 'ok'/'down'. Tidak boleh melempar. */
   pingDatabase: () => Promise<DependencyState>;
+  /** Snapshot metrik proses; kalau tidak diisi, /metrics menjawab 503. */
+  metrics?: () => MetricsSnapshot;
   /** Timeout pemeriksaan database (ms) supaya /ready tidak menggantung. */
   databaseTimeoutMs?: number;
 }
@@ -73,6 +81,11 @@ export function startHealthServer(options: HealthServerOptions): HealthServerHan
       return;
     }
 
+    if (path === '/metrics') {
+      respondMetrics(options, response);
+      return;
+    }
+
     if (path === '/ready') {
       void respondReadiness(options, timeoutMs)
         .then(({ status, body }) => sendJson(response, status, body))
@@ -111,6 +124,29 @@ export function startHealthServer(options: HealthServerOptions): HealthServerHan
   };
 }
 
+/**
+ * Balas `/metrics` dalam format teks Prometheus.
+ *
+ * Endpoint ini untuk scraper, jadi tidak boleh diam-diam menjawab 200 dengan
+ * isi kosong: kalau metrik tidak tersedia, ia menjawab 503 supaya kondisi
+ * "metrik hilang" terlihat, bukan grafik yang terlihat datar lalu dianggap sehat.
+ */
+function respondMetrics(options: HealthServerOptions, response: ServerResponse): void {
+  if (!options.metrics) {
+    sendJson(response, 503, { error: 'metrik tidak tersedia' });
+    return;
+  }
+
+  try {
+    const body = renderMetrics(options.metrics(), { guildCount: options.guildCount() });
+    response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+    response.end(body);
+  } catch (error) {
+    getLogger().warn({ err: error }, 'Metrik gagal disusun');
+    sendJson(response, 503, { error: 'metrik gagal disusun' });
+  }
+}
+
 async function respondReadiness(
   options: HealthServerOptions,
   timeoutMs: number,
@@ -126,7 +162,7 @@ async function respondReadiness(
     guildCount: options.guildCount(),
   });
 
-  return { status: report.httpStatus, body: healthPayload(report) };
+  return { status: report.httpStatus, body: healthPayload(report, options.metrics?.()) };
 }
 
 /** Pingan database dibatasi waktunya; probe yang menggantung = 'down'. */

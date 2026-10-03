@@ -125,6 +125,7 @@ export class GuildConfigService {
       ticketCategoryId: null,
       ticketStaffRoleId: null,
       ticketPanelMessageId: null,
+      stayChannelId: null,
       modules: { ...this.defaults.modules },
       locale: this.defaults.locale,
     };

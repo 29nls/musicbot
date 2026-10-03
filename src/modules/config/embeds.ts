@@ -27,6 +27,13 @@ export function renderConfigEmbed(config: GuildConfig, title = '⚙️ Konfigura
       { name: '🤖 Autorole bot', value: role(config.autoroleBotId), inline: true },
       { name: '🔊 Volume default', value: `${config.defaultVolume}%`, inline: true },
       { name: '⏱️ Auto-disconnect', value: `${config.idleTimeoutSec} detik`, inline: true },
+      {
+        name: '🎧 Channel 24/7',
+        value: config.stayChannelId
+          ? `${channel(config.stayChannelId)} (bot tidak keluar otomatis)`
+          : notSet + " (nyalakan dengan /247 join)",
+        inline: true,
+      },
       { name: '🧩 Modul aktif', value: moduleLines(config.modules) },
       {
         name: '🎫 Panel tiket',

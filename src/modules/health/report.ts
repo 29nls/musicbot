@@ -80,13 +80,21 @@ export function buildHealthReport(input: HealthInput): HealthReport {
   };
 }
 
-/** Bentuk JSON laporan (stabil supaya bisa dipakai parser monitoring). */
-export function healthPayload(report: HealthReport): Record<string, unknown> {
+/**
+ * Bentuk JSON laporan (stabil supaya bisa dipakai parser monitoring).
+ *
+ * `metrics` ikut disertakan kalau tersedia: satu endpoint yang bisa dipakai
+ * untuk diagnosis (liveness + metrik) lebih berguna daripada dua permintaan
+ * yang harus dihubungkan manual saat bot sedang bermasalah. Field ini opsional
+ * supaya modul health tetap bisa dipakai tanpa modul metrik.
+ */
+export function healthPayload(report: HealthReport, metrics?: unknown): Record<string, unknown> {
   return {
     status: report.status,
     uptimeSeconds: report.uptimeSeconds,
     guildCount: report.guildCount,
     checks: report.checks,
+    ...(metrics === undefined ? {} : { metrics }),
   };
 }
 

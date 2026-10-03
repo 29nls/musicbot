@@ -57,6 +57,7 @@ export const guildConfigPatchSchema = z.object({
   ticketCategoryId: snowflakeOrNull.optional(),
   ticketStaffRoleId: snowflakeOrNull.optional(),
   ticketPanelMessageId: snowflakeOrNull.optional(),
+  stayChannelId: snowflakeOrNull.optional(),
   modules: modulesSchema.optional(),
   locale: z.string().min(2).max(5).optional(),
 });

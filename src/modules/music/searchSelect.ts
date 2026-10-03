@@ -83,7 +83,7 @@ export async function handleSearchSelect(
     return;
   }
 
-  const selection = getSearchSessionStore().take({ token, guildId, userId, index });
+  const selection = await getSearchSessionStore().take({ token, guildId, userId, index });
 
   switch (selection.kind) {
     case 'expired':

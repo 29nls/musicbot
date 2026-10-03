@@ -50,7 +50,7 @@ services:
       lavalink:
         condition: service_started
     # PRD 5.1: endpoint /health dipakai monitoring (liveness). Port tidak
-    # dipublish ke host — hanya Stay di jaringan internal compose.
+    # dipublish ke host — hanya tersedia di jaringan internal compose.
     healthcheck:
       test:
         [

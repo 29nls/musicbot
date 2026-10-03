@@ -75,13 +75,26 @@ export default {
       const tracks = found.tracks.map((track) => toTrackInfo(track, interaction.user.id));
 
       // Session disimpan supaya select menu di pesan ephemeral ini masih bisa
-      // dibaca di interaksi berikutnya.
-      const session = getSearchSessionStore().put({
+      // dibaca di interaksi berikutnya, termasuk kalau select menu-nya sampai
+      // ke shard lain (§5.3).
+      const session = await getSearchSessionStore().put({
         guildId,
         requesterId: interaction.user.id,
         query,
         tracks,
       });
+
+      if (!session) {
+        await interaction.editReply({
+          embeds: [
+            infoEmbed(
+              'Pencarian gagal',
+              'Hasil pencarian tidak bisa disimpan sebentar, jadi menunya tidak bisa dibuat. Coba lagi beberapa saat lagi.',
+            ),
+          ],
+        });
+        return;
+      }
 
       await interaction.editReply({
         embeds: [searchResultsEmbed({ query, tracks })],

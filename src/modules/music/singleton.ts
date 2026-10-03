@@ -1,11 +1,24 @@
 import type { Client } from 'discord.js';
 import { getEnv } from '../../config/env.js';
 import { getGuildConfigService } from '../config/index.js';
+import { getMetricsRegistry } from '../metrics/index.js';
+import { getStatsService } from '../stats/index.js';
 import { MusicService } from './musicService.js';
 import { SearchSessionStore } from './searchSession.js';
+import { StayService } from './stayService.js';
+
+/**
+ * Batas minimum durasi dengar sebelum lagu dihitung.
+ *
+ * Tanpa ini, satu `/play` lalu `/skip` langsung sudah menghasilkan satu
+ * "tidak pernah didengarkan", dan leaderboard bisa dimanipulasi tanpa
+ * ada yang benar-benar mendengarkannya.
+ */
+const MIN_LISTENED_MS = 10_000;
 
 let service: MusicService | undefined;
 let searchSessions: SearchSessionStore | undefined;
+let stayService: StayService | undefined;
 
 /**
  * Siapkan mesin musik. **Harus dipanggil sebelum `client.login()`** karena
@@ -24,6 +37,23 @@ export function initMusic(client: Client): MusicService {
     },
     maxQueueSize: env.MAX_QUEUE_SIZE,
     getConfig: (guildId) => getGuildConfigService().get(guildId),
+    // Statistik playback (Fase 3, §5.3). Modul musik tidak tahu soal database,
+    // jadi hanya menerima callback: statistik boleh gagal tanpa playback ikut gagal.
+    onTrackFinished: (event) => {
+      // Metrik "lagu diputar" (§11) dihitung tanpa aturan 10 detik: lagu yang
+      // baru berbunyi 2 detik tetap satu lagu yang diputar. Aturan 10 detik
+      // hanya berlaku untuk statistik per-server, yang soal kegunaan.
+      getMetricsRegistry().recordTrackPlayed();
+
+      if (event.listenedMs < MIN_LISTENED_MS) return;
+
+      void getStatsService().recordTrack({
+        guildId: event.guildId,
+        title: event.title,
+        uri: event.uri,
+        listenedMs: event.listenedMs,
+      });
+    },
   });
 
   return service;
@@ -43,15 +73,38 @@ export function isMusicConnected(): boolean {
   return service?.isConnected ?? false;
 }
 
-/** Session pencarian `/search` untuk proses ini. */
+/**
+ * Session pencarian `/search` untuk proses ini.
+ *
+ * Dibuat malas: store bersama baru siap setelah `createKeyValueStore()` di
+ * startup, dan perintah musik lain tidak boleh ikut bergantung padanya.
+ */
 export function getSearchSessionStore(): SearchSessionStore {
   searchSessions ??= new SearchSessionStore();
   return searchSessions;
 }
 
+/**
+ * Layanan mode 24/7 untuk proses ini.
+ *
+ * Dibuat malas supaya perintah musik biasa (`/play`, `/queue`) tidak ikut bergantung padanya,
+ * dan supaya `StayService` bisa dipakai di tes tanpa harus membuat
+ * `MusicService` (bot) sungguhan.
+ */
+export function getStayService(): StayService {
+  stayService ??= new StayService({
+    music: getMusicService(),
+    getConfig: (guildId) => getGuildConfigService().get(guildId),
+  });
+
+  return stayService;
+}
+
 /** Bersihkan state musik saat bot berhenti (dipakai saat shutdown). */
 export function resetMusicSingletons(): void {
   service = undefined;
-  searchSessions?.clear();
+  stayService = undefined;
+  // Di-lewat supaya shutdown tidak menunggu satu putaran Redis per session.
+  void searchSessions?.clear();
   searchSessions = undefined;
 }

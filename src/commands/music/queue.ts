@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { queueEmbed } from '../../modules/music/index.js';
+import { buildQueuePage, queueEmbed, queueNavRow } from '../../modules/music/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { infoEmbed } from '../../utils/embeds.js';
 import { gateMusicCommand, handleMusicFailure, replyEphemeralError } from './_shared.js';
@@ -27,7 +27,15 @@ export default {
         return;
       }
 
-      await interaction.editReply({ embeds: [queueEmbed(snapshot)] });
+      // Halaman pertama (AC §8 US-02): 10 lagu per halaman, dengan tombol
+      // navigasi kalau masih ada halaman berikutnya.
+      const page = buildQueuePage(snapshot.upcoming, 1);
+      const row = queueNavRow(page);
+
+      await interaction.editReply({
+        embeds: [queueEmbed(snapshot, page)],
+        components: row ? [row] : [],
+      });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'queue');
     }

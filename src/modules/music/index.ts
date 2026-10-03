@@ -7,6 +7,7 @@
 export {
   getMusicService,
   getSearchSessionStore,
+  getStayService,
   initMusic,
   isMusicConnected,
   resetMusicSingletons,
@@ -61,6 +62,7 @@ export {
   searchOptionLabel,
   searchOptionValue,
   searchSelectCustomId,
+  sessionKey,
 } from './searchSession.js';
 export type { SearchSelection, SearchSession, TokenFactory } from './searchSession.js';
 export {
@@ -72,6 +74,22 @@ export {
   trackLimitRejectionMessage,
 } from './limits.js';
 export type { TrackLimitInput, TrackLimitSplit, TrackLimitVerdict } from './limits.js';
+export { planStay, stayLabel } from './stay.js';
+export type { StayAction, StayPlan, StayPlanInput } from './stay.js';
+export { StayService } from './stayService.js';
+export type { StayDeps, StayMusicPort, StayOutcome } from './stayService.js';
+export {
+  QUEUE_PAGE_PREFIX,
+  QUEUE_PAGE_SIZE,
+  buildQueuePage,
+  clampQueuePage,
+  parseQueuePageCustomId,
+  queuePageCustomId,
+  totalQueuePages,
+} from './queuePage.js';
+export type { QueuePage } from './queuePage.js';
+export { handleQueuePage, queueNavRow } from './queueNav.js';
+export type { QueueNavDeps } from './queueNav.js';
 export { buildSearchIdentifier, isUrl } from './search.js';
 export { shuffleTracks } from './shuffle.js';
 export type { RandomSource } from './shuffle.js';

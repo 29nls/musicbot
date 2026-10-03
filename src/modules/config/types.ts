@@ -35,6 +35,8 @@ export interface GuildConfig {
   ticketStaffRoleId: string | null;
   /** ID pesan panel tiket, supaya bisa diedit tanpa kirim ulang. */
   ticketPanelMessageId: string | null;
+  /** Channel voice 24/7; null = mode ini mati di server ini. */
+  stayChannelId: string | null;
   modules: ModulesEnabled;
   locale: string;
 }
@@ -56,6 +58,8 @@ export interface GuildConfigPatch {
   ticketStaffRoleId?: string | null;
   /** Diperbarui tim ticket saja saat panel dikirim ulang. */
   ticketPanelMessageId?: string | null;
+  /** Set `null` untuk mematikan mode 24/7 di server ini. */
+  stayChannelId?: string | null;
   modules?: Partial<ModulesEnabled>;
   locale?: string;
 }

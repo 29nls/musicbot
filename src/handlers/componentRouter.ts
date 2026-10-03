@@ -6,8 +6,10 @@ import {
 } from 'discord.js';
 import { checkCooldown } from '../utils/cooldown.js';
 import { errorEmbed, warningEmbed } from '../utils/embeds.js';
+import { getMetricsRegistry } from '../modules/metrics/index.js';
 import { getLogger } from '../services/logger.js';
 import { handleSearchSelect, SEARCH_SELECT_PREFIX } from '../modules/music/index.js';
+import { handleQueuePage, QUEUE_PAGE_PREFIX } from '../modules/music/index.js';
 import { handleReactionRoleSelect, REACTION_ROLE_PREFIX } from '../modules/reactionroles/index.js';
 import {
   handleTicketButton,
@@ -54,6 +56,14 @@ const HANDLERS: readonly ComponentHandler[] = [
     kinds: ['select'],
     handle: handleSearchSelect,
     cooldownSeconds: 3,
+  },
+  {
+    prefix: QUEUE_PAGE_PREFIX,
+    kinds: ['button'],
+    handle: handleQueuePage,
+    // Hanya membaca snapshot. Jeda pendek cukup, dan mencegah orang
+    // menekan tombol bolak-balik lebih cepat dari yang perlu.
+    cooldownSeconds: 2,
   },
   {
     prefix: `${REACTION_ROLE_PREFIX}panel-`,
@@ -118,7 +128,7 @@ export async function routeComponent(interaction: RoutedInteraction): Promise<bo
   );
   if (!handler) return false;
 
-  const waitSeconds = checkCooldown(
+  const waitSeconds = await checkCooldown(
     componentCooldownKey(handler.prefix, kind, interaction.user.id),
     handler.cooldownSeconds ?? DEFAULT_COMPONENT_COOLDOWN_SECONDS,
   );
@@ -128,9 +138,12 @@ export async function routeComponent(interaction: RoutedInteraction): Promise<bo
     return true;
   }
 
+  getMetricsRegistry().record('component');
+
   try {
     await handler.handle(interaction);
   } catch (error) {
+    getMetricsRegistry().record('component', 'error');
     getLogger().error(
       { err: error, customId: interaction.customId, guild: interaction.guildId },
       'Komponen gagal diproses',

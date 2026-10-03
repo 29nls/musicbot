@@ -8,6 +8,7 @@ import {
   renderedMessage,
 } from '../modules/customcommands/index.js';
 import { getGuildConfigService } from '../modules/config/index.js';
+import { getMetricsRegistry } from '../modules/metrics/index.js';
 import { getLogger } from '../services/logger.js';
 import type { BotEvent } from '../types/event.js';
 import { checkCooldown } from '../utils/cooldown.js';
@@ -82,7 +83,7 @@ export default {
 
     if (!command) return;
 
-    const remaining = checkCooldown(
+    const remaining = await checkCooldown(
       `customcmd:${guild.id}:${message.author.id}`,
       TRIGGER_COOLDOWN_SECONDS,
     );
@@ -113,9 +114,12 @@ export default {
     // bukan pesan kosong yang aneh dibaca member.
     if (!content) return;
 
+    getMetricsRegistry().record('message');
+
     try {
       await message.reply({ content, allowedMentions: { parse: ['users'] } });
     } catch (error) {
+      getMetricsRegistry().record('message', 'error');
       logger.warn(
         { err: error, guild: guild.id, channel: message.channelId },
         `Perintah custom ${TRIGGER_PREFIX}${command.name} gagal dikirim`,

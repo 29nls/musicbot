@@ -18,6 +18,7 @@ const row: GuildConfigRow = {
   ticketCategoryId: null,
   ticketStaffRoleId: null,
   ticketPanelMessageId: null,
+  stayChannelId: null,
   modulesEnabled: { music: true, moderation: false, automod: true, logging: false },
   locale: 'id',
 };
@@ -100,6 +101,7 @@ describe('toPrismaData', () => {
       ticketCategoryId: null,
       ticketStaffRoleId: null,
       ticketPanelMessageId: null,
+    stayChannelId: null,
       modules: {
         music: true,
         moderation: true,

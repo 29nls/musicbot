@@ -1,6 +1,8 @@
 import { Events, MessageFlags, type ChatInputCommandInteraction, type Interaction } from 'discord.js';
 import type { BotClient } from '../client.js';
 import { routeComponent } from '../handlers/componentRouter.js';
+import { getMetricsRegistry } from '../modules/metrics/index.js';
+import { getStatsService } from '../modules/stats/index.js';
 import { getLogger } from '../services/logger.js';
 import { checkCooldown } from '../utils/cooldown.js';
 import { errorEmbed, warningEmbed } from '../utils/embeds.js';
@@ -37,7 +39,7 @@ export default {
       return;
     }
 
-    const waitSeconds = checkCooldown(
+    const waitSeconds = await checkCooldown(
       `${interaction.user.id}:${interaction.commandName}`,
       command.cooldownSeconds ?? 0,
     );
@@ -50,9 +52,16 @@ export default {
       return;
     }
 
+    // Statistik pemakaian perintah (Fase 3, §5.3): dicatat setelah gerbang izin
+    // dan cooldown lolos, jadi yang terhitung adalah perintah yang benar-benar
+    // dijalankan, bukan yang ditolak sebelum dijalankan.
+    recordCommandUsage(interaction);
+    getMetricsRegistry().record('command');
+
     try {
       await command.execute(interaction, client);
     } catch (error) {
+      getMetricsRegistry().record('command', 'error');
       logger.error(
         {
           err: error,
@@ -66,6 +75,22 @@ export default {
     }
   },
 };
+
+/**
+ * Catat pemakaian perintah untuk statistik.
+ *
+ * Hanya nama perintahnya yang dikirim (tanpa argumen) dan hanya di server —
+ * Statistik per-server tidak bisa dibangun dari DM. Kegagalannya tidak
+ * boleh menggagalkan perintah yang sedang berjalan.
+ */
+function recordCommandUsage(interaction: ChatInputCommandInteraction): void {
+  const guildId = interaction.guildId;
+  if (!guildId) return;
+
+  void getStatsService()
+    .recordCommand(interaction.commandName, guildId)
+    .catch(() => undefined);
+}
 
 /** Balas dengan pesan error sesuai kondisi interaksi (belum dibalas / sudah di-defer). */
 async function replyWithFailure(interaction: ChatInputCommandInteraction): Promise<void> {

@@ -5,6 +5,8 @@
  * ini hanya mengoleksi ulang apa yang boleh dipakai modul lain.
  */
 export { getCustomCommandService, resetCustomCommandService } from './singleton.js';
+export { decodeCommandCache, encodeCommandCache } from './cacheCodec.js';
+export type { CachedCommand } from './cacheCodec.js';
 export { CustomCommandService } from './service.js';
 export type { CustomCommandServiceOptions, SaveOptions } from './service.js';
 export { PrismaCustomCommandRepository } from './repository.js';
@@ -35,7 +37,6 @@ export {
 } from './validation.js';
 export {
   CUSTOM_COMMAND_LIST_LIMIT,
-  GUILD_CACHE_LIMIT,
   GUILD_CACHE_TTL_MS,
   MAX_NAME_LENGTH,
   MAX_RESPONSE_LENGTH,

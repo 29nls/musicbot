@@ -3,6 +3,7 @@ import {
   MAX_OPTION_DESCRIPTION_LENGTH,
   MAX_OPTION_LABEL_LENGTH,
   SEARCH_RESULT_LIMIT,
+  SEARCH_SESSION_TTL_MS,
   SearchSessionStore,
   clampOptionText,
   formatSeconds,
@@ -12,8 +13,11 @@ import {
   searchOptionLabel,
   searchOptionValue,
   searchSelectCustomId,
+  sessionKey,
   SEARCH_SELECT_PREFIX,
 } from '../src/modules/music/searchSession.js';
+import { decodeSearchSession } from '../src/modules/music/searchSessionCodec.js';
+import { MemoryKeyValueStore, type KeyValueStore } from '../src/services/kvStore.js';
 import type { TrackInfo } from '../src/modules/music/types.js';
 
 function track(overrides: Partial<TrackInfo> = {}): TrackInfo {
@@ -36,227 +40,446 @@ function tracks(count: number): TrackInfo[] {
   );
 }
 
+/** Store yang selalu gagal, untuk menguji jalur error tanpa Redis sungguhan. */
+class BrokenStore implements KeyValueStore {
+  async get(): Promise<string | null> {
+    throw new Error('store mati');
+  }
+
+  async set(): Promise<void> {
+    throw new Error('store mati');
+  }
+
+  async delete(): Promise<void> {
+    throw new Error('store mati');
+  }
+
+  async take(): Promise<string | null> {
+    throw new Error('store mati');
+  }
+
+  async increment(): Promise<number> {
+    throw new Error('store mati');
+  }
+
+  async close(): Promise<void> {
+    // Tidak ada koneksi yang perlu ditutup.
+  }
+}
+
+/** Store yang bisa dibaca tapi gagal tepat saat session diklaim. */
+class FlakyClaimStore extends MemoryKeyValueStore {
+  override async take(): Promise<string | null> {
+    throw new Error('klaim gagal');
+  }
+}
+
 /**
- * Store dengan waktu dan token yang bisa dikendalikan tes.
+ * Store dengan jam dan token yang bisa dikendalikan tes.
  *
- * `advance` menggerakkan jam internal supaya kedaluwarsa bisa diuji tanpa
- * menunggu-menunggu waktu asli.
+ * Jam disuntik supaya kedaluwarsa bisa diuji tanpa menunggu-menunggu waktu asli,
+ * dan `kv` bisa diganti untuk membuktikan session benar-benar hidup di store
+ * bersama (bukan di memori proses) — syarat agar select menu tetap bekerja
+ * begitu bot di-sharding.
  */
-function makeStore(options: { maxSessions?: number } = {}) {
+function makeStore(options: { ttlMs?: number; kv?: KeyValueStore } = {}) {
   let clock = 1_000;
   let counter = 0;
+  const kv = options.kv ?? new MemoryKeyValueStore();
 
   const store = new SearchSessionStore({
+    store: kv,
     now: () => clock,
-    maxSessions: options.maxSessions,
+    ttlMs: options.ttlMs ?? 15 * 60_000,
     tokenFactory: () => `0000${(counter += 1).toString(16).padStart(3, '0')}`,
   });
 
-  return { store, advance: (ms: number) => (clock += ms) };
+  return { store, kv, advance: (ms: number) => (clock += ms) };
 }
 
 const GUILD = 'guild-1';
 const USER = 'user-1';
 
+interface PutOverrides {
+  guildId?: string;
+  requesterId?: string;
+  query?: string;
+  tracks?: readonly TrackInfo[];
+}
+
+/** Simpan session; `null` di test berarti ada yang salah, bukan keadaan normal. */
+async function put(store: SearchSessionStore, overrides: PutOverrides = {}) {
+  const session = await store.put({
+    guildId: GUILD,
+    requesterId: USER,
+    query: 'a',
+    tracks: tracks(1),
+    ...overrides,
+  });
+
+  if (!session) throw new Error('session tidak tersimpan');
+  return session;
+}
+
 describe('SearchSessionStore.put', () => {
-  it('menyimpan hasil pencarian dengan query yang sudah dirapikan', () => {
+  it('menyimpan hasil pencarian dengan query yang sudah dirapikan', async () => {
     const { store } = makeStore();
 
-    const session = store.put({
-      guildId: GUILD,
-      requesterId: USER,
-      query: '  jazz/vietnam  ',
-      tracks: tracks(1),
-    });
+    const session = await put(store, { query: '  jazz/vietnam  ' });
 
     expect(session.query).toBe('jazz/vietnam');
     expect(session.tracks).toHaveLength(1);
-    expect(store.peek(session.token)).toBeDefined();
+    expect(await store.peek(session.token)).toBeDefined();
   });
 
-  it('memotong hasil jadi batas PRD lima', () => {
+  it('memotong hasil jadi batas PRD lima', async () => {
     const { store } = makeStore();
 
-    const session = store.put({
-      guildId: GUILD,
-      requesterId: USER,
-      query: 'panjang',
-      tracks: tracks(12),
-    });
+    const session = await put(store, { query: 'panjang', tracks: tracks(12) });
 
     expect(SEARCH_RESULT_LIMIT).toBe(5);
     expect(session.tracks).toHaveLength(SEARCH_RESULT_LIMIT);
   });
 
-  it('memberi token berbeda untuk setiap pencarian', () => {
+  it('memberi token berbeda untuk setiap pencarian', async () => {
     const { store } = makeStore();
 
-    const first = store.put({ guildId: GUILD, requesterId: USER, query: 'a', tracks: tracks(1) });
-    const second = store.put({ guildId: GUILD, requesterId: USER, query: 'b', tracks: tracks(1) });
+    const first = await put(store, { query: 'a' });
+    const second = await put(store, { query: 'b' });
 
     expect(first.token).not.toBe(second.token);
   });
 
-  it('membuang session tertua saat melewati batas kapasitas', () => {
-    const { store } = makeStore({ maxSessions: 2 });
+  it('menulis session ke store bersama dengan masa berlaku', async () => {
+    const kv = new MemoryKeyValueStore();
+    const writes: { key: string; ttlMs: number | undefined }[] = [];
+    const store = new SearchSessionStore({
+      store: {
+        get: (key) => kv.get(key),
+        set: (key, value, options) => {
+          writes.push({ key, ttlMs: options?.ttlMs });
+          return kv.set(key, value, options);
+        },
+        delete: (key) => kv.delete(key),
+        take: (key) => kv.take(key),
+        increment: (key, options) => kv.increment(key, options),
+        close: () => kv.close(),
+      },
+      tokenFactory: () => 'aabbccdd',
+    });
 
-    const first = store.put({ guildId: GUILD, requesterId: USER, query: 'a', tracks: tracks(1) });
-    store.put({ guildId: GUILD, requesterId: USER, query: 'b', tracks: tracks(1) });
-    const third = store.put({ guildId: GUILD, requesterId: USER, query: 'c', tracks: tracks(1) });
+    const session = await put(store);
 
-    expect(store.size).toBe(2);
-    expect(store.peek(first.token)).toBeUndefined();
-    expect(store.peek(third.token)).toBeDefined();
+    expect(writes[0]?.key).toBe('harmony:searchsession:aabbccdd');
+    expect(writes[0]?.ttlMs).toBe(SEARCH_SESSION_TTL_MS);
+
+    const raw = await kv.get(sessionKey(session.token));
+    expect(decodeSearchSession(raw)).toEqual(session);
+  });
+
+  it('berhasil null saat store bermasalah, jadi pemanggil meminta user mengulang', async () => {
+    const store = new SearchSessionStore({ store: new BrokenStore() });
+
+    const session = await store.put({
+      guildId: GUILD,
+      requesterId: USER,
+      query: 'a',
+      tracks: tracks(1),
+    });
+
+    expect(session).toBeNull();
+    expect(store.size).toBe(0);
+  });
+
+  it('session dibaca proses lain yang memakai store yang sama', async () => {
+    const kv = new MemoryKeyValueStore();
+    const writer = new SearchSessionStore({ store: kv, tokenFactory: () => 'aabbccdd' });
+    const reader = new SearchSessionStore({ store: kv, tokenFactory: () => '11223344' });
+
+    const session = await put(writer);
+
+    const seen = await reader.peek(session.token);
+    expect(seen?.tracks).toEqual(session.tracks);
   });
 });
 
 describe('SearchSessionStore masa hidup', () => {
-  it('menyapuan session yang sudah melewati TTL', () => {
-    const { store, advance } = makeStore();
+  it('session hilang setelah melewati TTL', async () => {
+    const { store, kv, advance } = makeStore();
 
-    const session = store.put({ guildId: GUILD, requesterId: USER, query: 'a', tracks: tracks(1) });
-    const before = store.peek(session.token);
-    expect(before).toBeDefined();
+    const session = await put(store);
+    expect(await store.peek(session.token)).toBeDefined();
 
     advance(15 * 60_000 + 1);
 
-    expect(store.peek(session.token)).toBeUndefined();
+    expect(await store.peek(session.token)).toBeUndefined();
     expect(store.size).toBe(0);
+    expect(await kv.get(sessionKey(session.token))).toBeNull();
   });
 
-  it('session tepat di batas TTL sudah dianggap kedaluwarsa', () => {
+  it('session tepat di batas TTL sudah dianggap kedaluwarsa', async () => {
     const { store, advance } = makeStore();
 
-    const session = store.put({ guildId: GUILD, requesterId: USER, query: 'a', tracks: tracks(1) });
+    const session = await put(store);
     advance(15 * 60_000);
 
-    expect(store.peek(session.token)).toBeUndefined();
+    expect(await store.peek(session.token)).toBeUndefined();
   });
 
-  it('session yang belum melewati TTL masih bisa dipakai', () => {
+  it('session yang belum melewati TTL masih bisa dipakai', async () => {
     const { store, advance } = makeStore();
 
-    const session = store.put({ guildId: GUILD, requesterId: USER, query: 'a', tracks: tracks(1) });
+    const session = await put(store);
     advance(15 * 60_000 - 1);
 
-    expect(store.take({ token: session.token, guildId: GUILD, userId: USER, index: 0 }).kind).toBe('ok');
+    const selection = await store.take({
+      token: session.token,
+      guildId: GUILD,
+      userId: USER,
+      index: 0,
+    });
+
+    expect(selection.kind).toBe('ok');
   });
 
-  it('prune mengembalikan jumlah session yang dibuang', () => {
+  it('umur session mengikuti TTL yang disuntik, bukan konstanta module', async () => {
+    const { store, advance } = makeStore({ ttlMs: 1_000 });
+
+    const session = await put(store);
+    advance(999);
+
+    expect(await store.peek(session.token)).toBeDefined();
+
+    advance(2);
+
+    expect(await store.peek(session.token)).toBeUndefined();
+  });
+
+  it('prune mengembalikan jumlah session yang dibuang', async () => {
     const { store, advance } = makeStore();
 
-    store.put({ guildId: GUILD, requesterId: USER, query: 'a', tracks: tracks(1) });
-    store.put({ guildId: GUILD, requesterId: USER, query: 'b', tracks: tracks(1) });
+    await put(store, { query: 'a' });
+    await put(store, { query: 'b' });
     advance(15 * 60_000 + 1);
 
-    expect(store.prune()).toBe(2);
+    expect(await store.prune()).toBe(2);
     expect(store.size).toBe(0);
   });
 
-  it('clear mengosongkan semua session', () => {
-    const { store } = makeStore();
+  it('clear mengosongkan semua session, termasuk di store', async () => {
+    const { store, kv } = makeStore();
 
-    store.put({ guildId: GUILD, requesterId: USER, query: 'a', tracks: tracks(1) });
-    store.clear();
+    const session = await put(store);
+    await store.clear();
 
     expect(store.size).toBe(0);
+    expect(await kv.get(sessionKey(session.token))).toBeNull();
+  });
+
+  it('clear tidak melempar saat store sedang bermasalah', async () => {
+    const store = new SearchSessionStore({ store: new FlakyClaimStore() });
+
+    await put(store);
+    await expect(store.clear()).resolves.toBeUndefined();
+    expect(store.size).toBe(0);
+  });
+
+  it('delete membuang satu session dari store', async () => {
+    const { store, kv } = makeStore();
+
+    const session = await put(store);
+    await store.delete(session.token);
+
+    expect(await store.peek(session.token)).toBeUndefined();
+    expect(await kv.get(sessionKey(session.token))).toBeNull();
+  });
+
+  it('daftar token disapu sendiri secara berkala', async () => {
+    const { store, advance } = makeStore();
+
+    for (let index = 0; index < 64; index += 1) await put(store);
+    advance(15 * 60_000 + 1);
+    for (let index = 0; index < 64; index += 1) await put(store);
+
+    // Penyapuan sengaja tidak di-await (nilai kembaliannya tidak dipakai), jadi
+    // tes menunggu antrean microtask selesai dulu sebelum menghitung.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Tanpa penyapuan, daftar akan berisi 128 token lama dan baru.
+    expect(store.size).toBe(64);
+  });
+
+  it('daftar token tidak pernah tumbuh tanpa batas', async () => {
+    const { store } = makeStore();
+
+    for (let index = 0; index < 210; index += 1) await put(store);
+
+    expect(store.size).toBeLessThanOrEqual(200);
   });
 });
 
 describe('SearchSessionStore.take', () => {
-  it('mengembalikan lagu yang dipilih', () => {
+  it('mengembalikan lagu yang dipilih', async () => {
     const { store } = makeStore();
     const list = tracks(3);
-    const session = store.put({
-      guildId: GUILD,
-      requesterId: USER,
-      query: 'a',
-      tracks: list,
-    });
+    const session = await put(store, { tracks: list });
 
-    const selection = store.take({ token: session.token, guildId: GUILD, userId: USER, index: 1 });
+    const selection = await store.take({
+      token: session.token,
+      guildId: GUILD,
+      userId: USER,
+      index: 1,
+    });
 
     expect(selection).toEqual({ kind: 'ok', track: list[1] });
   });
 
-  it('membuang session setelah dipakai supaya tidak bisa dipilih dua kali', () => {
+  it('membuang session setelah dipakai supaya tidak bisa dipilih dua kali', async () => {
     const { store } = makeStore();
-    const session = store.put({
+    const session = await put(store, { tracks: tracks(2) });
+
+    const first = await store.take({
+      token: session.token,
       guildId: GUILD,
-      requesterId: USER,
-      query: 'a',
-      tracks: tracks(2),
+      userId: USER,
+      index: 0,
     });
+    expect(first.kind).toBe('ok');
 
-    expect(store.take({ token: session.token, guildId: GUILD, userId: USER, index: 0 }).kind).toBe('ok');
-
-    const second = store.take({ token: session.token, guildId: GUILD, userId: USER, index: 0 });
+    const second = await store.take({
+      token: session.token,
+      guildId: GUILD,
+      userId: USER,
+      index: 0,
+    });
     expect(second.kind).toBe('expired');
     expect(store.size).toBe(0);
   });
 
-  it('menolak user lain', () => {
-    const { store } = makeStore();
-    const session = store.put({
-      guildId: GUILD,
-      requesterId: USER,
-      query: 'a',
-      tracks: tracks(2),
-    });
+  it('hanya satu proses yang bisa memakai session yang sama', async () => {
+    const kv = new MemoryKeyValueStore();
+    const shardA = new SearchSessionStore({ store: kv, tokenFactory: () => 'aabbccdd' });
+    const shardB = new SearchSessionStore({ store: kv, tokenFactory: () => '11223344' });
+    const session = await put(shardA);
 
-    const selection = store.take({ token: session.token, guildId: GUILD, userId: 'user-2', index: 0 });
+    // Dua klik yang sama-sama diproses dua proses(shard) berbeda.
+    const [first, second] = await Promise.all([
+      shardA.take({ token: session.token, guildId: GUILD, userId: USER, index: 0 }),
+      shardB.take({ token: session.token, guildId: GUILD, userId: USER, index: 0 }),
+    ]);
+
+    const kinds = [first.kind, second.kind].sort();
+    expect(kinds).toEqual(['expired', 'ok']);
+  });
+
+  it('menolak user lain', async () => {
+    const { store } = makeStore();
+    const session = await put(store, { tracks: tracks(2) });
+
+    const selection = await store.take({
+      token: session.token,
+      guildId: GUILD,
+      userId: 'user-2',
+      index: 0,
+    });
 
     expect(selection.kind).toBe('not-owner');
   });
 
-  it('menolak guild lain', () => {
+  it('menolak guild lain', async () => {
     const { store } = makeStore();
-    const session = store.put({
-      guildId: GUILD,
-      requesterId: USER,
-      query: 'a',
-      tracks: tracks(2),
-    });
+    const session = await put(store, { tracks: tracks(2) });
 
-    const selection = store.take({ token: session.token, guildId: 'guild-2', userId: USER, index: 0 });
+    const selection = await store.take({
+      token: session.token,
+      guildId: 'guild-2',
+      userId: USER,
+      index: 0,
+    });
 
     expect(selection.kind).toBe('other-guild');
   });
 
-  it('menolak indeks di luar daftar', () => {
+  it('menolak indeks di luar daftar', async () => {
     const { store } = makeStore();
-    const session = store.put({
-      guildId: GUILD,
-      requesterId: USER,
-      query: 'a',
-      tracks: tracks(2),
-    });
+    const session = await put(store, { tracks: tracks(2) });
 
-    const selection = store.take({ token: session.token, guildId: GUILD, userId: USER, index: 9 });
+    const selection = await store.take({
+      token: session.token,
+      guildId: GUILD,
+      userId: USER,
+      index: 9,
+    });
 
     expect(selection.kind).toBe('bad-index');
   });
 
-  it('session yang ditolak karena salah pemilik masih bisa dipakai pemiliknya', () => {
+  it('session yang ditolak karena salah pemilik masih bisa dipakai pemiliknya', async () => {
     const { store } = makeStore();
     const list = tracks(2);
-    const session = store.put({
+    const session = await put(store, { tracks: list });
+
+    await store.take({ token: session.token, guildId: GUILD, userId: 'user-2', index: 0 });
+
+    const ok = await store.take({
+      token: session.token,
       guildId: GUILD,
-      requesterId: USER,
-      query: 'a',
-      tracks: list,
+      userId: USER,
+      index: 0,
     });
-
-    store.take({ token: session.token, guildId: GUILD, userId: 'user-2', index: 0 });
-
-    const ok = store.take({ token: session.token, guildId: GUILD, userId: USER, index: 0 });
     expect(ok).toEqual({ kind: 'ok', track: list[0] });
   });
 
-  it('token yang tidak dikenal dianggap kedaluwarsa', () => {
+  it('token yang tidak dikenal dianggap kedaluwarsa', async () => {
     const { store } = makeStore();
 
-    const selection = store.take({ token: 'deadbeef', guildId: GUILD, userId: USER, index: 0 });
+    const selection = await store.take({
+      token: 'deadbeef',
+      guildId: GUILD,
+      userId: USER,
+      index: 0,
+    });
+
+    expect(selection.kind).toBe('expired');
+  });
+
+  it('session rusak di store dianggap kedaluwarsa, bukan error', async () => {
+    const { store, kv } = makeStore();
+    await kv.set(sessionKey('deadbeef'), '{bukan json');
+
+    const selection = await store.take({
+      token: 'deadbeef',
+      guildId: GUILD,
+      userId: USER,
+      index: 0,
+    });
+
+    expect(selection.kind).toBe('expired');
+  });
+
+  it('store bermasalah tidak pernah menggagalkan select menu', async () => {
+    const broken = new SearchSessionStore({ store: new BrokenStore() });
+
+    const selection = await broken.take({
+      token: 'deadbeef',
+      guildId: GUILD,
+      userId: USER,
+      index: 0,
+    });
+
+    expect(selection.kind).toBe('expired');
+  });
+
+  it('gagal saat mengklaim session diperlakukan sebagai sudah dipakai', async () => {
+    const store = new SearchSessionStore({ store: new FlakyClaimStore() });
+    const session = await put(store);
+
+    const selection = await store.take({
+      token: session.token,
+      guildId: GUILD,
+      userId: USER,
+      index: 0,
+    });
 
     expect(selection.kind).toBe('expired');
   });

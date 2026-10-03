@@ -44,11 +44,13 @@ export const PLACEHOLDER_TOKENS = [
  */
 export const TRIGGER_COOLDOWN_SECONDS = 5;
 
-/** Umur cache daftar perintah per server (ms). */
+/**
+ * Umur cache daftar perintah per server (ms).
+ *
+ * Sekarang dipegang store bersama (§9.4), jadi batas "berapa server yang boleh
+ * menyimpan cache" ikut menjadi urusan store — bukan peta lokal modul ini.
+ */
 export const GUILD_CACHE_TTL_MS = 60_000;
-
-/** Berapa server yang boleh menyimpan cache perintah pada satu proses. */
-export const GUILD_CACHE_LIMIT = 100;
 
 /** Satu perintah custom seperti yang dilihat bot. */
 export interface CustomCommand {

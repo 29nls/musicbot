@@ -7,6 +7,7 @@ import {
   type DependencyState,
   type HealthServerHandle,
 } from '../src/modules/health/index.js';
+import { MetricsRegistry, type MetricsSnapshot } from '../src/modules/metrics/index.js';
 
 const STARTED_AT = 1_700_000_000_000;
 
@@ -72,6 +73,17 @@ describe('buildHealthReport', () => {
       status: 'ok',
       uptimeSeconds: 90,
     });
+  });
+
+  it('metrik ikut dibawa kalau tersedia, dan tidak muncul kalau tidak', () => {
+    const report = buildHealthReport(input());
+
+    expect(healthPayload(report, { tracksPlayed: 5 })).toMatchObject({
+      metrics: { tracksPlayed: 5 },
+    });
+    // Tanpa metrik, bentuk payload lama tidak berubah — modul health harus
+    // tetap bisa dipakai tanpa modul metrik.
+    expect('metrics' in healthPayload(report)).toBe(false);
   });
 });
 
@@ -191,5 +203,81 @@ describe('endpoint health check', () => {
         pingDatabase: async () => 'ok',
       }),
     ).toBeNull();
+  });
+});
+
+describe('endpoint /metrics', () => {
+  let handle: HealthServerHandle | null = null;
+
+  afterAll(async () => {
+    await handle?.close();
+  });
+
+  async function start(overrides: { metrics?: () => MetricsSnapshot } = {}) {
+    handle = startHealthServer({
+      port: 0,
+      startedAt: STARTED_AT,
+      gatewayReady: () => true,
+      lavalinkConnected: () => true,
+      guildCount: () => 7,
+      pingDatabase: async () => 'ok',
+      ...overrides,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return handle;
+  }
+
+  it('menjawab 200 dengan format teks Prometheus', async () => {
+    const registry = new MetricsRegistry({ startedAt: STARTED_AT, now: () => STARTED_AT + 60_000 });
+    registry.record('command');
+    registry.record('command', 'error');
+    registry.recordTrackPlayed();
+    registry.recordLavalinkLatency(42);
+
+    await start({ metrics: () => registry.snapshot() });
+
+    const response = await fetch(`http://127.0.0.1:${handle?.port ?? 0}/metrics`);
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/plain');
+    expect(body).toContain('harmony_guilds 7');
+    expect(body).toContain('harmony_tracks_played_total 1');
+    expect(body).toContain('harmony_interactions_total{kind="command"} 2');
+    expect(body).toContain('harmony_lavalink_latency_ms 42');
+  });
+
+  it('/ready juga membawa metrik dalam satu respons', async () => {
+    const registry = new MetricsRegistry();
+    registry.recordTrackPlayed();
+
+    await start({ metrics: () => registry.snapshot() });
+
+    const response = await fetch(`http://127.0.0.1:${handle?.port ?? 0}/ready`);
+    const body = (await response.json()) as { metrics?: MetricsSnapshot };
+
+    expect(body.metrics?.tracksPlayed).toBe(1);
+  });
+
+  it('metrik yang belum siap menjawab 503, bukan halaman kosong', async () => {
+    // 200 dengan isi kosong akan terlihat sebagai "grafik datar tapi sehat".
+    await start();
+
+    const response = await fetch(`http://127.0.0.1:${handle?.port ?? 0}/metrics`);
+
+    expect(response.status).toBe(503);
+  });
+
+  it('snapshot yang melempar tidak membuat server error', async () => {
+    await start({
+      metrics: () => {
+        throw new Error('registry belum siap');
+      },
+    });
+
+    const response = await fetch(`http://127.0.0.1:${handle?.port ?? 0}/metrics`);
+
+    expect(response.status).toBe(503);
   });
 });

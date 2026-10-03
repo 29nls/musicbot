@@ -35,6 +35,22 @@ export interface MusicServiceOptions {
   maxQueueSize: number;
   /** Batas lagu yang diingat untuk mode loop antrean. */
   maxLoopHistory?: number;
+  /**
+   * Dipanggil tiap lagu selesai diputar, untuk statistik (§5.3).
+   *
+   * Callback, bukan dependency: modul musik tidak boleh tahu soal database,
+   * dan callback yang melempar tidak boleh menjatuhkan pemutaran.
+   */
+  onTrackFinished?: (event: TrackFinishedEvent) => void;
+}
+
+/** Yang dilaporkan ke `onTrackFinished`. */
+export interface TrackFinishedEvent {
+  guildId: string;
+  title: string;
+  uri: string | null;
+  /** Milidetik yang benar-benar terdengar, bukan durasi lagu. */
+  listenedMs: number;
 }
 
 /** Batas default riwayat siklus; cukup untuk satu antrean panjang. */
@@ -120,6 +136,30 @@ export class MusicService {
   /** true kalau ada node Lavalink yang siap dipakai. */
   get isConnected(): boolean {
     return this.manager.getIdealNode() !== undefined;
+  }
+
+  /**
+   * Ukur latensi ke node Lavalink (ms) untuk metrik §11.
+   *
+   * Memakai `GET /stats` yang murah — bukan mencari lagu dan bukan menyentuh
+   * player — jadi angkanya benar-benar biaya jaringan ke node, bukan biaya
+   * pencarian. Mengembalikan `null` kalau tidak ada node atau node gagal
+   * menjawab — metrik yang hilang jauh lebih baik daripada metrik yang berisi
+   * angka tebakan.
+   */
+  async measureLavalinkLatency(): Promise<number | null> {
+    const node = this.manager.getIdealNode();
+    if (!node) return null;
+
+    const startedAt = Date.now();
+
+    try {
+      await node.rest.stats();
+      return Math.max(0, Date.now() - startedAt);
+    } catch (error) {
+      getLogger().debug({ err: error }, 'Gagal mengukur latensi Lavalink');
+      return null;
+    }
   }
 
   /** Channel voice tempat bot berada di server ini. */
@@ -405,6 +445,47 @@ export class MusicService {
     }
   }
 
+  /**
+   * Sambung bot ke channel 24/7 tanpa memulai pemutaran apa pun.
+   *
+   * Satu pintu masuk yang sama dengan `/play` (lewat `ensurePlayer`) supaya
+   * volume default, filter, dan pembersihan player tetap memakai jalur yang sudah
+   * diuji. Volume tetap dipasang di sini: player yang baru dibuat punya volume
+   * Lavalink, bukan nilai `/config`, jadi tanpa ini `/config set volume:40`
+   * akan diabaikan sampai ada lagu pertama.
+   */
+  async joinStayChannel(guildId: string, channelId: string, shardId: number): Promise<void> {
+    const player = await this.ensurePlayer(guildId, channelId, shardId);
+
+    let volume = 100;
+    try {
+      volume = clampVolume((await this.options.getConfig(guildId)).defaultVolume);
+    } catch (error) {
+      getLogger().warn(
+        { err: error, guildId },
+        'Gagal membaca volume default untuk mode 24/7 — memakai 100',
+      );
+    }
+
+    // Kegagalan set volume bukan kegagalan menyambung: bot sudah di channel,
+    // dan mencoba lagi pada sapuan berikutnya cukup.
+    await player.setGlobalVolume(volume).catch((error: unknown) => {
+      getLogger().warn({ err: error, guildId }, 'Gagal memasang volume pada mode 24/7');
+    });
+  }
+
+  /**
+   * Batalkan hitungan mundur keluar otomatis.
+   *
+   * Dipakai perintah `/247 join`: kalau antrean sudah habis dan timer idle
+   * sedang berjalan, menyalakan mode 24/7 harus langsung membatalkan timer
+   * itu — kalau tidak, bot tetap keluar dan baru kembali lagi setelah sapuan
+   * job berikutnya.
+   */
+  cancelIdleDisconnect(guildId: string): void {
+    this.idleTimers.get(guildId)?.cancel();
+  }
+
   /** Ringkasan untuk `/queue` dan `/nowplaying`. */
   async snapshot(guildId: string): Promise<QueueSnapshot> {
     const player = this.manager.players.get(guildId);
@@ -496,12 +577,31 @@ export class MusicService {
       logger.warn({ guildId, track: event.track.info.title }, 'Lagu gagal dimuat — lanjut ke berikutnya');
     }
 
-    const next = await this.advanceToNext(guildId, player, this.currents.get(guildId) ?? null);
+    const finished = this.currents.get(guildId) ?? null;
+    this.reportFinishedTrack(guildId, player, finished);
+
+    const next = await this.advanceToNext(guildId, player, finished);
     if (next) return;
 
     this.currents.delete(guildId);
     await player.stopTrack().catch(() => undefined);
     await this.scheduleIdleDisconnect(guildId);
+  }
+
+  /** Laporkan lagu yang baru selesai ke pemanggil statistik (kalau ada). */
+  private reportFinishedTrack(guildId: string, player: Player, finished: TrackInfo | null): void {
+    const report = this.options.onTrackFinished;
+    if (!report || !finished) return;
+
+    const listenedMs = Math.min(Math.max(player.position ?? 0, 0), finished.durationMs);
+
+    try {
+      report({ guildId, title: finished.title, uri: finished.uri, listenedMs });
+    } catch (error) {
+      // Statistik tidak boleh jadi alasan pemutaran gagal: error di sini cuma
+      // berarti satu angka yang tidak tercatat.
+      getLogger().warn({ err: error, guildId }, 'Gagal melaporkan lagu selesai ke statistik');
+    }
   }
 
   /**
@@ -592,10 +692,27 @@ export class MusicService {
     const timer = this.idleTimerFor(guildId);
 
     let seconds = DEFAULT_IDLE_TIMEOUT_SEC;
+    let stayChannelId: string | null = null;
+    let musicModuleEnabled = true;
     try {
-      seconds = (await this.options.getConfig(guildId)).idleTimeoutSec;
+      const config = await this.options.getConfig(guildId);
+      seconds = config.idleTimeoutSec;
+      stayChannelId = config.stayChannelId;
+      musicModuleEnabled = config.modules.music;
     } catch (error) {
       logger.warn({ err: error, guildId }, 'Gagal membaca idle timeout — memakai nilai default');
+    }
+
+    // Mode 24/7 (PRD §5.2): configured channel = bot harus tinggal. Menjalankan
+    // timer di sini akan memutus tepat fitur yang sedang dinyalakan, jadi
+    // antrean kosong tidak berarti apa-apa selama mode ini aktif.
+    if (musicModuleEnabled && stayChannelId !== null) {
+      timer.cancel();
+      logger.debug(
+        { guildId, stayChannelId },
+        'Antrean habis, tapi mode 24/7 aktif — bot tetap tinggal',
+      );
+      return;
     }
 
     if (seconds <= 0) {

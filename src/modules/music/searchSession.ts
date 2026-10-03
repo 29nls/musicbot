@@ -1,4 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import { getLogger } from '../../services/logger.js';
+import { getKeyValueStore, type KeyValueStore } from '../../services/kvStore.js';
+import { decodeSearchSession, encodeSearchSession } from './searchSessionCodec.js';
 import type { TrackInfo } from './types.js';
 
 /**
@@ -11,9 +14,11 @@ import type { TrackInfo } from './types.js';
  * Sifat penting dari pilihan ini:
  * - Pesan select menu dikirim ephemeral, jadi tidak ada yang perlu dilihat member
  *   lain dan hasil pencarian tidak perlu disimpan ke database.
- * - Session hidup di memori satu proses bot. Kalau bot nanti di-sharding, store
- *   ini harus pindah ke store bersama (Redis) sebelum sharding diaktifkan;
- *   selama satu proses, select menu selalu kembali ke proses yang membuatnya.
+ * - Session hidup di `KeyValueStore` (§9.4), jadi bersama antar proses. Ini
+ *   yang membuat select menu tetap bekerja begitu bot di-sharding (§5.3):
+ *   guild bisa ditangani proses berbeda antara `/search` dan kliknya. Sifat
+ *   berumur pendek tetap dijaga lewat TTL, jadi tidak ada state yang tumbuh
+ *   terus di store bersama.
  */
 
 /** Awalan customId select menu pencarian — dipakai router komponen. */
@@ -26,9 +31,27 @@ export const SEARCH_RESULT_LIMIT = 5;
  * Umur session pencarian.
  *
  * 15 menit cukup untuk orang memilih dengan santai, dan cukup pendek supaya
- * select menu lama tidak bisa dipakai berbulan-bulan lalu.
+ * select menu lama tidak bisa dipakai berbulan-bulan lalu. TTL-nya dipasang di
+ * store, jadi session yang ditinggalkan hilang sendiri tanpa perlu penyapuan.
  */
 export const SEARCH_SESSION_TTL_MS = 15 * 60_000;
+
+/** Awalan key session di store bersama. */
+const SESSION_PREFIX = 'harmony:searchsession:';
+
+/**
+ * Batas session yang dicatat proses ini.
+ *
+ * Store bersama tidak bisa "hapus semua key dengan awalan tertentu", jadi proses
+ * menyimpan daftar token yang pernah ia tulis sendiri. Daftar ini dibatasi dan
+ * secara berkala disapu supaya bot yang berdiri lama tidak tumbuh terus; token
+ * yang keluar dari daftar hanya berarti barisnya tidak ikut disapu, karena TTL
+ * di sisi store sudah mengurusnya sendiri.
+ */
+const TRACKED_TOKENS_LIMIT = 200;
+
+/** Seberapa sering penyapuan daftar token berjalan (dihitung per `put`). */
+const PRUNE_EVERY_PUTS = 64;
 
 /** Batas Discord: label opsi 100 karakter, description 100 karakter. */
 export const MAX_OPTION_LABEL_LENGTH = 100;
@@ -65,43 +88,62 @@ const defaultTokenFactory: TokenFactory = () => randomBytes(TOKEN_LENGTH).toStri
 /** Pola token yang boleh masuk: hex dengan panjang minimal 8. */
 const TOKEN_PATTERN = /^[0-9a-f]{8,}$/;
 
+export interface SearchSessionStoreOptions {
+  /** Umur session; default `SEARCH_SESSION_TTL_MS`. */
+  ttlMs?: number;
+  /** Jam yang dipakai untuk mengukur umur; bisa disuntik saat tes. */
+  now?: () => number;
+  tokenFactory?: TokenFactory;
+  /** Store bersama; default-nya store proses (Redis atau memori). */
+  store?: KeyValueStore;
+}
+
 /**
- * Penyimpanan session pencarian untuk satu proses bot.
+ * Penyimpanan session pencarian di store bersama.
  *
- * Sengaja in-memory: hasil pencarian berumur pendek dan tidak perlu bertahan
- * melewati restart (lihat catatan di atas file ini).
+ * Semua operasi async karena menyentuh store: `put` menulis dengan TTL,
+ * `take` mengklaim session supaya hanya satu proses yang bisa memakainya.
+ *
+ * **Kegagalan store tidak pernah melempar.** `/search` yang gagal menulis
+ * session dijawab dengan "coba lagi" (`put` mengembalikan null), dan select
+ * menu yang session-nya tidak terbaca dijawab "sudah tidak berlaku" — bukan
+ * dengan error yang membuat user mengira bot-nya rusak.
  */
 export class SearchSessionStore {
-  private readonly sessions = new Map<string, SearchSession>();
+  private readonly trackedTokens = new Set<string>();
+  private readonly store: KeyValueStore;
+  private readonly now: () => number;
+  private readonly ttlMs: number;
+  private readonly tokenFactory: TokenFactory;
+  private putsSinceSweep = 0;
 
-  constructor(
-    private readonly options: {
-      ttlMs?: number;
-      maxSessions?: number;
-      now?: () => number;
-      tokenFactory?: TokenFactory;
-    } = {},
-  ) {}
+  constructor(options: SearchSessionStoreOptions = {}) {
+    this.store = options.store ?? getKeyValueStore();
+    this.now = options.now ?? (() => Date.now());
+    this.ttlMs = options.ttlMs ?? SEARCH_SESSION_TTL_MS;
+    this.tokenFactory = options.tokenFactory ?? defaultTokenFactory;
+  }
 
-  /** Berapa session yang tersimpan sebelum penyapuan berikutnya. */
+  /** Berapa token yang dicatat proses ini (dipakai tes & diagnosa). */
   get size(): number {
-    return this.sessions.size;
+    return this.trackedTokens.size;
   }
 
   /**
    * Simpan hasil pencarian dan kembalikan session-nya.
    *
+   * `null` berarti session tidak bisa disimpan — pemanggil harus memberi tahu
+   * user untuk mengulang, bukan mengirim select menu yang pasti tidak berlaku.
+   *
    * `tracks` dipotong jadi `SEARCH_RESULT_LIMIT` supaya sesuai PRD dan supaya
    * select menu tidak mungkin melewati batas 25 opsi Discord.
    */
-  put(input: {
+  async put(input: {
     guildId: string;
     requesterId: string;
     query: string;
     tracks: readonly TrackInfo[];
-  }): SearchSession {
-    this.prune();
-
+  }): Promise<SearchSession | null> {
     const session: SearchSession = {
       token: this.createToken(),
       guildId: input.guildId,
@@ -111,45 +153,49 @@ export class SearchSessionStore {
       createdAt: this.now(),
     };
 
-    this.sessions.set(session.token, session);
-    this.enforceCapacity();
+    try {
+      await this.store.set(sessionKey(session.token), encodeSearchSession(session), {
+        ttlMs: this.ttlMs,
+      });
+    } catch (error) {
+      getLogger().warn({ err: error, guildId: input.guildId }, 'Gagal menyimpan session /search');
+      return null;
+    }
+
+    this.track(session.token);
+    this.maybeSweep();
 
     return session;
   }
 
-  /** Ambil session tanpa menghapus; dipakai untuk render ulang dan tes. */
-  peek(token: string): SearchSession | undefined {
-    const session = this.sessions.get(token);
-    if (!session) return undefined;
-
-    if (this.isExpired(session)) {
-      this.sessions.delete(token);
-      return undefined;
-    }
-
-    return session;
+  /** Ambil session tanpa mengambil hak pakainya; dipakai untuk tes. */
+  async peek(token: string): Promise<SearchSession | undefined> {
+    return (await this.read(token)) ?? undefined;
   }
 
   /** Buang satu session (mis. hasil pencarian yang tidak pernah dipilih). */
-  delete(token: string): void {
-    this.sessions.delete(token);
+  async delete(token: string): Promise<void> {
+    this.trackedTokens.delete(token);
+    await this.remove(sessionKey(token));
   }
 
   /**
    * Terjemahkan pilihan select menu menjadi lagu.
    *
-   * Session dibuang saat dipakai: select menu Discord masih bisa diklik dua kali
-   * (klik kedua kadang tidak terkirim ke bot), jadi satu pilihan tidak boleh
-   * bisa menambahkan lagu dua kali.
+   * Session diklaim (dibaca sekaligus dihapus) hanya **setelah** semua validasi
+   * lolos: klik orang lain atau server lain tidak boleh membakar session milik
+   * pemiliknya. Sebaliknya, dua klik milik pemilik sendiri yang kebetulan sama-
+   * sama diproses hanya menghasilkan satu lagu, karena operasi klaim di store
+   * bersifat sekali pakai.
    */
-  take(input: {
+  async take(input: {
     token: string;
     guildId: string;
     userId: string;
     /** Indeks opsi yang dipilih, dari `values[0]`. */
     index: number;
-  }): SearchSelection {
-    const session = this.peek(input.token);
+  }): Promise<SearchSelection> {
+    const session = await this.read(input.token);
 
     if (!session) return { kind: 'expired' };
 
@@ -162,38 +208,121 @@ export class SearchSessionStore {
     const track = session.tracks[input.index];
     if (!track) return { kind: 'bad-index' };
 
-    this.sessions.delete(input.token);
+    if (!(await this.claim(input.token))) return { kind: 'expired' };
 
     return { kind: 'ok', track };
   }
 
-  /** Buang session yang sudah melewati umur; mengembalikan jumlah yang dibuang. */
-  prune(): number {
+  /** Buang session yang sudah hilang atau kedaluwarsa; jumlah yang dibuang. */
+  async prune(): Promise<number> {
     let removed = 0;
 
-    for (const [token, session] of this.sessions) {
-      if (this.isExpired(session)) {
-        this.sessions.delete(token);
-        removed += 1;
-      }
+    for (const token of [...this.trackedTokens]) {
+      if (!(await this.read(token))) removed += 1;
     }
 
     return removed;
   }
 
-  /** Kosongkan semua session; dipakai saat bot akan keluar. */
-  clear(): void {
-    this.sessions.clear();
+  /** Kosongkan semua session proses ini; dipakai saat bot akan keluar. */
+  async clear(): Promise<void> {
+    const tokens = [...this.trackedTokens];
+    this.trackedTokens.clear();
+
+    for (const token of tokens) {
+      await this.remove(sessionKey(token));
+    }
   }
 
-  private isExpired(session: SearchSession): boolean {
-    return this.now() - session.createdAt >= this.ttlMs;
+  /**
+   * Baca satu session.
+   *
+   * `null` berarti "tidak ada yang bisa dipakai": key hilang, JSON rusak, atau
+   * store sedang bermasalah. Ketiganya sama-sama berakhir dengan select menu
+   * yang dijawab "sudah tidak berlaku".
+   */
+  private async read(token: string): Promise<SearchSession | null> {
+    const key = sessionKey(token);
+    let raw: string | null;
+
+    try {
+      raw = await this.store.get(key);
+    } catch (error) {
+      getLogger().warn({ err: error, token }, 'Gagal membaca session /search');
+      return null;
+    }
+
+    const session = decodeSearchSession(raw);
+    if (!session) {
+      this.trackedTokens.delete(token);
+      return null;
+    }
+
+    // Pengaman kedua: kalau store yang dipakai mengabaikan TTL, umur session
+    // tetap dijaga di sini supaya select menu tua tidak bisa dipakai selamanya.
+    if (this.isExpired(session)) {
+      this.trackedTokens.delete(token);
+      await this.remove(key);
+      return null;
+    }
+
+    return session;
+  }
+
+  /** Klaim session: berhasil kalau proses ini yang pertama mengambilnya. */
+  private async claim(token: string): Promise<boolean> {
+    try {
+      const claimed = await this.store.take(sessionKey(token));
+      if (claimed === null) return false;
+
+      this.trackedTokens.delete(token);
+      return true;
+    } catch (error) {
+      getLogger().warn({ err: error, token }, 'Gagal memakai session /search');
+      return false;
+    }
+  }
+
+  /** Hapus key tanpa pernah melempar; tidak semua kegagalan perlu menggagalkan menu. */
+  private async remove(key: string): Promise<void> {
+    try {
+      await this.store.delete(key);
+    } catch (error) {
+      getLogger().warn({ err: error, key }, 'Gagal membuang session /search');
+    }
+  }
+
+  private track(token: string): void {
+    if (this.trackedTokens.has(token)) return;
+
+    if (this.trackedTokens.size >= TRACKED_TOKENS_LIMIT) {
+      const oldest = this.trackedTokens.values().next();
+      if (!oldest.done) this.trackedTokens.delete(oldest.value);
+    }
+
+    this.trackedTokens.add(token);
+  }
+
+  /**
+   * Sapu daftar token sesekali.
+   *
+   * Tidak dijalankan setiap `put`: tiap penyapuan membaca semua token yang
+   * dicatat, jadi di store bersama itu berarti banyak perjalanan bolak-balik
+   * untuk setiap `/search`. Diambil setiap N penyimpanan, cukup untuk menahan
+   * daftar tetap kecil tanpa jadi beban.
+   */
+  private maybeSweep(): void {
+    this.putsSinceSweep += 1;
+    if (this.putsSinceSweep < PRUNE_EVERY_PUTS) return;
+
+    this.putsSinceSweep = 0;
+    void this.prune();
   }
 
   private createToken(): string {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const token = this.tokenFactory();
-      if (!this.sessions.has(token)) return token;
+      if (!this.trackedTokens.has(token)) return token;
     }
 
     // Lima tabrakan beruntun hampir mustahil. Kalau tetap terjadi, pakai token
@@ -201,31 +330,14 @@ export class SearchSessionStore {
     return `${this.tokenFactory()}${Date.now().toString(36)}`;
   }
 
-  /** Batasi jumlah session supaya server ramai tidak menahan memori tanpa batas. */
-  private enforceCapacity(): void {
-    // Map mempertahankan urutan sisip, jadi kunci pertama adalah yang tertua.
-    while (this.sessions.size > this.maxSessions) {
-      const oldest = this.sessions.keys().next();
-      if (oldest.done) return;
-      this.sessions.delete(oldest.value);
-    }
+  private isExpired(session: SearchSession): boolean {
+    return this.now() - session.createdAt >= this.ttlMs;
   }
+}
 
-  private get ttlMs(): number {
-    return this.options.ttlMs ?? SEARCH_SESSION_TTL_MS;
-  }
-
-  private get maxSessions(): number {
-    return this.options.maxSessions ?? 200;
-  }
-
-  private get tokenFactory(): TokenFactory {
-    return this.options.tokenFactory ?? defaultTokenFactory;
-  }
-
-  private now(): number {
-    return this.options.now?.() ?? Date.now();
-  }
+/** Key store untuk sebuah session. */
+export function sessionKey(token: string): string {
+  return `${SESSION_PREFIX}${token}`;
 }
 
 /** customId select menu untuk sebuah session. */

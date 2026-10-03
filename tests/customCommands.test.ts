@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { MemoryKeyValueStore } from '../src/services/kvStore.js';
 import {
   CustomCommandService,
   CustomCommandValidationError,
@@ -372,21 +373,22 @@ describe('CustomCommandService.find & cache', () => {
   });
 
   it('membaca ulang setelah cache kedaluwarsa', async () => {
+    vi.useFakeTimers();
     const repository = new FakeRepository([commandRow()]);
-    let now = 1_000_000;
     const service = new CustomCommandService(repository, {
-      now: () => now,
       cacheTtlMs: GUILD_CACHE_TTL_MS,
+      store: new MemoryKeyValueStore(),
     });
 
     await service.find(GUILD_A, 'ping');
-    now += GUILD_CACHE_TTL_MS - 1;
+    vi.advanceTimersByTime(GUILD_CACHE_TTL_MS - 1);
     await service.find(GUILD_A, 'ping');
     expect(repository.listCalls).toBe(1);
 
-    now += 2;
+    vi.advanceTimersByTime(2);
     await service.find(GUILD_A, 'ping');
     expect(repository.listCalls).toBe(2);
+    vi.useRealTimers();
   });
 
   it('membuang cache begitu ada perubahan (tidak menunggu 60 detik)', async () => {
@@ -417,25 +419,55 @@ describe('CustomCommandService.find & cache', () => {
     expect(service.cachedGuilds).toBe(2);
   });
 
-  it('membatasi jumlah server yang menyimpan cache', async () => {
-    // Tanpa batas ini, bot yang berdiri di banyak server kecil akan menahan
-    // daftar perintah tiap server selamanya.
-    const repository = new FakeRepository([
-      commandRow({ id: 1, guildId: GUILD_A, name: 'ping' }),
-      commandRow({ id: 2, guildId: GUILD_B, name: 'ping' }),
-      commandRow({ id: 3, guildId: '444444444444444444', name: 'ping' }),
-    ]);
-    const service = new CustomCommandService(repository, { cacheLimit: 2 });
+  it('cache dipakai lintas instance karena store-nya sama', async () => {
+    // Inilah POINT dari pindah ke store bersama: dua proses (atau dua instance
+    // service) tidak lagi membaca database dua kali untuk guild yang sama.
+    const store = new MemoryKeyValueStore();
+    const firstRepository = new FakeRepository([commandRow()]);
+    const secondRepository = new FakeRepository([commandRow()]);
 
-    await service.find(GUILD_A, 'ping');
-    await service.find(GUILD_B, 'ping');
-    expect(service.cachedGuilds).toBe(2);
+    const first = new CustomCommandService(firstRepository, { store });
+    const second = new CustomCommandService(secondRepository, { store });
 
-    await service.find('444444444444444444', 'ping');
-    expect(service.cachedGuilds).toBe(2);
-    // Server pertama yang dibuang akan dibaca ulang, bukan isinya hilang.
-    await service.find(GUILD_A, 'ping');
-    expect(repository.listCalls).toBe(4);
+    expect((await first.find(GUILD_A, 'ping'))?.response).toBe('pong');
+    expect((await second.find(GUILD_A, 'ping'))?.response).toBe('pong');
+
+    expect(firstRepository.listCalls).toBe(1);
+    expect(secondRepository.listCalls).toBe(0);
+  });
+
+  it('perubahan dari satu instance terlihat instance lain lewat store', async () => {
+    const store = new MemoryKeyValueStore();
+    const repository = new FakeRepository([commandRow()]);
+    const writer = new CustomCommandService(repository, { store });
+    const reader = new CustomCommandService(repository, { store });
+
+    await writer.find(GUILD_A, 'ping');
+    await writer.edit(GUILD_A, 'ping', 'v2');
+
+    expect((await reader.find(GUILD_A, 'ping'))?.response).toBe('v2');
+  });
+
+  it('store yang bermasalah tidak membuat `!perintah` gagal', async () => {
+    const repository = new FakeRepository([commandRow()]);
+    const store = new MemoryKeyValueStore();
+    const service = new CustomCommandService(repository, { store });
+
+    vi.spyOn(store, 'set').mockRejectedValueOnce(new Error('Redis turun'));
+    vi.spyOn(store, 'get').mockRejectedValueOnce(new Error('Redis turun'));
+
+    expect((await service.find(GUILD_A, 'ping'))?.response).toBe('pong');
+    vi.restoreAllMocks();
+  });
+
+  it('cache rusak dibaca sebagai tidak ada, bukan sebagai error', async () => {
+    const repository = new FakeRepository([commandRow()]);
+    const store = new MemoryKeyValueStore();
+    const service = new CustomCommandService(repository, { store });
+
+    await store.set(`harmony:customcommands:${GUILD_A}`, 'bukan json', { ttlMs: 60_000 });
+
+    expect((await service.find(GUILD_A, 'ping'))?.response).toBe('pong');
   });
 
   it('list() selalu membaca langsung dari database', async () => {
@@ -451,14 +483,30 @@ describe('CustomCommandService.find & cache', () => {
     expect(listed.map((row) => row.name)).toEqual(['ping', 'rules']);
   });
 
-  it('invalidate() tanpa guildId membersihkan semuanya', async () => {
-    const service = new CustomCommandService(new FakeRepository([commandRow()]));
+  it('invalidate() tanpa guildId membuang semua key yang dicatat proses ini', async () => {
+    // Store disuntikkan supaya tes ini tidak ikut bergantung pada store proses
+    // yang dipakai service lain di file ini.
+    const store = new MemoryKeyValueStore();
+    const repository = new FakeRepository([
+      commandRow({ id: 1, guildId: GUILD_A, name: 'ping' }),
+      commandRow({ id: 2, guildId: GUILD_B, name: 'pong' }),
+    ]);
+    const service = new CustomCommandService(repository, { store });
 
     await service.find(GUILD_A, 'ping');
-    expect(service.cachedGuilds).toBe(1);
+    await service.find(GUILD_B, 'pong');
+    expect(service.cachedGuilds).toBe(2);
 
-    service.invalidate();
+    await service.invalidate();
+
     expect(service.cachedGuilds).toBe(0);
+    expect(await store.get(`harmony:customcommands:${GUILD_A}`)).toBeNull();
+    expect(await store.get(`harmony:customcommands:${GUILD_B}`)).toBeNull();
+
+    // Setelah dibuang, pemanggilan berikutnya membaca ulang dari database.
+    const before = repository.listCalls;
+    await service.find(GUILD_A, 'ping');
+    expect(repository.listCalls).toBeGreaterThan(before);
   });
 });
 

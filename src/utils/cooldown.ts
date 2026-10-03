@@ -1,46 +1,90 @@
+import { MemoryKeyValueStore, type KeyValueStore } from '../services/kvStore.js';
+import { getLogger } from '../services/logger.js';
+
 /**
- * Cooldown in-memory sederhana per user+perintah.
- * Untuk rate limit lintas proses (fase berikutnya) ganti ke Redis.
+ * Rate limit per user per perintah (§16).
+ *
+ * Dulu peta in-memory satu proses. Sekarang lewat `KeyValueStore`, jadi kalau
+ * Redis hidup, cooldown ikut berlaku lintas proses — syarat kecil sebelum
+ * sharding boleh dipertimbangkan. Bedanya sengaja tidak dramatis: kalau store
+ * (Redis) sedang bermasalah, pemanggil **tidak ikut gagal**, dan cooldown
+ * dihitung dari store memori cadangan supaya perlindungannya tetap ada.
  */
-const buckets = new Map<string, number>();
-const MAX_ENTRIES = 10_000;
+
+const PREFIX = 'harmony:cooldown:';
+
+/** Cadangan: tetap berlaku kalau store utama sedang tidak bisa dihubungi. */
+const fallback = new MemoryKeyValueStore();
+
+let store: KeyValueStore = fallback;
+
+/** Store yang dipakai modul ini; dipanggil startup setelah store dibuat. */
+export function setCooldownStore(next: KeyValueStore): void {
+  store = next;
+}
+
+/** Nama store aktif — dipakai tes dan log startup. */
+export function cooldownStoreName(): string {
+  return store === fallback ? 'memory' : 'shared';
+}
 
 /**
  * @returns 0 kalau boleh jalan, atau sisa detik tunggu kalau masih cooldown.
  */
-export function checkCooldown(key: string, seconds: number): number {
+export async function checkCooldown(key: string, seconds: number): Promise<number> {
   if (!Number.isFinite(seconds) || seconds <= 0) return 0;
 
-  const now = Date.now();
-  const expiresAt = buckets.get(key);
+  try {
+    return await check(store, key, seconds);
+  } catch (error) {
+    // Store utama gagal. Ini bukan alasan perintah gagal: cooldown cadangan
+    // dihitung dari memori supaya rate limit tetap ada, walau hanya berlaku
+    // untuk proses ini saja.
+    getLogger().warn({ err: error }, 'Store cooldown bermasalah — memakai penyimpanan memori');
+    return check(fallback, key, seconds);
+  }
+}
 
-  if (expiresAt !== undefined && expiresAt > now) {
-    return Math.ceil((expiresAt - now) / 1_000);
+async function check(target: KeyValueStore, key: string, seconds: number): Promise<number> {
+  const fullKey = `${PREFIX}${key}`;
+  const ttlMs = Math.max(1, Math.trunc(seconds * 1_000));
+
+  const raw = await target.get(fullKey);
+  if (raw !== null) {
+    const expiresAt = Number(raw);
+    const remaining = expiresAt - Date.now();
+    if (Number.isFinite(remaining) && remaining > 0) {
+      return Math.ceil(remaining / 1_000);
+    }
   }
 
-  // Map hanya tumbuh kalau ada user unik; bersihkan saat sudah terlalu besar.
-  if (buckets.size >= MAX_ENTRIES) pruneExpired(now);
+  // Yang disimpan adalah waktu berakhir mutlak (milidetik sejak epoch), bukan
+  // sisa relatif. Alasannya: sisa relatif selalu melaporkan angka yang sama,
+  // jadi orang yang ditolak diberi tahu "tunggu 5 detik" padahal tinggal 2,5
+  // detik — dan itulah yang membuat rate limit terasa seperti bohong. TTL di
+  // sisi store tetap dipasang supaya key hilang tepat saat jendela habis.
+  // Ditulis hanya saat pemakaian berhasil: percobaan yang ditolak tidak boleh
+  // menggeser jendela, kalau tidak orang yang menekan terus-menerus tidak akan
+  // pernah keluar dari cooldown.
+  // dan-itulah yang membuat orang merasa rate limitnya bohong. TTL di sisi store
+  await target.set(fullKey, String(Date.now() + ttlMs), { ttlMs });
 
-  buckets.set(key, now + seconds * 1_000);
   return 0;
 }
 
-export function resetCooldown(key: string): void {
-  buckets.delete(key);
+export async function resetCooldown(key: string): Promise<void> {
+  const fullKey = `${PREFIX}${key}`;
+
+  await Promise.allSettled([store.delete(fullKey), fallback.delete(fullKey)]);
 }
 
 /**
  * Jumlah bucket yang sedang disimpan.
  *
- * Dipakai tes untuk membuktikan map tidak tumbuh tanpa batas, dan berguna kalau
- * nanti ada perintah `/stats` yang ingin menampilkan beban rate limit.
+ * Dipakai tes untuk membuktikan store memori tidak tumbuh tanpa batas, dan
+ * berguna kalau nanti ada perintah `/stats` yang ingin menampilkan beban rate
+ * limit.
  */
-export function cooldownBucketCount(): number {
-  return buckets.size;
-}
-
-function pruneExpired(now: number): void {
-  for (const [key, expiresAt] of buckets) {
-    if (expiresAt <= now) buckets.delete(key);
-  }
+export async function cooldownBucketCount(): Promise<number> {
+  return fallback.size;
 }

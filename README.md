@@ -104,15 +104,17 @@ Bot menjalankan endpoint HTTP kecil di `HEALTH_PORT` (default `8080`):
 | --- | --- | --- |
 | `GET /health` | **Liveness**: proses bot masih hidup? Tidak menyentuh dependency apa pun, jadi selalu cepat | 200 selama server menyala |
 | `GET /ready` | **Readiness**: semua dependency siap? | 200 kalau siap, 503 kalau database mati / gateway belum siap / Lavalink putus |
+| `GET /metrics` | **Metrik proses** (§11): jumlah guild, lagu diputar, error rate, latensi Lavalink | 200 dengan teks Prometheus, 503 kalau metrik belum siap |
 
-Contoh jawaban `/ready`:
+Contoh jawaban `/ready` (bagian `metrics` dipangkas supaya mudah dibaca):
 
 ```json
 {
   "status": "degraded",
   "uptimeSeconds": 5400,
   "guildCount": 12,
-  "checks": { "gateway": true, "lavalink": false, "database": "ok" }
+  "checks": { "gateway": true, "lavalink": false, "database": "ok" },
+  "metrics": { "...": "lihat /metrics" }
 }
 ```
 
@@ -122,10 +124,53 @@ berbeda-beda. `/health` gagal berarti **restart**; `/ready` 503 dengan
 menambah masalah. Lavalink yang putus hanya `degraded` karena moderasi, tiket,
 serta logging tetap berjalan tanpa mesin audio.
 
-`HEALTH_PORT=0` mematikan endpoint sepenuhnya (berguna saat menjalankan bot lokal
-tanpa monitoring). Port-nya **tidak** dipublish ke luar di `docker-compose.yml`:
+`HEALTH_PORT=0` mematikan seluruh endpoint (berguna saat menjalankan bot lokal
+tanpa monitoring). Portnya **tidak** dipublish ke luar di `docker-compose.yml`:
 container `bot` punya healthcheck sendiri yang memanggil `/health`, jadi status
 terlihat lewat `docker compose ps` tanpa membuka port ke host.
+
+#### Metrik proses (`GET /metrics`)
+
+PRD §11 menuliskan empat angka yang harus bisa dilihat: jumlah guild, lagu
+diputar, error rate, dan latensi Lavalink. Yang pertama sudah ada di health
+check; tiga sisanya hidup di modul `src/modules/metrics/` dan diekspos sebagai
+teks Prometheus:
+
+```
+harmony_uptime_seconds 5400
+harmony_guilds 12
+harmony_tracks_played_total 318
+harmony_interactions_total{kind="command"} 402
+harmony_interaction_errors_total{kind="command"} 2
+harmony_interactions_total{kind="component"} 57
+harmony_interactions_total{kind="message"} 9
+harmony_command_error_rate 0.004975124378109453
+harmony_lavalink_connected 1
+harmony_lavalink_latency_ms 23
+```
+
+Empat keputusan yang perlu diketahui sebelum angka ini dipakai:
+
+- **Hitungannya kumulatif sejak proses start**, bukan jendela bergulir.
+  Karena itu satu proses yang hidup seminggu tidak bisa "menghapus"
+  kegagalannya dengan restart — persis yang dibutuhkan KPI §13 ("error rate
+  perintah < 1%"). Jendela bergulir butuh penyapuan berkala, dan penyapuan
+  berkala adalah tempat yang paling sering gagal diam-diam.
+- **Yang dihitung adalah pekerjaan yang benar-benar dikerjakan**: Commands
+  dihitung setelah gerbang izin dan cooldown lolos, jadi klik yang ditolak
+  sebelum menyentuh apa pun tidak ikut terhitung sebagai pemakaian.
+- **Error rate tidak pernah dibulatkan.** Error rate 0,4% yang ditulis "0%"
+  menghapus tepat kejadian yang dicari.
+- **`harmony_lavalink_latency_ms` tidak ditulis sebelum ada sample.** Metrik
+  yang belum pernah terisi lebih baik tidak ada daripada ada dengan angka 0
+  yang disalahartikan sebagai "latensi 0 milidetik".
+
+Latensinya diukur job `metricsProbe` (default tiap 30 detik) dengan memanggil
+`GET /stats` ke node Lavalink — endpoint murah yang tidak menyentuh player.
+`/ready` juga menyertakan objek `metrics` di responsnya supaya satu
+permintaan sudah cukup untuk diagnosis. Kalau metrik belum siap, `/metrics`
+menjawab **503** dan bukan 200 kosong: kondisi "metrik hilang" harus terlihat,
+bukan terlihat sebagai grafik yang datar tapi sehat.
 
 ---
 
@@ -151,7 +196,9 @@ lewat menu (channel log, channel welcome, role DJ, modul aktif) dan tombol
 
 Opsi `/config set`: `log-channel`, `welcome-channel`, `goodbye-channel`,
 `dj-role`, `autorole` (member manusia), `autorole-bot` (bot baru),
-`volume` (0–200), `idle-timeout` (30–86400 detik),
+`volume` (0–200), `idle-timeout` (30–86400 detik), `stay-channel` (voice
+channel yang dijaga 24/7; sama dengan `/247 join`, dan hanya boleh diubah
+dari Manage Server karena memengaruhi koneksi bot),
 `welcome-message` & `goodbye-message` (placeholder `{user}` `{mention}`
 `{server}` `{count}`), serta `music` / `moderation` / `automod` / `logging` /
 `custom-commands` (true/false) untuk menyalakan-matikan modul.
@@ -177,7 +224,7 @@ menyebut field bermasalahnya.
 | --- | --- | --- |
 | `/play <query>` | Cari lalu putar, atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya; tautan Spotify → metadata resmi lalu audio dicari ulang | Semua (harus di voice channel) |
 | `/search <query>` | Cari 5 hasil teratas, pilih satu lewat select menu untuk langsung diputar | Semua (harus di voice channel) |
-| `/queue` | Lagu yang sedang diputar + 10 lagu berikutnya | Semua |
+| `/queue` | Lagu yang sedang diputar + antrean berhalaman (10 lagu/halaman, tombol navigasi) | Semua |
 | `/nowplaying` | Embed lagu aktif: progress bar, volume, sisa antrean | Semua |
 | `/skip` | Lewati lagu sekarang | DJ |
 | `/pause` / `/resume` | Jeda / lanjutkan pemutaran | DJ |
@@ -191,6 +238,8 @@ menyebut field bermasalahnya.
 | `/playlist <subcommand>` | Simpan & putar playlist: `create` `add` `remove` `list` `show` `play` `delete` `public` | Semua (harus di voice channel untuk `play`) |
 | `/filter <mode>` | Ubah warna suara: bassboost, nightcore, vaporwave, 8D, atau `off` | DJ |
 | `/lyrics [judul]` | Lirik lagu yang sedang diputar (baris aktif ditandai `▶`), atau cari lirik lewat judul | Semua |
+| `/247 <join\|leave\|status>` | Jaga satu voice channel tetap terisi bot, atau matikan lagi mode itu | DJ / Manage Server (`status`: semua orang) |
+| `/stats [jenis] [periode]` | Statistik lagu & perintah di server ini (agregat, tanpa data pribadi) | Semua |
 | `/disconnect` | Bot keluar dari voice channel, antrean dikosongkan | DJ |
 
 **Playlist: simpan, buka lagi, dan bagikan ke server ini**
@@ -223,6 +272,33 @@ privat hanya bisa diputar pemiliknya. **Playlist ikut tercakup privasi §12:**
 `ownerId`-nya dihitung di `/privacy` dan dilepas (pseudonim) saat
 `/data-delete` dijalankan — isi playlist tetap ada karena daftar lagu bukan tentang
 orang, sedangkan pemiliknya bisa ditelusuri kembali.
+
+**Antrean berhalaman: 10 lagu per halaman, dengan tombol navigasi**
+
+`/queue` menampilkan 10 lagu berikutnya per halaman, jadi antrean 40 lagu tidak
+pernah dipotong diam-diam seperti sebelumnya. Kalau masih ada halaman lain,
+embed menyebutkannya dan pesan dapat tombol `⏮️ ◀️ ▶️ ⏭️`.
+
+Tiga hal yang menentukan halaman ini tidak menyesatkan:
+
+- **Nomor dihitung dari posisi di antrean utuh.** Di halaman 3, baris pertama
+  tetap ditulis `21.` supaya `/remove 21` menunjuk lagu yang sama dengan yang
+  tertulis. Kalau nomor dihitung ulang per halaman, satu angka yang salah bisa
+  menghapus lagu yang tidak sedang ditonton siapa pun.
+- **Halaman selalu dijepit ke data terbaru.** Antrean bisa menyusut antara dua
+  klik (lagu selesai, `/stop` jalan, member pindah server), jadi klik ke
+  halaman yang sudah tidak ada menampilkan halaman terakhir yang ada — bukan
+  halaman kosong atau error. Kalau antrean habis, tombolnya dilepas dan
+  embed-nya berubah jadi "antrean kosong".
+- **Tombolnya publik, antrean tetap milik server.** Siapa pun yang melihat pesan boleh
+  berpindah halaman; tidak ada yang bisa memakai tombol orang lain untuk
+  mengubah apa pun, karena klik hanya menulis ulang isi pesan yang sama.
+
+Nomor halaman masuk ke `customId` sebagai satu-satunya isi — bukan judul lagu
+atau data lain, karena `customId` ikut terkirim ke siapa pun yang menyalin
+payload interaksi. Tombol batas dinonaktifkan, bukan disembunyikan, dan klik
+pada pesan yang sudah lewat 15 menit dijawab "jalankan `/queue` lagi" karena
+Discord menolak `update()` pada pesan lama.
 
 **Filter audio: satu mode aktif, kembali ke normal lewat `off`**
 
@@ -333,18 +409,23 @@ Dua hal yang perlu diketahui:
 - **Hasilnya dikirim ephemeral** dan berlaku **15 menit**. Pilihannya private,
   jadi tidak ada yang perlu dilihat member lain dan tidak ada yang ditulis ke
   database.
-- **Session-nya disimpan di memori satu proses**, sama seperti antrean. Kalau bot
-  restart di tengah memilih, menunya akan menjawab “sudah tidak berlaku” dan
-  menyuruh mengulang `/search` — bukan gagal diam-diam. Konsekuensi yang sama:
-  **sharding belum boleh diaktifkan** sebelum store ini pindah ke Redis.
+- **Session-nya disimpan di store kunci-nilai bersama** dengan TTL 15 menit, jadi
+  select menu tetap bekerja meski guild-nya ditangani proses berbeda (§5.3).
+  Kalau bot restart atau Redis sempat kosong, menunya menjawab “sudah tidak
+  berlaku” dan menyuruh mengulang `/search` — bukan gagal diam-diam.
+- **Kalau session tidak bisa disimpan**, `/search` menjawab “coba lagi” dan tidak
+  mengirim menunya sama sekali, daripada mengirim menu yang pasti sudah basi.
 
 Yang membuat menu ini tidak bisa dipalsukan: `customId` milik Discord ikut
 terkirim ke siapa pun yang menyalin payload interaksi, jadi isinya harus
 dianggap terbaca publik. Karena itu **nilai opsi hanya indeks (`0`, `1`, …),
 bukan data lagu** — session-nya ditunjuk lewat token acak 8 karakter hex, dan
 hanya orang yang menjalankan `/search` itu yang boleh memakainya. Satu pilihan
-sekali: session dibuang saat dipakai, jadi klik ganda tidak menambahkan lagu
-dua kali.
+sekali: session **diklaim** (dibaca sekaligus dihapus) dari store hanya setelah
+pemilik dan servernya cocok, jadi klik ganda tidak menambahkan lagu dua kali,
+bahkan kalau dua shard kebetulan memproses klik yang sama. Klaim yang gagal
+karena store bermasalah diperlakukan sebagai “sudah dipakai”: lebih baik satu
+permintaan diulang daripada satu lagu masuk dua kali.
 **Loop: tiga mode, tiga perilaku berbeda**
 
 | Mode | Saat lagu selesai |
@@ -365,6 +446,35 @@ membuang riwayat itu; jejaknya tidak berguna setelah tidak ada yang diputar.
 Loop disimpan **per server di memori**, sama seperti antrean: restart bot
 mengosongkan antrean dan mengembalikan loop ke `off`.
 
+**Mode 24/7: satu channel yang dijaga, bukan sekadar "tidak keluar otomatis"**
+
+`/247 join` (dari dalam voice channel, atau `/247 join channel:#musik`)
+menyimpan channel tujuan ke konfigurasi server lalu menyambungkan bot ke sana.
+Selama mode ini aktif, dua hal berlaku:
+
+- **Bot tidak keluar otomatis.** Hitungan mundur `idleTimeoutSec` dibatalkan
+  setiap kali antrean habis, jadi channel itu tidak pernah kosong karena bot
+  yang pergi duluan.
+- **Bot kembali sendiri.** Job penyapuan (`STAY_SWEEP_MINUTES`, default 5 menit)
+  mengecek tiap server: bot yang ter-kick, shard yang reconnect, atau
+  `stay-channel` yang diganti akan disambungkan lagi tanpa perlu perintah.
+
+Tiga hal yang sengaja tidak diputuskan bot sendiri:
+
+- **Bot tidak pindah channel di tengah lagu.** Kalau admin mengganti channel
+  24/7 saat ada yang memutar, perpindahan menunggu lagu selesai — memotong
+  lagu orang demi pengaturan admin lebih buruk daripada menunggu sebentar.
+- **Mematikan mode tidak langsung menarik bot.** `/247 leave` mematikan mode;
+  kalau sedang ada lagu, bot menyelesaikan lagu itu lalu keluar mengikuti
+  `idleTimeoutSec`, dan kalau tidak ada yang diputar bot langsung keluar.
+- **Server tanpa channel 24/7 tidak tersentuh.** Job hanya berlaku di server
+  yang memang mencalonkan sebuah channel.
+
+`/247 status` menampilkan channel tujuan, posisi bot sekarang, apakah keluar
+otomatis masih berlaku, dan keputusan apa yang akan diambil job berikutnya.
+Mematikan mode selalu perlu DJ atau Manage Server; `/247 status` boleh dilihat
+siapa saja.
+
 **Aturan yang berlaku**
 
 - **Role DJ** diambil dari konfigurasi server. Kalau belum diatur, semua orang
@@ -375,9 +485,57 @@ mengosongkan antrean dan mengembalikan loop ke `off`.
   playlist dipotong dan jumlahnya dilaporkan di embed.
 - Setelah antrean habis, bot menunggu `idleTimeoutSec` (lihat `/config set`)
   lalu keluar sendiri dari voice channel.
+- Selama mode 24/7 aktif di server itu, hitungan mundur itu **tidak dijalankan
+  sama sekali** — lihat sub-bagian mode 24/7.
 - Bot bergabung sebagai *deafened* supaya tidak memproses audio yang tidak perlu.
 - Kesalahan (bukan di voice channel, bukan DJ, antrean penuh) dibalas sebagai
   pesan privat, sedangkan hasil yang perlu dilihat semua orang tetap publik.
+
+### Statistik server (Fase 3, §5.3)
+
+`/stats` menampilkan dua angka untuk server ini: **lagu yang paling sering
+diputarkan** dan **perintah yang paling sering dipakai**, plus grafik harian.
+Dengan ini KPI §13 bisa diukur langsung dari database.
+
+**Yang dikumpulkan, dan yang tidak.**
+
+- Satu baris per (server, jenis, item, hari) di `playback_stat`.
+  `kind` bisa `track` (lagu) atau `command` (nama perintah saja).
+- **Tidak ada `userId` di tabel ini, dan tidak pernah ada.** Bot tidak
+  merekam siapa yang memutar apa, dari channel mana, atau apa yang mereka
+  cari. Karena itu modul ini tidak punya jalur `/privacy` atau
+  `/data-delete` — tidak ada yang bisa disalin untuk seseorang (§12).
+- **Argumen perintah tidak pernah ikut tersimpan.** Yang ditulis hanya
+  `/play`, bukan `/play situs Rahasia`. Kalau teks pencarian ikut
+  masuk, tabel "lagu terpopuler" akan jadi salinan semua yang pernah diketik
+  siapa pun di server itu — dan tabel seperti itu tidak punya jalur hapus.
+
+**Empat keputusan yang menentukan angkanya berarti atau tidak:**
+
+- **Yang dihitung waktu dengar, bukan durasi lagu.** Satu `/play` lalu
+  `/skip` tidak boleh membuat lagu mana pun terlihat seperti yang paling
+  sering didengarkan; lagu baru dihitung setelah bunyi 10 detik.
+- **Satu baris per hari, bukan per pemutaran.** Tabelnya jauh lebih kecil
+  dan query-nya ikut kecil; leaderboard dihitung dengan menjumlahkan
+  hari-hari itu.
+- **Hari dihitung dalam UTC.** Server Discord ada di ribuan zona waktu, jadi
+  "hari" tidak punya satu makna untuk semua orang; UTC membuat angka antarserver
+  bisa dibandingkan dan tidak berubah sendiri saat daylight saving bergeser.
+- **Leaderboard seri dipecah stabil.** Urutannya ditentukan jumlah, lalu
+  label, supaya `/stats` yang dibuka dua kali punya urutan baris yang sama —
+  angka yang berganti urutan terlihat seperti angkanya ikut berubah.
+
+Grafik harian ditampilkan per hari sampai 14 hari, lalu dijumlahkan per
+minggu, dan pergantian itu disebut apa adanya di footer. Rentang maksimum
+90 hari; baris yang lebih lama dihapus oleh job retensi (lihat bagian 11) —
+bukan karena masalah privasi, tapi supaya tabel ini tidak tumbuh tanpa
+batas di server yang aktif lama.
+
+Pencatatan terjadi di dua tempat: `onTrackFinished` pada `MusicService`
+(dilewati lewat DI supaya modul musik tidak perlu tahu soal database) dan
+setelah gerbang izin serta cooldown pada `interactionCreate`. Keduanya
+**best-effort**: statistik yang gagal disimpan tidak pernah menggagalkan
+pemutaran atau perintahnya, tapi dicatat ke log supaya tidak hilang diam-diam.
 
 ### Cara bot memegang state
 
@@ -1073,11 +1231,12 @@ Yang perlu diketahui:
   menumpuk jadi pesan baru tepat di channel yang paling tidak butuh itu.
 - **Bot tidak akan pernah benar-benar `@everyone`/`@here`** meski admin
   mengetiknya di dalam balasan.
-- **Daftar perintah di-cache per server selama 60 detik.** Menambah/mengubah/
-  menghapus langsung membuang cache, jadi admin tidak menunggu satu menit untuk
-  melihat hasilnya. Cache ini in-memory satu proses — restart bot mengosongkan
-  semua cache, jadi **sharding belum boleh diaktifkan** sebelum store ini pindah
-  ke Redis (batasan yang sama seperti antrean musik).
+- **Daftar perintah di-cache per server selama 60 detik**, di store kunci-nilai
+  bersama — bukan peta in-memory. Menambah/mengubah/menghapus langsung membuang
+  cache, jadi admin tidak menunggu satu menit untuk melihat hasilnya, dan kalau
+  Redis hidup perubahannya langsung terlihat di proses lain juga. Cache yang
+  hilang bukan masalah: `find()` langsung jatuh ke database, jadi `!perintah`
+  hanya membayar satu query tambahan, tidak pernah diam.
 - **Privasi §12:** kolom pembuat ikut dihitung di `/privacy` dan diganti pseudonim
   saat `/data-delete`; isi balasannya tetap ada karena bukan tentang orang.
 
@@ -1128,13 +1287,15 @@ kasus karena satu query log lambat akan membuat bot menyimpan data yang sudah
 dijanjikan dihapus. `logsDeleted` bernilai `null` kalau sapuan log gagal — lebih
 baik menyatakan tidak diketahui daripada melaporkan angka nol yang terlalu optimistis.
 
-Ada job kedua yang terpisah: `panelExpiryJob.ts` menonaktifkan panel reaction
+Ada dua job terpisah. `panelExpiryJob.ts` menonaktifkan panel reaction
 role yang lewat masa hidup setiap `PANEL_EXPIRY_SWEEP_MINUTES` (default 15 menit).
 Pisah karena sifatnya berbeda — retensi menghapus baris data, sedangkan job ini
 mengubah **pesan di Discord** dan butuh gateway yang sudah login, sehingga
 kegagalan totalnya tidak pernah ikut menghapus apa pun. Setel `0` untuk
 mematikannya; select menu yang sudah lewat masa hidup tetap ditolak walau
-penjadwalan dimatikan.
+penjadwalan dimatikan. `stayJob.ts` menyambungkan bot kembali ke channel 24/7
+setiap `STAY_SWEEP_MINUTES` (default 5 menit) — job ini mengubah koneksi voice
+bot, bukan data, jadi kegagalannya tidak pernah menyentuh isi database.
 
 ---
 
@@ -1208,7 +1369,7 @@ prisma/
 src/
 ├─ commands/
 │  ├─ core/                 # /ping, /help, /config, /setup         (M0–M1 ✅)
-│  ├─ music/                # /play, /queue, /nowplaying, /skip,
+│  ├─ music/                # /play, /queue, /nowplaying, /skip, /247,
 │  │                        # /pause, /resume, /stop + _shared.ts   (M2 ✅)
 │  └─ admin/                # /ban … /note, /case (M3 ✅), /automod, /logging, /logs (M4 ✅)
 │                           # _shared.ts berisi gate & alur aksi bersama
@@ -1221,19 +1382,28 @@ src/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
-│  │                        # searchSession.ts = state /search, searchSelect.ts = pilihannya
+│  │                        # searchSession.ts = state /search di store bersama, searchSelect.ts = pilihannya
+│  │                        # searchSessionCodec.ts = serialisasi session (toleran terhadap data rusak)
 │  │                        # limits.ts = batas durasi track §6.2 (6 jam & >30 menit butuh DJ)
+│  │                        # stay.ts = aturan mode 24/7 (murni), stayService.ts = penerapan
+│  │                        # queuePage.ts = pagination antrean (murni), queueNav.ts = tombol navigasi
+│  ├─ stats/                # statistik playback & perintah (Fase 3 §5.3)
+│  │                        # day.ts = bucket UTC, aggregate.ts = leaderboard & grafik (murni)
+│  │                        # validation.ts = kunci/lagu, retention.ts = batas 90 hari
 │  ├─ lyrics/               # lirik LRCLIB + cadangan Genius (Fase 2 ✅)
 │  │                        # lrc.ts = parser LRC & baris aktif, query.ts = judul + HTML Genius
 │  │                        # service.ts = sumber lirik + cache, embeds.ts = tampilan
 │  ├─ spotify/               # metadata Spotify untuk /play (Fase 2 ✅)
 │  │                        # parse.ts = tautan, match.ts = pencocokan ke hasil Lavalink
 │  │                        # service.ts = token client-credentials + HTTP, bridge.ts = orkestrasi
-│  ├─ health/                # endpoint /health & /ready untuk monitoring (PRD §5.1 ✅)
+│  ├─ health/                # endpoint /health, /ready & /metrics untuk monitoring (PRD §5.1 & §11 ✅)
+│  ├─ metrics/               # penghitung metrik proses (PRD §11 ✅)
+│  │                        # registry.ts = counter, format.ts = teks Prometheus, probe.ts = latensi Lavalink
 │  │                        # report.ts = aturan status (murni), server.ts = HTTP-nya
 │  ├─ customcommands/        # balasan admin yang dipanggil !nama (Fase 2 ✅)
 │  │                        # trigger.ts = parser pemicu & placeholder, validation.ts = nama & isi
-│  │                        # service.ts = CRUD + cache per server (60 detik)
+│  │                        # service.ts = CRUD + cache per server di store bersama (60 detik)
+│  │                        # cacheCodec.ts = serialisasi cache (toleran terhadap data rusak)
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
 │  │                        # caseLink.ts menjembatani aksi ↔ event Discord
 │  │                        # caseView.ts = isi halaman /case
@@ -1251,6 +1421,9 @@ src/
 ├─ services/                # logger, Prisma client, deteksi error database
 │                           # retentionJob.ts = pembersihan data berkala
 │                           # panelExpiryJob.ts = matikan panel reaction role lewat masa hidup
+│                           # stayJob.ts = jaga channel 24/7 tiap server (PRD §5.2)
+│                           # kvStore.ts = store kunci-nilai (Redis atau memori): rate limit,
+│                           #   cache perintah custom, dan session /search
 ├─ utils/                   # cooldown, embed, durasi, izin, module loader
 ├─ config/                  # env (zod) + konstanta
 ├─ generated/               # Prisma Client hasil generate — JANGAN diedit, tidak di-commit
@@ -1299,7 +1472,7 @@ mendaftarkannya, dan error di satu handler tidak mematikan proses.
 
 ### Rate limit
 
-Dua lapis, keduanya in-memory per proses bot (§16 PRD):
+Dua lapis (§16 PRD), keduanya lewat store kunci-nilai bersama:
 
 | Lapis | Kunci | Default | Konfigurasi |
 | --- | --- | --- | --- |
@@ -1318,23 +1491,56 @@ Tombol tiket diberi 5 detik (membuat/menutup channel itu mahal), select menu
 reaction role dan pencarian 3 detik. Perintah tanpa `cooldownSeconds` tidak
 dikenai apa-apa; `/play` memakai 10 detik sesuai PRD §6.2.
 
-Kedua lapis disimpan di memori satu proses, sama seperti antrean musik:
-restart bot mengosongkan semuanya, dan **sharding belum boleh diaktifkan**
-sebelum store ini pindah ke Redis — batasan yang sama dan sengaja ditulis
-berulang, bukan disembunyikan.
+**Sekarang keduanya lewat store kunci-nilai bersama**, bukan peta in-memory: kalau
+Redis hidup, cooldown berlaku lintas proses (§9.4 & §5.3). Redis sejak awal sudah
+ada di `docker-compose.yml` dan `REDIS_URL` sudah jadi env yang wajib, tapi
+sebelum ini tidak satu baris kode pun memakainya — bot menuntut infrastruktur
+yang tidak pernah disentuh. Sekarang ada dua implementasi di balik satu
+antarmuka: [kvStore.ts](src/services/kvStore.ts) (Redis) dan memori.
+
+Empat hal yang perlu diketahui soal pilihan ini:
+
+- **Redis mati tidak mematikan bot.** `createKeyValueStore()` mencoba sebentar lalu
+  jatuh ke store memori dengan peringatan di log yang menyebut konsekuensinya
+  (rate limit kembali per proses, sharding belum aman). Mati total karena cache
+  tidak tersedia lebih buruk daripada berjalan tanpa rate limit lintas proses
+  selama beberapa menit.
+- **Kesalahan store saat cooldown dicek tidak membuat perintah gagal.** Cooldown
+  dihitung dari store memori cadangan, jadi perlindungannya tetap ada. Konsekuensinya
+  jujur: satu pemakaian tambahan boleh lolos sesaat setelah Redis sempat putus.
+- **TTL dikirim sebagai milidetik (`PX`).** Pembulatan ke detik membuat rate limit
+  2 detik jadi 3, dan orang merasa aturannya tidak berlaku.
+- **Yang disimpan adalah waktu berakhir mutlak**, bukan sisa relatif — supaya
+  pesan "tunggu N detik" benar, bukan angka yang tidak pernah berkurang. TTL di
+  sisi store tetap dipasang supaya key hilang tepat saat jendela habis.
+
+**Yang sudah pindah ke store bersama:** rate limit, cache daftar perintah custom,
+dan session `/search` (termasuk klaim sekali pakainya).
+
+**Yang belum pindah dan masih membatasi sharding:** antrean musik. Queue, posisi
+lagu, dan loop mode masih hidup di memori satu proses, jadi guild yang ditangani
+dua shard akan hears-kan antrean berbeda. Karena itu **sharding belum boleh
+diaktifkan** — batasan yang sengaja dibaca berulang, bukan disembunyikan. Butuh
+satu langkah lagi: queue jadi state di store bersama, dengan perhatian
+tersendiri pada bagian yang harus tetap lokal (shoukaku, koneksi voice, dan
+pemrosesan event audio).
 
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~48% statements** (naik dari ~43% waktu
-playlist, filter, lirik, dan health check masuk).
+yang tidak di-commit). Angka saat ini: **~51% statements** dari **1.163 tes di 64
+file** (naik dari ~43% waktu playlist, filter, lirik, health check, statistik,
+store bersama, dan metrik).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
-fungsi `execute` 44 perintah, repository Prisma, dan barrel `index.ts` — yang
+fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang
 sengaja dibuat tipis dan hanya bisa diuji dengan Discord/Postgres yang hidup.
 Logika inti justru tercover tinggi: mesin automod, mapping & hierarki
 moderasi, agregasi log, loop/posisi/shuffle/filter musik, parser lirik, privasi,
-dan validasi tiket semuanya di atas 90%. Menaikkan angka global dengan
+dan validasi tiket semuanya di atas 90%, begitu juga perhitungan statistik
+per server, perhitungan halaman antrean, session `/search` (97% termasuk jalur
+gagal store), modul metrik (98%), modul health (94%), dan kedua implementasi
+store. Menaikkan angka global dengan
 mem-bypass lapisan lem lewat mock besar akan menguji mock itu sendiri, bukan bot.
 ---
 
@@ -1371,6 +1577,10 @@ setiap push/PR.
 | Pesan “Lavalink belum terhubung” | `docker compose ps` → pastikan `harmony-lavalink` jalan. Plugin diunduh saat start pertama, jadi butuh internet. Cek `docker compose logs lavalink` |
 | `Modul perintah tidak valid ...` saat start | Ada file di `src/commands/**` (atau `src/events/**`) tanpa `default export BotCommand` — beri nama diawali `_` atau pindahkan keluar folder itu |
 | Bot keluar sendiri dari voice channel | Auto-disconnect setelah `idleTimeoutSec` tanpa lagu. Atur lewat `/config set idle-timeout` |
+| Log menyebut "Redis tidak bisa dihubungi" | Bot tetap jalan dengan store memori: rate limit berlaku per proses dan sharding belum aman. Periksa `docker compose ps redis` atau `REDIS_URL` di `.env` |
+| Tombol halaman antrean tidak bereaksi | Pesan `/queue` yang lama tidak bisa diubah Discord (interaksi hanya berlaku 15 menit). Jalankan `/queue` lagi untuk dapat tombol baru; antrean sendiri tidak hilang |
+| `/stats` selalu nol padahal ada yang sering `/play` | Baris statistik hanya terbentuk setelah **lagu selesai berbunyi** minimal 10 detik, dan hanya di server yang sama. Kalau tetap nol, cek log untuk pesan `Gagal menyimpan statistik playback` (biasanya database sedang bermasalah) |
+| Mode 24/7 aktif tapi bot tidak ada di channel | `/247 status` akan menyebut alasannya. Yang paling sering: bot sedang memutar di channel lain (perpindahan menunggu lagu selesai), channel dihapus admin, atau bot kehilangan izin **Connect**/**Speak** di channel itu |
 | `/play` bilang antrean penuh | Batas `MAX_QUEUE_SIZE` (default 500) tercapai — tunggu lagu selesai atau naikkan di `.env` |
 | `Konfigurasi environment tidak valid: • DISCORD_TOKEN: ...` | `.env` belum diisi / valuenya salah — pesannya menyebut variabel yang bermasalah |
 | “DM ke target tidak terkirim” saat moderasi | Wajar kalau target menutup DM atau memblokir bot — aksinya tetap dijalankan dan tercatat di channel log |
