@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { defaultTranslator } from '../src/modules/i18n/index.js';
 import type { TicketOpenerCount } from '../src/modules/tickets/repository.js';
 import type { TargetActionRow } from '../src/modules/moderation/priorCases.js';
 import {
@@ -427,7 +428,7 @@ describe('embed privasi', () => {
     const retention = fields.find((field) => field.name === 'Masa simpan')?.value ?? '';
 
     for (const item of RETENTION_STATEMENTS) {
-      expect(retention).toContain(item.label);
+      expect(retention).toContain(defaultTranslator(item.labelKey));
       expect(retention).toContain(String(item.days));
     }
   });
@@ -482,5 +483,30 @@ describe('embed privasi', () => {
     expect(self.title).toContain('Mandiri');
     expect(other.title).toContain('User Lain');
     expect(other.fields?.map((field) => field.value)).toContain(`<@${OTHER_USER_ID}>`);
+  });
+
+  it('hasil /data-delete menyebut playlist dan perintah custom yang dilepas', () => {
+    const description = dataDeleteEmbed({
+      ...emptyAnonymizeOutcome('anon:0123456789'),
+      playlists: 3,
+      customCommands: 2,
+    }).toJSON().description ?? '';
+
+    expect(description).toContain('3 playlist');
+    expect(description).toContain('2 perintah custom');
+  });
+
+  it('hasil /data-delete tidak menyatakan "tidak ada data" padahal ada playlist', () => {
+    // Member tanpa kasus, peringatan, tiket, dan log, tapi punya playlist. Embed
+    // lama hanya menjumlahkan empat kelompok pertama, sehingga nol dan member
+    // diberi tahu "tidak ada data yang tersimpan" tepat setelah kepemilikan
+    // playlist-nya dilepas.
+    const description = dataDeleteEmbed({
+      ...emptyAnonymizeOutcome('anon:0123456789'),
+      playlists: 3,
+    }).toJSON().description ?? '';
+
+    expect(description).not.toContain('Tidak ada data yang tersimpan');
+    expect(description).toContain('3 playlist');
   });
 });

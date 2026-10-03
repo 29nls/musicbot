@@ -127,45 +127,58 @@ export function inventoryActionLine(
   return parts.join(' · ');
 }
 
-/** Baris "sudah cleaned" untuk tiap kelompok data, apa adanya — termasuk nol. */
-export function inventoryRows(inventory: DataInventory): InventoryRow[] {
-  const actionLine = inventoryActionLine(inventory);
+/**
+ * Baris "sudah cleaned" untuk tiap kelompok data, apa adanya — termasuk nol.
+ *
+ * Label dan nilainya lewat `t`, jadi modul ini tetap murni tanpa perlu
+ * Baca Bahasa apa pun untuk bisa diuji.
+ */
+export function inventoryRows(
+  inventory: DataInventory,
+  t: Translator = defaultTranslator,
+): InventoryRow[] {
+  const actionLine = inventoryActionLine(inventory, t);
   const casesValue =
-    actionLine === null ? 'Tidak ada' : `${inventory.caseTotal} (${actionLine})`;
+    actionLine === null
+      ? t('privacy.row.noCases')
+      : `${inventory.caseTotal} (${actionLine})`;
 
   return [
     {
-      label: 'Kasus moderasi',
+      label: t('privacy.row.cases'),
       value: casesValue,
       removedByDataDelete: true,
     },
     {
-      label: 'Peringatan yang masih berlaku',
+      label: t('privacy.row.activeWarnings'),
       value: String(inventory.activeWarnings),
       removedByDataDelete: true,
     },
     {
-      label: 'Catatan internal (/note)',
+      label: t('privacy.row.notes'),
       value: String(inventory.cases.find((item) => item.type === 'note')?.count ?? 0),
       removedByDataDelete: true,
     },
     {
-      label: 'Tiket dibuka (+ transkrip tersimpan)',
-      value: `${inventory.tickets} (+${inventory.ticketTranscripts})`,
+      label: t('privacy.row.tickets'),
+      value: t('privacy.row.ticketValue', {
+        tickets: String(inventory.tickets),
+        transcripts: String(inventory.ticketTranscripts),
+      }),
       removedByDataDelete: true,
     },
     {
-      label: 'Playlist milikmu',
+      label: t('privacy.row.playlists'),
       value: String(inventory.playlists),
       removedByDataDelete: true,
     },
     {
-      label: 'Perintah custom yang kamu buat',
+      label: t('privacy.row.customCommands'),
       value: String(inventory.customCommands),
       removedByDataDelete: true,
     },
     {
-      label: 'Entri log yang menyebut kamu',
+      label: t('privacy.row.logEntries'),
       value: String(inventory.logEntries),
       // Log dihapus, bukan dianonimkan — jadi tidak ada yang tersisa darinya.
       removedByDataDelete: false,

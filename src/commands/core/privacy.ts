@@ -1,4 +1,5 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { defaultTranslator, translatorFor } from '../../modules/i18n/index.js';
 import { getPrivacyService, privacyEmbed } from '../../modules/privacy/index.js';
 import { getLogger } from '../../services/logger.js';
 import type { BotCommand } from '../../types/command.js';
@@ -22,13 +23,21 @@ export default {
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+    // Diturunkan ke Bahasa Indonesia dan baru diganti Bahasa server begitu
+    // `guildId` diketahui, supaya jalur sebelum itu (dan jalur gagal) tetap
+    // punya kalimat untuk ditampilkan.
+    let t = defaultTranslator;
+
     try {
       if (!interaction.inCachedGuild()) {
         await interaction.editReply({
-          embeds: [errorEmbed('Perintah ini hanya bisa dipakai di dalam server.')],
+          embeds: [errorEmbed(t('mod.gate.guildOnly'), t('embed.title.error'))],
         });
         return;
       }
+
+      const guildId = interaction.guildId;
+      t = await translatorFor(guildId);
 
       const target = interaction.options.getUser('user');
       const isSelf = target === null || target.id === interaction.user.id;
@@ -38,16 +47,21 @@ export default {
       // terasa lebih ringan tidak mengubah kenyataan bahwa isinya sama sensitifnya.
       if (!isSelf && !(interaction.memberPermissions?.has(VIEW_OTHERS) ?? false)) {
         await interaction.editReply({
-          embeds: [errorEmbed(`Perintah ini butuh izin **${VIEW_OTHERS}** untuk melihat data orang lain.`)],
+          embeds: [
+            errorEmbed(
+              t('privacy.gate.needsModerateMembers', { permission: VIEW_OTHERS }),
+              t('embed.title.error'),
+            ),
+          ],
         });
         return;
       }
 
       const userId = target?.id ?? interaction.user.id;
-      const inventory = await getPrivacyService().inventory(interaction.guildId, userId);
+      const inventory = await getPrivacyService().inventory(guildId, userId);
 
       await interaction.editReply({
-        embeds: [privacyEmbed(inventory)],
+        embeds: [privacyEmbed(inventory, t)],
       });
     } catch (error) {
       // Inventaris yang gagal ditampilkan lebih baik dikatakan gagal daripada
@@ -59,7 +73,7 @@ export default {
       );
 
       await interaction.editReply({
-        embeds: [errorEmbed('Gagal membaca data yang tersimpan. Coba lagi sebentar lagi.')],
+        embeds: [errorEmbed(t('privacy.err.readFailed'), t('embed.title.error'))],
       });
     }
   },

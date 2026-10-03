@@ -2,32 +2,43 @@ import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
 import { formatCaseId } from '../moderation/index.js';
 import type { AutomodViolation } from './engine.js';
-import { ACTION_LABELS, RULE_LABELS, describeThreshold, type AutomodPolicy } from './types.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
+import {
+  RULE_META,
+  actionLabel,
+  describeThreshold,
+  ruleLabel,
+  type AutomodPolicy,
+} from './types.js';
 
-const notSet = '*belum ada*';
-
-const channelList = (ids: readonly string[]): string =>
-  ids.length > 0 ? ids.map((id) => `<#${id}>`).join(', ') : notSet;
-
-const roleList = (ids: readonly string[]): string =>
-  ids.length > 0 ? ids.map((id) => `<@&${id}>`).join(', ') : notSet;
-
-const listPreview = (items: readonly string[], max = 10): string => {
+const listPreview = (items: readonly string[], notSet: string, max = 10): string => {
   if (items.length === 0) return notSet;
   const shown = items.slice(0, max).join(', ');
   return items.length > max ? `${shown} (+${items.length - max})` : shown;
 };
 
+const channelList = (ids: readonly string[], notSet: string): string =>
+  ids.length > 0 ? ids.map((id) => `<#${id}>`).join(', ') : notSet;
+
+const roleList = (ids: readonly string[], notSet: string): string =>
+  ids.length > 0 ? ids.map((id) => `<@&${id}>`).join(', ') : notSet;
+
 /** Ringkasan rule automod satu server — dipakai `/automod show`. */
-export function automodShowEmbed(policy: AutomodPolicy, moduleEnabled: boolean): EmbedBuilder {
+export function automodShowEmbed(
+  policy: AutomodPolicy,
+  moduleEnabled: boolean,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
+  const notSet = t('automod.value.notSet');
+
   const rules = policy.rules
     .map((rule) => {
-      const meta = RULE_LABELS[rule.type];
-      const threshold = describeThreshold(rule.type, rule.threshold);
-      const actions = rule.actions.map((action) => ACTION_LABELS[action]).join(' + ');
+      const meta = RULE_META[rule.type];
+      const threshold = describeThreshold(rule.type, rule.threshold, t);
+      const actions = rule.actions.map((action) => actionLabel(action, t)).join(' + ');
       const suffix = threshold === '—' ? actions : `${threshold} • ${actions}`;
 
-      return `${rule.enabled ? '✅' : '❌'} ${meta.emoji} **${meta.label}** — ${suffix}`;
+      return `${rule.enabled ? '✅' : '❌'} ${meta.emoji} **${ruleLabel(rule.type, t)}** — ${suffix}`;
     })
     .join('\n');
 
@@ -37,23 +48,26 @@ export function automodShowEmbed(policy: AutomodPolicy, moduleEnabled: boolean):
 
   return new EmbedBuilder()
     .setColor(moduleEnabled ? EMBED_COLORS.success : EMBED_COLORS.warning)
-    .setTitle('🤖 Automod')
-    .setDescription(
-      moduleEnabled
-        ? 'Modul automod **aktif** — rule di bawah berlaku di setiap pesan.'
-        : 'Modul automod **mati**. Nyalakan lewat `/config set automod:true` (atau wizard `/setup`) sebelum rule berlaku.',
-    )
+    .setTitle(t('automod.title'))
+    .setDescription(moduleEnabled ? t('automod.module.on') : t('automod.module.off'))
     .addFields(
-      { name: 'Rule', value: rules },
-      { name: '🚫 Channel dikecualikan', value: channelList(policy.exemptChannels) },
-      { name: '🚫 Role dikecualikan', value: roleList(policy.exemptRoles) },
-      { name: '🤬 Kata terlarang', value: listPreview(badword?.whitelist.words ?? []) },
-      { name: '🌐 Domain diizinkan', value: listPreview(link?.whitelist.domains ?? []) },
-      { name: '🔗 Invite diizinkan', value: listPreview(invite?.whitelist.invites ?? []) },
+      { name: t('automod.field.rules'), value: rules },
+      { name: t('automod.field.exemptChannels'), value: channelList(policy.exemptChannels, notSet) },
+      { name: t('automod.field.exemptRoles'), value: roleList(policy.exemptRoles, notSet) },
+      {
+        name: t('automod.field.badwords'),
+        value: listPreview(badword?.whitelist.words ?? [], notSet),
+      },
+      {
+        name: t('automod.field.allowedDomains'),
+        value: listPreview(link?.whitelist.domains ?? [], notSet),
+      },
+      {
+        name: t('automod.field.allowedInvites'),
+        value: listPreview(invite?.whitelist.invites ?? [], notSet),
+      },
     )
-    .setFooter({
-      text: 'Pemilik pesan dengan Manage Messages & semua bot selalu dikecualikan.',
-    })
+    .setFooter({ text: t('automod.footer.exempt') })
     .setTimestamp();
 }
 
@@ -70,33 +84,49 @@ export interface AutomodLogInput {
 }
 
 /** Embed yang dicatat ke channel log setiap kali automod bertindak. */
-export function automodLogEmbed(input: AutomodLogInput): EmbedBuilder {
-  const meta = RULE_LABELS[input.violation.rule];
+export function automodLogEmbed(
+  input: AutomodLogInput,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
+  const meta = RULE_META[input.violation.rule];
   const actions = input.violation.actions.map((action) => {
     if (action === 'timeout' && input.timeoutMs) {
-      return `${ACTION_LABELS.timeout} ${Math.round(input.timeoutMs / 60_000)} menit`;
+      return t('automod.log.timeoutMinutes', {
+        action: actionLabel(action, t),
+        minutes: Math.round(input.timeoutMs / 60_000),
+      });
     }
-    return ACTION_LABELS[action];
+    return actionLabel(action, t);
   });
 
   const excerpt = input.content.replace(/\s+/g, ' ').trim().slice(0, 300);
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.error)
-    .setTitle(`🤖 Automod — ${meta.emoji} ${meta.label}`)
+    .setTitle(
+      t('automod.log.title', { rule: `${meta.emoji} ${ruleLabel(input.violation.rule, t)}` }),
+    )
     .addFields(
-      { name: 'Pengguna', value: `<@${input.authorId}>\n\`${input.authorTag}\``, inline: true },
-      { name: 'Channel', value: `<#${input.channelId}>`, inline: true },
-      { name: 'Aksi', value: actions.join('\n') },
-      { name: 'Alasan', value: input.violation.reason },
+      {
+        name: t('automod.field.user'),
+        value: `<@${input.authorId}>\n\`${input.authorTag}\``,
+        inline: true,
+      },
+      { name: t('automod.field.channel'), value: `<#${input.channelId}>`, inline: true },
+      { name: t('automod.field.actions'), value: actions.join('\n') },
+      { name: t('automod.field.reason'), value: input.violation.reason },
     )
     .setTimestamp();
 
   if (input.caseNumber !== undefined) {
-    embed.addFields({ name: 'Kasus', value: `\`${formatCaseId(input.caseNumber)}\``, inline: true });
+    embed.addFields({
+      name: t('automod.field.case'),
+      value: `\`${formatCaseId(input.caseNumber)}\``,
+      inline: true,
+    });
   }
 
   if (excerpt) {
-    embed.addFields({ name: 'Isi pesan', value: `> ${excerpt.replace(/\n/g, ' ')}` });
+    embed.addFields({ name: t('automod.field.message'), value: `> ${excerpt.replace(/\n/g, ' ')}` });
   }
 
   return embed;

@@ -6,27 +6,41 @@ import {
 } from 'discord.js';
 import {
   AUTOMOD_RULES,
-  RULE_LABELS,
   THRESHOLD_RANGES,
   automodShowEmbed,
   describeThreshold,
   getAutomodService,
+  ruleLabel,
   toAutomodErrorEmbed,
   type AutomodRuleType,
 } from '../../modules/automod/index.js';
 import { getGuildConfigService } from '../../modules/config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { canManageGuild } from '../../utils/permissions.js';
 
+/**
+ * Nama pilihan di payload perintah.
+ *
+ * **Sengaja bahasa Indonesia, bukan bahasa server.** Discord menyimpan daftar
+ * `choices` saat perintah di-deploy, dan bahasa server baru diketahui ketika
+ * perintahnya dipakai -- jauh setelah itu. Karena itu label pilihan mengikuti
+ * aturan yang sama dengan nama perintah: bahasa Indonesia jadi kanonik, dan
+ * `value`-nya tetap kode rule sehingga perilakunya tidak bergantung bahasa.
+ * Yang tampil di embed tetap diterjemahkan lewat `ruleLabel`.
+ */
 const RULE_CHOICES = AUTOMOD_RULES.map((type) => ({
-  name: RULE_LABELS[type].label,
+  name: ruleLabel(type, defaultTranslator),
   value: type,
 }));
 
 const THRESHOLD_RULE_CHOICES = AUTOMOD_RULES.filter(
   (type) => THRESHOLD_RANGES[type] !== null,
-).map((type) => ({ name: RULE_LABELS[type].label, value: type }));
+).map((type) => ({
+  name: ruleLabel(type, defaultTranslator),
+  value: type,
+}));
 
 const ACTION_CHOICES = [
   { name: 'Tambah', value: 'add' },
@@ -189,6 +203,7 @@ export default {
     }
 
     const guildId = interaction.guildId;
+    const t = await translatorFor(guildId);
     const group = interaction.options.getSubcommandGroup(false);
     const subcommand = interaction.options.getSubcommand(true);
     const service = getAutomodService();
@@ -197,7 +212,7 @@ export default {
 
     try {
       if (group === null && subcommand === 'show') {
-        await replyUpdated(interaction, guildId);
+        await replyUpdated(interaction, guildId, t);
         return;
       }
 
@@ -210,9 +225,12 @@ export default {
         await replyUpdated(
           interaction,
           guildId,
-          `${updated.enabled ? '✅' : '❌'} Rule **${RULE_LABELS[rule].label}** ${
-            updated.enabled ? 'dinyalakan' : 'dimatikan'
-          }.`,
+          t,
+          t('automod.reply.toggled', {
+            mark: updated.enabled ? '✅' : '❌',
+            rule: ruleLabel(rule, t),
+            state: t(updated.enabled ? 'automod.state.on' : 'automod.state.off'),
+          }),
         );
         return;
       }
@@ -226,7 +244,11 @@ export default {
         await replyUpdated(
           interaction,
           guildId,
-          `🎚️ Ambang **${RULE_LABELS[rule].label}** diubah menjadi ${describeThreshold(rule, updated.threshold)}.`,
+          t,
+          t('automod.reply.thresholdChanged', {
+            rule: ruleLabel(rule, t),
+            value: describeThreshold(rule, updated.threshold, t),
+          }),
         );
         return;
       }
@@ -236,10 +258,20 @@ export default {
 
         if (subcommand === 'add') {
           await service.addListItem(guildId, 'badword', 'words', word);
-          await replyUpdated(interaction, guildId, `🤬 Kata \`${word}\` ditambahkan ke daftar terlarang.`);
+          await replyUpdated(
+            interaction,
+            guildId,
+            t,
+            t('automod.reply.wordAdded', { word }),
+          );
         } else {
           await service.removeListItem(guildId, 'badword', 'words', word);
-          await replyUpdated(interaction, guildId, `✅ Kata \`${word}\` dihapus dari daftar terlarang.`);
+          await replyUpdated(
+            interaction,
+            guildId,
+            t,
+            t('automod.reply.wordRemoved', { word }),
+          );
         }
         return;
       }
@@ -255,7 +287,10 @@ export default {
           await replyUpdated(
             interaction,
             guildId,
-            `🚫 <#${channel.id}> ${add ? 'dikecualikan dari' : 'kembali diperiksa oleh'} automod.`,
+            t,
+            t(add ? 'automod.reply.channelExempt' : 'automod.reply.channelChecked', {
+              channel: channel.id,
+            }),
           );
           return;
         }
@@ -268,7 +303,8 @@ export default {
           await replyUpdated(
             interaction,
             guildId,
-            `🚫 <@&${role.id}> ${add ? 'dikecualikan dari' : 'kembali diperiksa oleh'} automod.`,
+            t,
+            t(add ? 'automod.reply.roleExempt' : 'automod.reply.roleChecked', { role: role.id }),
           );
           return;
         }
@@ -281,7 +317,8 @@ export default {
           await replyUpdated(
             interaction,
             guildId,
-            `🌐 Domain \`${domain}\` ${add ? 'diizinkan' : 'dihapus dari daftar izin'} untuk anti-link.`,
+            t,
+            t(add ? 'automod.reply.domainAllowed' : 'automod.reply.domainRemoved', { domain }),
           );
           return;
         }
@@ -293,11 +330,12 @@ export default {
         await replyUpdated(
           interaction,
           guildId,
-          `🔗 Invite \`${code}\` ${add ? 'diizinkan' : 'dihapus dari daftar izin'} untuk anti-invite.`,
+          t,
+          t(add ? 'automod.reply.inviteAllowed' : 'automod.reply.inviteRemoved', { code }),
         );
       }
     } catch (error) {
-      await interaction.editReply({ embeds: [toAutomodErrorEmbed(error)] });
+      await interaction.editReply({ embeds: [toAutomodErrorEmbed(error, t)] });
     }
   },
 } satisfies BotCommand;
@@ -306,6 +344,7 @@ export default {
 async function replyUpdated(
   interaction: ChatInputCommandInteraction,
   guildId: string,
+  t: Translator,
   message?: string,
 ): Promise<void> {
   const [config, policy] = await Promise.all([
@@ -314,8 +353,8 @@ async function replyUpdated(
   ]);
 
   const embeds = [];
-  if (message) embeds.push(successEmbed(message, '🤖 Automod'));
-  embeds.push(automodShowEmbed(policy, config.modules.automod));
+  if (message) embeds.push(successEmbed(message, t('automod.title')));
+  embeds.push(automodShowEmbed(policy, config.modules.automod, t));
 
   await interaction.editReply({ embeds });
 }

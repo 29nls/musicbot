@@ -2,16 +2,17 @@ import { Events, PermissionFlagsBits, type GuildMember, type Message } from 'dis
 import type { BotClient } from '../client.js';
 import {
   AUTOMOD_TIMEOUT_MS,
-  RULE_LABELS,
   analyzeMessage,
   automodLogEmbed,
   getAutomodService,
   getAutomodTracker,
   isExempt,
+  ruleLabel,
   type AutomodMessageInput,
   type AutomodViolation,
 } from '../modules/automod/index.js';
 import { getGuildConfigService, type GuildConfig } from '../modules/config/index.js';
+import { translatorFor, type Translator } from '../modules/i18n/index.js';
 import { getModerationService, sendGuildEmbed } from '../modules/moderation/index.js';
 import { getLogger } from '../services/logger.js';
 import type { BotEvent } from '../types/event.js';
@@ -68,10 +69,16 @@ export default {
       content: message.content,
     });
 
-    const violation = analyzeMessage(input, policy, state);
+    // Penerjemah diambil SEKALI di sini: `analyzeMessage` menyusun kalimat
+    // alasan pelanggaran, dan embed log menyusun kalimatnya lagi. Tanpa satu
+    // penerjemah bersama, keduanya bisa memakai bahasa berbeda kalau config
+    // server berubah di tengah proses.
+    const t = await translatorFor(guildId);
+
+    const violation = analyzeMessage(input, policy, state, t);
     if (!violation) return;
 
-    await handleViolation(client, message, member, violation, config);
+    await handleViolation(client, message, member, violation, config, t);
   },
 } satisfies BotEvent<'messageCreate'>;
 
@@ -82,10 +89,11 @@ async function handleViolation(
   member: GuildMember,
   violation: AutomodViolation,
   config: GuildConfig,
+  t: Translator,
 ): Promise<void> {
   const logger = getLogger();
   const guild = message.guild;
-  const meta = RULE_LABELS[violation.rule];
+  const label = ruleLabel(violation.rule, t);
 
   if (violation.actions.includes('delete')) {
     await message
@@ -104,7 +112,7 @@ async function handleViolation(
           guildId: guild.id,
           targetId: message.author.id,
           moderatorId: botId,
-          reason: `${meta.label}: ${violation.reason}`,
+          reason: `${label}: ${violation.reason}`,
         });
         caseNumber = created.case.caseNumber;
       } catch (error) {
@@ -122,7 +130,7 @@ async function handleViolation(
 
     if (member.moderatable) {
       await member
-        .timeout(timeoutMs, `Automod (${meta.label}): ${violation.reason}`)
+        .timeout(timeoutMs, `Automod (${label}): ${violation.reason}`)
         .catch((error: unknown) =>
           logger.warn(
             { err: error, guild: guild.id, user: message.author.id },
@@ -140,14 +148,17 @@ async function handleViolation(
   await sendGuildEmbed(
     guild,
     config.logChannelId,
-    automodLogEmbed({
-      violation,
-      authorId: message.author.id,
-      authorTag: message.author.tag,
-      channelId: message.channelId,
-      content: message.content,
-      caseNumber,
-      timeoutMs,
-    }),
+    automodLogEmbed(
+      {
+        violation,
+        authorId: message.author.id,
+        authorTag: message.author.tag,
+        channelId: message.channelId,
+        content: message.content,
+        caseNumber,
+        timeoutMs,
+      },
+      t,
+    ),
   );
 }

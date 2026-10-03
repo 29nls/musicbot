@@ -1,3 +1,5 @@
+import { defaultTranslator, type MessageKey, type Translator } from '../i18n/index.js';
+
 /** Tujuh rule automod sesuai PRD §7.2 — urutan array = prioritas evaluasi. */
 export const AUTOMOD_RULES = [
   'spam',
@@ -23,11 +25,17 @@ export function isAutomodAction(value: string): value is AutomodAction {
   return (AUTOMOD_ACTIONS as readonly string[]).includes(value);
 }
 
-export const ACTION_LABELS: Record<AutomodAction, string> = {
-  delete: 'Hapus pesan',
-  warn: 'Catat peringatan',
-  timeout: 'Timeout',
-};
+/**
+ * Label aksi dalam bahasa server.
+ *
+ * Dulu ini objek konstanta berisi kalimat Indonesia. Begitu bahasa server ikut
+ * ditampilkan, objek yang sudah jadi tidak cukup: kalimatnya harus dicari saat
+ * render, bukan saat modul dimuat. Kunci katalognya tetap satu tempat, jadi
+ * label tidak bisa lagi berbeda antara `/automod show` dan embed log.
+ */
+export function actionLabel(action: AutomodAction, t: Translator = defaultTranslator): string {
+  return t(('automod.action.' + action) as MessageKey);
+}
 
 /** Daftar pengecualian & daftar kata/domain per rule. */
 export interface AutomodWhitelist {
@@ -97,35 +105,34 @@ export const THRESHOLD_RANGES: Record<AutomodRuleType, { min: number; max: numbe
   duplicate: { min: 2, max: 10 },
 };
 
-export const RULE_LABELS: Record<AutomodRuleType, { label: string; emoji: string; description: string }> = {
-  spam: {
-    label: 'Anti-spam',
-    emoji: '🌊',
-    description: 'Pesan berturut-turut terlalu cepat (default 5 pesan / 5 detik)',
-  },
-  invite: {
-    label: 'Anti-invite',
-    emoji: '🔗',
-    description: 'Link invite server Discord (default hapus + warn)',
-  },
-  link: { label: 'Anti-link', emoji: '🌐', description: 'Semua URL (default hapus)' },
-  badword: { label: 'Badword', emoji: '🤬', description: 'Daftar kata terlarang (default kosong)' },
-  mention: {
-    label: 'Anti-mention-spam',
-    emoji: '📣',
-    description: 'Terlalu banyak mention dalam satu pesan (default >5 → timeout 10 menit)',
-  },
-  caps: {
-    label: 'Anti-caps',
-    emoji: '🔠',
-    description: 'Pesan berteriak: >70% huruf kapital dan panjang >10 karakter',
-  },
-  duplicate: {
-    label: 'Anti-duplicate',
-    emoji: '🔁',
-    description: 'Pesan identik berturut-turut (default 3x)',
-  },
+/**
+ * Metadata rule yang TIDAK diterjemahkan: emoji, dan kunci katalog label &
+ * deskripsi.
+ *
+ * Emoji sengaja tetap di sini karena sama di kedua bahasa dan tidak pernah
+ * dibaca manusia sebagai kalimat; label & deskripsi disimpan sebagai kunci
+ * supaya teksnya dicari saat render. `ruleLabel` dan `ruleDescription` yang
+ * menerjemahkannya.
+ */
+export const RULE_META: Record<AutomodRuleType, { emoji: string; key: string }> = {
+  spam: { emoji: '🌊', key: 'spam' },
+  invite: { emoji: '🔗', key: 'invite' },
+  link: { emoji: '🌐', key: 'link' },
+  badword: { emoji: '🤬', key: 'badword' },
+  mention: { emoji: '📣', key: 'mention' },
+  caps: { emoji: '🔠', key: 'caps' },
+  duplicate: { emoji: '🔁', key: 'duplicate' },
 };
+
+/** Nama rule dalam bahasa server, mis. "Anti-spam". */
+export function ruleLabel(type: AutomodRuleType, t: Translator = defaultTranslator): string {
+  return t(('automod.rule.' + type + '.label') as MessageKey);
+}
+
+/** Satu baris penjelasan rule dalam bahasa server. */
+export function ruleDescription(type: AutomodRuleType, t: Translator = defaultTranslator): string {
+  return t(('automod.rule.' + type + '.description') as MessageKey);
+}
 
 export function emptyWhitelist(): AutomodWhitelist {
   return { channels: [], roles: [], domains: [], words: [], invites: [] };
@@ -142,18 +149,31 @@ export function defaultRule(type: AutomodRuleType): AutomodRule {
   };
 }
 
-/** "5 pesan / 5 detik", "—" untuk rule tanpa ambang. */
-export function describeThreshold(type: AutomodRuleType, threshold: number): string {
+/**
+ * "5 pesan / 5 detik", "—" untuk rule tanpa ambang.
+ *
+ * Angka detik dihitung dari `SPAM_WINDOW_MS`, bukan ditulis tetap di katalog:
+ * konstanta yang diubah harus ikut terlihat di teks, bukan meninggalkan
+ * kalimat yang menyebut angka lama.
+ */
+export function describeThreshold(
+  type: AutomodRuleType,
+  threshold: number,
+  t: Translator = defaultTranslator,
+): string {
   switch (type) {
     case 'spam':
-      return `${threshold} pesan / ${SPAM_WINDOW_MS / 1_000} detik`;
+      return t('automod.threshold.spam', {
+        count: threshold,
+        seconds: SPAM_WINDOW_MS / 1_000,
+      });
     case 'mention':
-      return `${threshold} mention / pesan`;
+      return t('automod.threshold.mention', { count: threshold });
     case 'caps':
-      return `${threshold}% huruf kapital`;
+      return t('automod.threshold.caps', { percent: threshold });
     case 'duplicate':
-      return `${threshold}x berturut-turut`;
+      return t('automod.threshold.duplicate', { count: threshold });
     default:
-      return '—';
+      return t('automod.threshold.none');
   }
 }

@@ -7,40 +7,45 @@
  * retensi berbohong tanpa disadari.
  */
 
+import type { MessageKey } from '../i18n/index.js';
 import { LOG_RETENTION_DAYS } from '../logging/retention.js';
 import { RETENTION_MONTHS } from '../moderation/retention.js';
 
 export interface RetentionStatement {
-  /** Nama kelompok data, persis seperti tampilannya ke user. */
-  label: string;
+  /** Kunci katalog untuk nama kelompok data — kalimatnya milik i18n. */
+  labelKey: MessageKey;
   /** Umur simpan dalam hari. */
   days: number;
-  /** Kapan hitungannya mulai berjalan — tidak selalu sejak baris dibuat. */
-  since: string;
+  /** Kunci katalog untuk kapan hitungannya mulai berjalan. */
+  sinceKey: MessageKey;
 }
 
 /**
  * Masa simpan tiap kelompok data.
  *
- * `since` ditulis eksplisit karena tidak semuanya sama: log dihitung sejak
+ * `sinceKey` ditulis eksplisit karena tidak semuanya sama: log dihitung sejak
  * ditulis, tiket dihitung sejak **ditutup** — tiket yang masih terbuka tidak
  * punya batas, karena yang disapu hanya baris yang sudah tertutup.
+ *
+ * Yang disimpan di sini **kunci katalog**, bukan kalimatnya: angka retensi
+ * milik modul ini, Bahasa-nya milik i18n, jadi keduanya tidak bisa diam-diam
+ * berbeda dan terpisah di dua tempat.
  */
 export const RETENTION_STATEMENTS: readonly RetentionStatement[] = [
   {
-    label: 'Kasus moderasi, catatan internal, & peringatan',
+    labelKey: 'privacy.retention.cases',
     days: RETENTION_MONTHS * 30,
-    since: 'sejak aksinya dicatat',
+    sinceKey: 'privacy.retention.casesSince',
   },
   {
-    label: 'Tiket & transkrip percakapannya',
+    labelKey: 'privacy.retention.tickets',
     days: RETENTION_MONTHS * 30,
-    since: 'sejak tiket ditutup',
+    sinceKey: 'privacy.retention.ticketsSince',
   },
   {
-    label: 'Riwayat log event',
+    labelKey: 'privacy.retention.logs',
     days: LOG_RETENTION_DAYS,
-    since: 'sejak entri log ditulis',
+    sinceKey: 'privacy.retention.logsSince',
   },
 ];
 

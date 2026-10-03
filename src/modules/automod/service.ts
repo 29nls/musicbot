@@ -149,7 +149,7 @@ export class AutomodService {
     const policy = await this.getPolicy(guildId);
 
     if (policy.rules.some((rule) => rule.whitelist[kind].includes(value))) {
-      throw new AutomodValidationError(`ID itu sudah ada di daftar pengecualian ${kind}.`);
+      throw new AutomodValidationError('automod.err.duplicateExemption', { kind });
     }
 
     await Promise.all(
@@ -168,7 +168,7 @@ export class AutomodService {
     const policy = await this.getPolicy(guildId);
 
     if (!policy.rules.some((rule) => rule.whitelist[kind].includes(value))) {
-      throw new AutomodValidationError(`ID itu tidak ada di daftar pengecualian ${kind}.`);
+      throw new AutomodValidationError('automod.err.missingExemption', { kind });
     }
 
     await Promise.all(
@@ -190,7 +190,7 @@ export class AutomodService {
     value: string,
   ): Promise<AutomodRule> {
     if (FIELD_RULE[field] !== type) {
-      throw new AutomodValidationError(`Rule **${type}** tidak memakai daftar \`${field}\`.`);
+      throw new AutomodValidationError('automod.err.wrongList', { rule: type, field });
     }
 
     const normalized = normalizeListItem(field, value);
@@ -198,7 +198,7 @@ export class AutomodService {
     const rule = policy.rules.find((item) => item.type === type) ?? defaultRule(type);
 
     if (rule.whitelist[field].includes(normalized)) {
-      throw new AutomodValidationError(`\`${normalized}\` sudah ada di daftar ${field}.`);
+      throw new AutomodValidationError('automod.err.itemExists', { value: normalized, field });
     }
 
     const next: AutomodRule = {
@@ -219,7 +219,7 @@ export class AutomodService {
     value: string,
   ): Promise<AutomodRule> {
     if (FIELD_RULE[field] !== type) {
-      throw new AutomodValidationError(`Rule **${type}** tidak memakai daftar \`${field}\`.`);
+      throw new AutomodValidationError('automod.err.wrongList', { rule: type, field });
     }
 
     const normalized = normalizeListItem(field, value);
@@ -227,7 +227,7 @@ export class AutomodService {
     const rule = policy.rules.find((item) => item.type === type) ?? defaultRule(type);
 
     if (!rule.whitelist[field].includes(normalized)) {
-      throw new AutomodValidationError(`\`${normalized}\` tidak ada di daftar ${field}.`);
+      throw new AutomodValidationError('automod.err.itemMissing', { value: normalized, field });
     }
 
     const next: AutomodRule = {

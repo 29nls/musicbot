@@ -36,18 +36,20 @@ export { toAutomodErrorEmbed } from './errors.js';
 export { AutomodValidationError } from './validation.js';
 export { automodLogEmbed, automodShowEmbed } from './embeds.js';
 export {
-  ACTION_LABELS,
   AUTOMOD_ACTIONS,
   AUTOMOD_RULES,
   AUTOMOD_TIMEOUT_MS,
   DEFAULT_ACTIONS,
   DEFAULT_THRESHOLDS,
-  RULE_LABELS,
+  RULE_META,
   SPAM_WINDOW_MS,
   THRESHOLD_RANGES,
+  actionLabel,
   describeThreshold,
   isAutomodAction,
   isAutomodRuleType,
+  ruleDescription,
+  ruleLabel,
 } from './types.js';
 export type {
   AutomodAction,

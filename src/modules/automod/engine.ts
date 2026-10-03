@@ -1,3 +1,4 @@
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { SPAM_WINDOW_MS, type AutomodPolicy, type AutomodRule, type AutomodRuleType } from './types.js';
 
 /** Subset pesan Discord yang dibutuhkan evaluasi — dipisah supaya bisa dites tanpa discord.js. */
@@ -117,6 +118,7 @@ function checkRule(
   rule: AutomodRule,
   message: AutomodMessageInput,
   state: AutomodState,
+  t: Translator,
 ): AutomodViolation | null {
   switch (rule.type) {
     case 'spam': {
@@ -124,7 +126,10 @@ function checkRule(
         return violation(
           rule,
           state.recentMessageCount,
-          `Mengirim ${state.recentMessageCount} pesan dalam ${SPAM_WINDOW_MS / 1_000} detik`,
+          t('automod.reason.spam', {
+            count: state.recentMessageCount,
+            seconds: SPAM_WINDOW_MS / 1_000,
+          }),
         );
       }
       return null;
@@ -138,7 +143,7 @@ function checkRule(
       const offending = codes.filter((code) => !allowed.has(code));
       if (offending.length === 0) return null;
 
-      return violation(rule, offending.length, 'Mengirim link invite server Discord');
+      return violation(rule, offending.length, t('automod.reason.invite'));
     }
 
     case 'link': {
@@ -149,8 +154,11 @@ function checkRule(
       if (offending.length === 0) return null;
 
       const shown = offending.slice(0, 3).join(', ');
-      const rest = offending.length > 3 ? ` (+${offending.length - 3})` : '';
-      return violation(rule, offending.length, `Mengirim link: ${shown}${rest}`);
+      const rest =
+        offending.length > 3
+          ? t('automod.reason.overflow', { count: offending.length - 3 })
+          : '';
+      return violation(rule, offending.length, t('automod.reason.link', { hosts: `${shown}${rest}` }));
     }
 
     case 'badword': {
@@ -159,7 +167,7 @@ function checkRule(
       const found = findBadword(message.content, rule.whitelist.words);
       if (!found) return null;
 
-      return violation(rule, 1, `Mengandung kata terlarang: \`${found}\``);
+      return violation(rule, 1, t('automod.reason.badword', { word: found }));
     }
 
     case 'mention': {
@@ -167,7 +175,7 @@ function checkRule(
         return violation(
           rule,
           message.mentionCount,
-          `Menyebut ${message.mentionCount} mention dalam satu pesan`,
+          t('automod.reason.mention', { count: message.mentionCount }),
         );
       }
       return null;
@@ -180,7 +188,11 @@ function checkRule(
       const percent = capsPercent(trimmed);
       if (percent <= rule.threshold) return null;
 
-      return violation(rule, Math.round(percent), `Terlalu banyak huruf kapital (${Math.round(percent)}%)`);
+      return violation(
+        rule,
+        Math.round(percent),
+        t('automod.reason.caps', { percent: Math.round(percent) }),
+      );
     }
 
     case 'duplicate': {
@@ -188,7 +200,7 @@ function checkRule(
         return violation(
           rule,
           state.duplicateStreak,
-          `Mengirim pesan identik ${state.duplicateStreak}x berturut-turut`,
+          t('automod.reason.duplicate', { count: state.duplicateStreak }),
         );
       }
       return null;
@@ -207,13 +219,14 @@ export function analyzeMessage(
   message: AutomodMessageInput,
   policy: AutomodPolicy,
   state: AutomodState,
+  t: Translator = defaultTranslator,
 ): AutomodViolation | null {
   if (isExempt(message, policy)) return null;
 
   for (const rule of policy.rules) {
     if (!rule.enabled) continue;
 
-    const found = checkRule(rule, message, state);
+    const found = checkRule(rule, message, state, t);
     if (found) return found;
   }
 

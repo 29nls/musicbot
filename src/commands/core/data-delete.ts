@@ -3,6 +3,7 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from 'discord.js';
+import { defaultTranslator, translatorFor } from '../../modules/i18n/index.js';
 import { dispatchLog } from '../../modules/logging/index.js';
 import {
   dataDeleteConfirmEmbed,
@@ -52,13 +53,20 @@ export default {
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+    // Sama seperti `/privacy`: mulai dari Bahasa Indonesia, lalu naik ke Bahasa
+    // server begitu tahu guild mana yang sedang aktif.
+    let t = defaultTranslator;
+
     try {
       if (!interaction.inCachedGuild()) {
         await interaction.editReply({
-          embeds: [errorEmbed('Perintah ini hanya bisa dipakai di dalam server.')],
+          embeds: [errorEmbed(t('mod.gate.guildOnly'), t('embed.title.error'))],
         });
         return;
       }
+
+      const guildId = interaction.guildId;
+      t = await translatorFor(guildId);
 
       const requested = interaction.options.getUser('user');
       const targetId = requested?.id ?? interaction.user.id;
@@ -67,16 +75,14 @@ export default {
       if (!isSelf && !interaction.memberPermissions?.has(DELETE_FOR_OTHERS)) {
         await interaction.editReply({
           embeds: [
-            errorEmbed(
-              'Untuk menghapus data orang lain, perintah ini butuh izin **Manage Server**.',
-            ),
+            errorEmbed(t('privacy.gate.needsManageGuild'), t('embed.title.error')),
           ],
         });
         return;
       }
 
       const privacy = getPrivacyService();
-      const inventory = await privacy.inventory(interaction.guildId, targetId);
+      const inventory = await privacy.inventory(guildId, targetId);
       const empty = inventoryTouchedCount(inventory) === 0;
 
       // Dua langkah, bukan satu: ini satu-satunya perintah di bot yang menghapus
@@ -85,20 +91,16 @@ export default {
       if (!interaction.options.getBoolean('confirm', true)) {
         await interaction.editReply({
           embeds: [
-            dataDeleteConfirmEmbed(inventory),
+            dataDeleteConfirmEmbed(inventory, t),
             ...(empty
-              ? [
-                  errorEmbed(
-                    'Tidak ada data yang tersimpan di server ini — menjalankan perintah ini tidak akan mengubah apa pun.',
-                  ),
-                ]
+              ? [errorEmbed(t('privacy.reply.emptyWarning'), t('embed.title.error'))]
               : []),
           ],
         });
         return;
       }
 
-      const outcome = await privacy.anonymize(interaction.guildId, targetId);
+      const outcome = await privacy.anonymize(guildId, targetId);
 
       // Dicatat ke channel log server supaya permintaan atas nama orang lain
       // punya jejak yang bisa dilihat owner server. Best-effort: kegagalan log
@@ -107,7 +109,7 @@ export default {
       await dispatchLog(
         interaction.guild,
         LOG_CATEGORY,
-        dataDeleteLogEmbed({ actorId: interaction.user.id, targetId, outcome }),
+        dataDeleteLogEmbed({ actorId: interaction.user.id, targetId, outcome }, t),
         {
           eventKey: 'privacy.dataDelete',
           targetId,
@@ -116,12 +118,12 @@ export default {
       ).catch((error: unknown) => {
         getLogger()
           .warn(
-            { err: error, guildId: interaction.guildId },
+            { err: error, guildId },
             'Gagal mencatat permintaan penghapusan data ke log server',
           );
       });
 
-      await interaction.editReply({ embeds: [dataDeleteEmbed(outcome)] });
+      await interaction.editReply({ embeds: [dataDeleteEmbed(outcome, t)] });
     } catch (error) {
       getLogger().error(
         { err: error, user: interaction.user.id, guild: interaction.guildId },
@@ -130,10 +132,7 @@ export default {
 
       await interaction.editReply({
         embeds: [
-          errorEmbed(
-            'Permintaan gagal diproses, jadi **ada data yang mungkin belum terhapus**. ' +
-              'Coba lagi sebentar lagi, atau laporkan ke owner server.',
-          ),
+          errorEmbed(t('privacy.err.deleteFailed'), t('embed.title.error')),
         ],
       });
     }

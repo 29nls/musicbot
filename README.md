@@ -606,13 +606,49 @@ nama field, nilai field, dan label baris diff ikut bahasa server.
    sudah tercatat sebelum server mengganti bahasa tetap berbahasa lama.
    Yang diterjemahkan adalah entri baru.
 
-**Yang belum:** teks fitur di luar musik, moderasi, dan logging —
-`/automod`, `/customcommand`, `/reactionrole`, `/ticket`, dan inventaris
-`/privacy` — masih ditulis langsung dalam bahasa Indonesia, dan katalog
-runtime jatuh ke bahasa Indonesia secara sadar untuk kunci yang belum ada,
-bukan diam-diam jadi bahasa acak. Katalog setengah terisi lebih buruk daripada
-kosong: orang akan melihat dua bahasa dalam satu layar tanpa punya cara tahu
-mana yang belum.
+**Sapuan `/automod` juga sudah tuntas.** Seluruh teks yang dibaca user ikut
+bahasa server: judul & nama field embed, label rule dan aksi, ambang, alasan
+pelanggaran yang masuk embed log, pesan validasi, dan balasan tiap subcommand.
+
+**Tiga keputusan yang membuatnya bukan sekadar ganti kalimat:**
+
+1. **`AutomodValidationError` membawa kunci katalog + parameter, bukan
+   kalimat.** Sama seperti `LoggingValidationError`: yang disimpan bukan teks
+   jadinya, jadi `toAutomodErrorEmbed` yang menyusun kalimat akhir dan pesan
+   yang sama bisa tampil dalam bahasa server mana pun. `message` tetap diisi
+   bahasa Indonesia supaya log internal dan `toThrow` tidak kehilangan teks.
+2. **`RULE_LABELS` diganti `RULE_META` + `ruleLabel()`.** Objek konstanta
+   berisi kalimat tidak bisa mengikuti bahasa yang baru diketahui saat render,
+   jadi yang disimpan tinggal emoji (sama di dua bahasa) dan kunci katalognya.
+3. **Nama pilihan (`choices`) di payload perintah sengaja tetap bahasa
+   Indonesia.** Discord menyimpan `choices` saat perintah di-deploy, dan bahasa
+   server baru diketahui ketika perintahnya dipakai. Aturannya sama dengan nama
+   perintah: Indonesia jadi kanonik, sementara `value`-nya tetap kode rule
+   sehingga perilakunya tidak bergantung bahasa.
+
+**Sapuan `/privacy` + `/data-delete` juga sudah tuntas.** Inventaris, konfirmasi,
+hasil, dan embed log semuanya dibangun dari kunci `privacy.*`: `inventoryRows`
+menerima penerjemah sebagai argumen terakhir, dan `RETENTION_STATEMENTS`
+menyimpan `labelKey`/`sinceKey` + angka hari — bukan kalimat — sehingga angka
+retensi tetap milik `retention.ts` sementara bahasanya milik katalog. Gerbang
+izin dan pesan gagalnya ikut, dan gerbang "di dalam server saja" memakai ulang
+`mod.gate.guildOnly` yang sudah ada, bukan menambah kalimat kembar.
+
+**Dua bug nyata ikut ketemu di sini, bukan sekadar ganti kalimat.** (1)
+`dataDeleteEmbed` menghitung "apa yang tersentuh" dari kasus, peringatan, tiket,
+dan log saja, padahal `playlists` dan `customCommands` juga dilepas: member yang
+punya playlist tapi tidak punya kasus diberi tahu "tidak ada data yang tersimpan"
+tepat setelah kepemilikan playlist-nya dilepas. (2) Embed hasil tidak pernah
+menyebut playlist dan perintah custom sama sekali, jadi melaporkan "selesai"
+tanpa menyebut salah satu yang ikut berubah. Dua-duanya ditutup, dan keduanya
+punya tes. Footer konfirmasi juga punya kunci tunggal dan jamak terpisah,
+karena `MODERATION_RETENTION_YEARS` = 1 dan "1 years" bukan bahasa Inggris.
+
+**Yang belum:** `/customcommand`, `/reactionrole`, `/ticket` — masih ditulis
+langsung dalam bahasa Indonesia, dan katalog runtime jatuh ke bahasa Indonesia
+secara sadar untuk kunci yang belum ada, bukan diam-diam jadi bahasa acak.
+Katalog setengah terisi lebih buruk daripada kosong: orang akan melihat dua
+bahasa dalam satu layar tanpa punya cara tahu mana yang belum.
 
 Teks command tidak ikut diperiksa penjaga yang sama, karena memang tidak
 perlu: nama dan deskripsinya dibaca Discord dari payload saat deploy, bukan
