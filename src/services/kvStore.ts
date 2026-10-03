@@ -354,6 +354,23 @@ const REDIS_OPTIONS: RedisOptions = {
 };
 
 /**
+ * Tutup klien Redis yang gagal tanpa membiarkan error kedua menutupi yang
+ * pertama — alasan kegagalan awal yang paling berguna untuk dilaporkan.
+ */
+function closeQuietly(client: Redis | undefined): void {
+  if (!client) return;
+
+  try {
+    // 'disconnect()' memotong koneksi seketika tanpa antre perintah,
+    // justru yang dibutuhkan di sini: server memang tidak hidup, jadi
+    // 'quit()' akan menggantung menunggu balasan.
+    client.disconnect();
+  } catch {
+    // Tidak ada yang bisa dilakukan, dan tidak boleh menutupi alasan asli.
+  }
+}
+
+/**
  * Bangun store untuk proses ini: coba Redis, jatuh ke memori bila gagal.
  *
  * Kemunculan Redis **tidak pernah menggagalkan startup**. Yang dilakukan
@@ -364,13 +381,30 @@ const REDIS_OPTIONS: RedisOptions = {
 export async function createKeyValueStore(): Promise<KeyValueStoreHandle> {
   const logger = getLogger();
 
+  // Disimpan di luar try supaya jalur kegagalan bisa menutup klien yang sudah
+  // dibuat: ioredis yang ditinggal begitu saja masih memegang socket dan
+  // timer reconnect, dan itu bocor resource di proses yang justru hidup lama
+  // dengan store memori.
+  let client: Redis | undefined;
+
   try {
     const module = await import('ioredis');
     // ioredis diekspor sebagai CommonJS; bentuk modul di Node bisa berupa
     // { default: { default: Ctor } } atau { default: Ctor }, jadi keduanya
     // diperiksa alih-alih menebak.
     const RedisCtor = module.default.default ?? module.default;
-    const client = new RedisCtor(getEnv().REDIS_URL, REDIS_OPTIONS) as Redis;
+    client = new RedisCtor(getEnv().REDIS_URL, REDIS_OPTIONS) as Redis;
+
+    // Tanpa listener 'error', ioredis mencetak sendiri
+    // "[ioredis] Unhandled error event" ke stderr setiap koneksi gagal. Noise itu
+    // menutupi peringatan yang berguna, jadi detailnya turun ke level debug;
+    // konsekuensinya (jatuh ke memori) tetap dilaporkan sebagai peringatan.
+    // Listener harus dipasang SEBELUM connect(), karena error pertama datang
+    // dari connect() itu sendiri.
+    client.on('error', (error: unknown) => {
+      logger.debug({ err: error }, 'Koneksi Redis bermasalah');
+    });
+
     const store = new RedisKeyValueStore(client as unknown as RedisLike);
 
     await client.connect();
@@ -379,6 +413,8 @@ export async function createKeyValueStore(): Promise<KeyValueStoreHandle> {
     logger.info('Store kunci-nilai memakai Redis');
     return { store, driver: 'redis' };
   } catch (error) {
+    closeQuietly(client);
+
     const warning =
       'Redis tidak bisa dihubungi — memakai store memori. ' +
       'Rate limit kembali per proses dan sharding tetap belum aman sampai Redis hidup.';
