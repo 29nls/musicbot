@@ -2,6 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
 import { formatDuration } from '../../utils/duration.js';
 import { filterModeLabel } from './filters.js';
+import { trackLimitReason } from './limits.js';
 import { loopModeLabel } from './loop.js';
 import { formatSeconds } from './searchSession.js';
 import { describeTrack, formatTrackDuration, progressBar } from './track.js';
@@ -114,11 +115,41 @@ export function addedToQueueEmbed(outcome: AddedOutcome): EmbedBuilder {
   if (outcome.skipped > 0) {
     lines.push(`⚠️ **${outcome.skipped}** lagu tidak ditambahkan karena antrean penuh.`);
   }
+  if ((outcome.rejectedTooLong ?? 0) > 0) {
+    lines.push(
+      `⚠️ **${outcome.rejectedTooLong}** lagu ditolak (${trackLimitReason('too-long')}).`,
+    );
+  }
+  if ((outcome.rejectedNeedsControl ?? 0) > 0) {
+    lines.push(
+      `⚠️ **${outcome.rejectedNeedsControl}** lagu ditolak (${trackLimitReason('needs-control')}). ` +
+        'Role DJ atau Manage Server boleh memainkannya.',
+    );
+  }
 
   embed.setDescription(lines.join('\n'));
 
   if (first.uri) embed.setURL(first.uri);
   if (first.artworkUrl && outcome.tracks.length === 1) embed.setThumbnail(first.artworkUrl);
+
+  // Metadata Spotify: cover & judul asli lebih trustworthy daripada sampul
+  // milik sumber audio, jadi keduanya ditampilkan berdampingan.
+  if (outcome.spotify) {
+    const spotify = outcome.spotify;
+    const artists = spotify.artists.join(', ') || '—';
+
+    embed.addFields({
+      name: 'Dari Spotify',
+      value: [
+        `**[${spotify.title}](${spotify.url})**`,
+        `${artists}${spotify.album ? ` • ${spotify.album}` : ''}`,
+        spotify.sourceUri ? `Audio: [${spotify.sourceTitle}](${spotify.sourceUri})` : `Audio: ${spotify.sourceTitle}`,
+        spotify.matchNote,
+      ].join('\n'),
+    });
+
+    if (spotify.imageUrl && outcome.tracks.length === 1) embed.setThumbnail(spotify.imageUrl);
+  }
 
   return embed;
 }

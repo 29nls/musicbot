@@ -86,7 +86,10 @@ export default {
         .addBooleanOption((option) =>
           option.setName('automod').setDescription('Modul automod aktif?'),
         )
-        .addBooleanOption((option) => option.setName('logging').setDescription('Modul logging aktif?')),
+        .addBooleanOption((option) => option.setName('logging').setDescription('Modul logging aktif?'))
+        .addBooleanOption((option) =>
+          option.setName('custom-commands').setDescription('Modul perintah custom (!nama) aktif?'),
+        ),
     )
     .addSubcommand((sub) => sub.setName('reset').setDescription('Hapus konfigurasi dan kembali ke default')),
   category: 'core',
@@ -185,6 +188,8 @@ function buildPatch(interaction: ChatInputCommandInteraction): GuildConfigPatch 
   if (automod !== null) modules.automod = automod;
   const logging = interaction.options.getBoolean('logging');
   if (logging !== null) modules.logging = logging;
+  const customCommands = interaction.options.getBoolean('custom-commands');
+  if (customCommands !== null) modules.customCommands = customCommands;
   if (Object.keys(modules).length > 0) patch.modules = modules;
 
   return patch;

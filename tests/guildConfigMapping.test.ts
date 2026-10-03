@@ -53,6 +53,7 @@ describe('parseModules', () => {
         logging: true,
         reactions: true,
         tickets: true,
+        customCommands: true,
       }),
     ).toEqual({
       music: false,
@@ -61,6 +62,7 @@ describe('parseModules', () => {
       logging: true,
       reactions: true,
       tickets: true,
+      customCommands: true,
     });
   });
 
@@ -105,6 +107,7 @@ describe('toPrismaData', () => {
         logging: false,
         reactions: false,
         tickets: false,
+        customCommands: false,
       },
       locale: 'id',
     };

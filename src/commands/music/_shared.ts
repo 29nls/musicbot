@@ -27,6 +27,8 @@ export interface MusicContext {
   /** Channel voice tempat user yang memanggil perintah berada. */
   voiceChannelId: string;
   canManageGuild: boolean;
+  /** Role yang dimiliki pemanggil — dipakai aturan batas durasi §6.2. */
+  memberRoleIds: string[];
 }
 
 export interface GateOptions {
@@ -138,6 +140,7 @@ export async function gateMusicCommand(
       music,
       voiceChannelId: memberChannelId ?? '',
       canManageGuild,
+      memberRoleIds: [...member.roles.cache.keys()],
     },
   };
 }

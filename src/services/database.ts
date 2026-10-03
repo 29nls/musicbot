@@ -61,6 +61,21 @@ export async function connectDatabase(): Promise<boolean> {
   }
 }
 
+/**
+ * Pingan cepat untuk health check: apakah database hidup?
+ *
+ * Tidak melempar — jawaban 'down' sudah cukup untuk laporan, dan health check
+ * tidak boleh jadi sumber error baru yang flooding ke log.
+ */
+export async function pingDatabase(): Promise<'ok' | 'down'> {
+  try {
+    await getPrisma().$queryRaw`SELECT 1`;
+    return 'ok';
+  } catch {
+    return 'down';
+  }
+}
+
 export async function disconnectDatabase(): Promise<void> {
   if (!client) return;
   await client.$disconnect();

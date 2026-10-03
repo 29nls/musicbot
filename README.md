@@ -96,6 +96,37 @@ Compose otomatis mengganti `DATABASE_URL`, `REDIS_URL`, dan `LAVALINK_HOST`
 menjadi hostname container (`postgres`, `redis`, `lavalink`), jadi nilai di
 `.env` hanya dipakai saat bot dijalankan dari host.
 
+### Health check & monitoring (PRD §5.1)
+
+Bot menjalankan endpoint HTTP kecil di `HEALTH_PORT` (default `8080`):
+
+| Endpoint | Arti | Kode HTTP |
+| --- | --- | --- |
+| `GET /health` | **Liveness**: proses bot masih hidup? Tidak menyentuh dependency apa pun, jadi selalu cepat | 200 selama server menyala |
+| `GET /ready` | **Readiness**: semua dependency siap? | 200 kalau siap, 503 kalau database mati / gateway belum siap / Lavalink putus |
+
+Contoh jawaban `/ready`:
+
+```json
+{
+  "status": "degraded",
+  "uptimeSeconds": 5400,
+  "guildCount": 12,
+  "checks": { "gateway": true, "lavalink": false, "database": "ok" }
+}
+```
+
+Kenapa dua endpoint, bukan satu: saat bot bermasalah, tindakan yang benar
+berbeda-beda. `/health` gagal berarti **restart**; `/ready` 503 dengan
+`database: "down"` berarti **tunggu database**, dan me-restart bot justru
+menambah masalah. Lavalink yang putus hanya `degraded` karena moderasi, tiket,
+serta logging tetap berjalan tanpa mesin audio.
+
+`HEALTH_PORT=0` mematikan endpoint sepenuhnya (berguna saat menjalankan bot lokal
+tanpa monitoring). Port-nya **tidak** dipublish ke luar di `docker-compose.yml`:
+container `bot` punya healthcheck sendiri yang memanggil `/health`, jadi status
+terlihat lewat `docker compose ps` tanpa membuka port ke host.
+
 ---
 
 ## 3. Konfigurasi per server (M1)
@@ -122,8 +153,8 @@ Opsi `/config set`: `log-channel`, `welcome-channel`, `goodbye-channel`,
 `dj-role`, `autorole` (member manusia), `autorole-bot` (bot baru),
 `volume` (0–200), `idle-timeout` (30–86400 detik),
 `welcome-message` & `goodbye-message` (placeholder `{user}` `{mention}`
-`{server}` `{count}`), serta `music` / `moderation` / `automod` / `logging`
-(true/false) untuk menyalakan-matikan modul.
+`{server}` `{count}`), serta `music` / `moderation` / `automod` / `logging` /
+`custom-commands` (true/false) untuk menyalakan-matikan modul.
 
 Keduanya butuh izin **Manage Server** dan hanya bisa dipakai di dalam server.
 Nilai yang tidak valid ditolak sebelum menyentuh database, dengan pesan yang
@@ -144,7 +175,7 @@ menyebut field bermasalahnya.
 
 | Perintah | Fungsi | Izin |
 | --- | --- | --- |
-| `/play <query>` | Cari lalu putar, atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya | Semua (harus di voice channel) |
+| `/play <query>` | Cari lalu putar, atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya; tautan Spotify → metadata resmi lalu audio dicari ulang | Semua (harus di voice channel) |
 | `/search <query>` | Cari 5 hasil teratas, pilih satu lewat select menu untuk langsung diputar | Semua (harus di voice channel) |
 | `/queue` | Lagu yang sedang diputar + 10 lagu berikutnya | Semua |
 | `/nowplaying` | Embed lagu aktif: progress bar, volume, sisa antrean | Semua |
@@ -213,6 +244,52 @@ Tiga hal yang perlu diketahui:
   suaranya pecah — dan itu baru ketahuan setelah lagu diputar.
 - **`/disconnect` mengembalikan filter ke `off`** bersama seluruh state server;
   `/stop` tidak — sama seperti mode loop dan volume.
+
+**Metadata Spotify: tempel tautan, judul & sampul jadi benar**
+
+`/play https://open.spotify.com/track/<id>` (atau `spotify:track:<id>`) mengambil
+metadata resmi dari Spotify dulu — judul, artis, album, cover, durasi — lalu
+**mencari ulang audio itu di Lavalink** dengan judul resmi. Embed menampilkan
+keduanya: judul Spotify (dengan cover) dan judul audio yang benar-benar berbunyi.
+
+Yang perlu diketahui:
+
+- **Bot tidak memutar audio dari Spotify.** Itu butuh Lavalink dengan plugin
+  berlisensi berbayar, jadi yang diambil dari Spotify **hanya metadata**. Dengan
+  begitu fitur ini tidak butuh Spotify Premium, dan batasnya dinyatakan terbuka,
+  bukan diklaim sebagai “dukungan Spotify penuh”.
+- **Metadata hanya dibaca kalau kredensial diisi** (`SPOTIFY_CLIENT_ID` &
+  `SPOTIFY_CLIENT_SECRET`, Client Credentials dari developer.spotify.com).
+  Kosong = member diberi tahu fiturnya belum aktif, bukan gagal diam-diam.
+- **Hanya track tunggal.** Tautan playlist/album ditolak dengan penjelasan dan
+  saran membuka lagunya — bukan diberi jawaban “tidak ditemukan” yang membuat
+  orang mengira tautannya rusak.
+- **Pencocokan menentukan apakah ini dipercaya.** Pencarian “judul – artis” di
+  YouTube hampir selalu mengembalikan cover, remix, dan reaksi, jadi kandidat
+  dinilai dari judul (harus cocok) **dan** durasi (toleransi keras 8 detik).
+  Kalau tidak ada yang cocok, jawabannya “tidak ada audio yang cocok” beserta
+  jumlah kandidat yang diperiksa — **memutar versi yang berbeda lebih buruk daripada
+  bilang tidak bisa**.
+- Embed menyebutkan kalau durasi audio meleset beberapa detik dari metadata,
+  supaya perbedaan rekaman terlihat jelas dan bukan sesuatu yang misterius.
+
+**Batas durasi track (PRD §6.2)** — dua aturan anti-abuse yang berlaku untuk semua
+server:
+
+| Aturan | Berlaku untuk |
+| --- | --- |
+| Durasi maksimum **6 jam** per lagu | Semua orang, termasuk DJ — ini batas memori, bukan batas hak akses |
+| Lagu **> 30 menit** (dan live stream) | Hanya DJ / Manage Server |
+
+Semua jalur pemuatan ikut menerapkannya: `/play`, `/search` (select menu), dan
+`/playlist play`. Lagu yang ditolak **dihitung dan dilaporkan** — playlist yang
+separuhnya tidak diputar karena alasan ini akan terlihat di footer, bukan
+diputar lebih pendek tanpa penjelasan. Kalau **semua** lagunya ditolak, bot tidak
+sampai menyambungkan ke voice channel sama sekali dan jawabannya menyebutkan
+alasannya.
+
+Live stream diperlakukan sebagai lagu panjang karena durasinya tidak diketahui:
+tidak ada yang bisa menjamin stream berhenti dalam 30 menit.
 
 **Lirik: mengikuti baris yang sedang berbunyi**
 
@@ -947,7 +1024,66 @@ transkrip" jadi satu fakta, bukan dua hal yang harus dijaga sinkron.
 
 ---
 
-## 10. Retensi data
+## 10. Perintah Custom (M5, Fase 2)
+
+Balasan admin yang dipanggil member dengan mengetik pemicunya di channel teks:
+`!ping` → bot membalas `pong`.
+
+| Perintah | Fungsi | Izin |
+| --- | --- | --- |
+| `/customcommand list` | Daftar perintah custom di server ini | Manage Server |
+| `/customcommand add <nama> <balasan>` | Buat perintah baru, atau ganti balasan yang namanya sama | Manage Server |
+| `/customcommand edit <nama> <balasan>` | Ganti isi balasan yang sudah ada | Manage Server |
+| `/customcommand delete <nama>` | Hapus perintah | Manage Server |
+| `/customcommand show <nama>` | Isi balasan + pratinjau apa yang akan dikirim member | Manage Server |
+
+Modul ini **mati secara default**. Nyalakan lebih dulu:
+
+```
+/config set custom-commands:true
+```
+
+Setelah itu member mengetik `!nama` (atau `<@bot> !nama`) di channel teks.
+`/customcommand` tetap bisa dipakai saat modul mati supaya admin bisa menyiapkan
+lebih dulu; `/customcommand list` menyebutkan statusnya di footer.
+
+Placeholder yang bisa dipakai di dalam balasan:
+
+| Placeholder | Isi |
+| --- | --- |
+| `{pengguna}` | mention pemanggil |
+| `{nama}` | nama pengguna pemanggil |
+| `{server}` | nama server ini |
+| `{channel}` | mention channel tempat dipanggil |
+| `{args}` | teks setelah nama perintah |
+
+Yang perlu diketahui:
+
+- **Nama divalidasi saat disimpan, bukan saat dipanggil.** Awalnya huruf,
+  maksimal 32 karakter, huruf besar dikecilkan, dan **nama perintah slash yang
+  sedang aktif ditolak** — `!play` yang memanggil ke `/play` bukan pintasan,
+  hanya membingungkan. Nama yang sudah dipakai diperbarui, bukan dibuat dobel.
+- **Placeholder yang tidak dikenal dibiarkan tertulis.** Admin yang mengetik
+  `{discord}` akan melihatnya utuh di pesan — jauh lebih mudah menemukan
+  salahnya daripada melihat teksnya hilang diam-diam. Kalau balasannya jadi
+  kosong setelah placeholder diganti (mis. `{args}` tanpa argumen), bot diam.
+- **Jeda 5 detik antar pemicu untuk satu member**, dan saat masih dalam jeda
+  bot **tidak membalas apa pun**. Balasan pada pesan biasa tidak bisa
+  disembunyikan hanya untuk satu orang, jadi membalas "tunggu N detik" akan
+  menumpuk jadi pesan baru tepat di channel yang paling tidak butuh itu.
+- **Bot tidak akan pernah benar-benar `@everyone`/`@here`** meski admin
+  mengetiknya di dalam balasan.
+- **Daftar perintah di-cache per server selama 60 detik.** Menambah/mengubah/
+  menghapus langsung membuang cache, jadi admin tidak menunggu satu menit untuk
+  melihat hasilnya. Cache ini in-memory satu proses — restart bot mengosongkan
+  semua cache, jadi **sharding belum boleh diaktifkan** sebelum store ini pindah
+  ke Redis (batasan yang sama seperti antrean musik).
+- **Privasi §12:** kolom pembuat ikut dihitung di `/privacy` dan diganti pseudonim
+  saat `/data-delete`; isi balasannya tetap ada karena bukan tentang orang.
+
+---
+
+## 11. Retensi data
 
 PRD Bab 12 menyatakan data tidak disimpan selamanya. Yang sudah berjalan:
 
@@ -1002,7 +1138,7 @@ penjadwalan dimatikan.
 
 ---
 
-## 11. Privasi & permintaan penghapusan data (Bab 12)
+## 12. Privasi & permintaan penghapusan data (Bab 12)
 
 ### `/privacy` — data yang disimpan tentangmu
 
@@ -1061,7 +1197,7 @@ untuk menyelesaikan sisanya.
 
 ---
 
-## 12. Struktur proyek
+## 13. Struktur proyek
 
 ```
 prisma/
@@ -1078,15 +1214,26 @@ src/
 │                           # _shared.ts berisi gate & alur aksi bersama
 ├─ events/                  # satu file = satu event Discord
 │  └─ logging/              # 22 event → embed 6 kategori (M4 ✅)
+│  # messageCreateCustomCommand.ts = pemicu !nama; listen ke event yang sama
+│  # dengan automod, sengaja terpisah supaya tidak saling memblokir
 ├─ handlers/                # loader perintah, event, & router komponen (auto-discovery)
 ├─ modules/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
 │  │                        # searchSession.ts = state /search, searchSelect.ts = pilihannya
+│  │                        # limits.ts = batas durasi track §6.2 (6 jam & >30 menit butuh DJ)
 │  ├─ lyrics/               # lirik LRCLIB + cadangan Genius (Fase 2 ✅)
 │  │                        # lrc.ts = parser LRC & baris aktif, query.ts = judul + HTML Genius
 │  │                        # service.ts = sumber lirik + cache, embeds.ts = tampilan
+│  ├─ spotify/               # metadata Spotify untuk /play (Fase 2 ✅)
+│  │                        # parse.ts = tautan, match.ts = pencocokan ke hasil Lavalink
+│  │                        # service.ts = token client-credentials + HTTP, bridge.ts = orkestrasi
+│  ├─ health/                # endpoint /health & /ready untuk monitoring (PRD §5.1 ✅)
+│  │                        # report.ts = aturan status (murni), server.ts = HTTP-nya
+│  ├─ customcommands/        # balasan admin yang dipanggil !nama (Fase 2 ✅)
+│  │                        # trigger.ts = parser pemicu & placeholder, validation.ts = nama & isi
+│  │                        # service.ts = CRUD + cache per server (60 detik)
 │  ├─ moderation/           # kasus, warning, hierarki, greeting      (M3 ✅)
 │  │                        # caseLink.ts menjembatani aksi ↔ event Discord
 │  │                        # caseView.ts = isi halaman /case
@@ -1179,10 +1326,11 @@ berulang, bukan disembunyikan.
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka baseline saat hardening M5: **~43% statements**.
+yang tidak di-commit). Angka saat ini: **~48% statements** (naik dari ~43% waktu
+playlist, filter, lirik, dan health check masuk).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
-fungsi `execute` 43 perintah, repository Prisma, dan barrel `index.ts` — yang
+fungsi `execute` 44 perintah, repository Prisma, dan barrel `index.ts` — yang
 sengaja dibuat tipis dan hanya bisa diuji dengan Discord/Postgres yang hidup.
 Logika inti justru tercover tinggi: mesin automod, mapping & hierarki
 moderasi, agregasi log, loop/posisi/shuffle/filter musik, parser lirik, privasi,
@@ -1190,7 +1338,7 @@ dan validasi tiket semuanya di atas 90%. Menaikkan angka global dengan
 mem-bypass lapisan lem lewat mock besar akan menguji mock itu sendiri, bukan bot.
 ---
 
-## 13. Perintah npm
+## 14. Perintah npm
 
 | Perintah | Fungsi |
 | --- | --- |
@@ -1215,7 +1363,7 @@ setiap push/PR.
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 | Gejala | Penyebab & solusi |
 | --- | --- |
@@ -1236,6 +1384,27 @@ setiap push/PR.
 | Bot join voice tapi tidak ada suara | Cek `docker compose logs lavalink`; pastikan `LAVALINK_PASSWORD` di `.env` sama dengan yang dipakai container |
 | Lavalink mati saat memutar lagu panjang | Naikkan `JAVA_TOOL_OPTIONS=-Xmx2G` di `docker-compose.yml` |
 | Error YouTube "sign in to confirm you're not a bot" | Aktifkan OAuth token di plugin [youtube-source](https://github.com/lavalink-devs/youtube-source#using-oauth-tokens) |
+
+### Permintaan takedown (PRD §15)
+
+Sumber audio (YouTube lewat Lavalink) adalah bagian yang paling mungkin
+meneruskan permintaan penghak cipta. Prosedur di bot ini, dengan target
+**< 48 jam**:
+
+1. **Catat permintaan** di issue/tiket internal: URL sumber, Judul, hak cipta
+   yang diklaim,  dan lamanya. Bot tidak menyimpan data member soal ini.
+2. **Nonaktifkan sumbernya** di sisi Lavalink: hapus plugin terkait dari
+   [docker-compose.yml](docker-compose.yml) (mis. `youtube-source`), lalu
+   `docker compose up -d lavalink`. Bot otomatis melapor "Lavalink belum
+   terhubung" untuk `/play` — pesan itu memang sudah menjelaskan ke user.
+3. **Kalau hanya satu lagu/penyanyi** yang diklaim, nonaktifkan **modul musik**
+   server terkait lewat `/config set music:false` daripada mematikan bot
+   seutuhnya — moderasi, tiket, dan logging tetap berjalan.
+4. **Jawab pemohon** dengan apa yang berubah, kapan, dan kontak lanjutan.
+
+Sebelum rilis publik, isi alamat kontak takedown di metadata bot Developer Portal
+dan di [PRD.md](PRD.md); jalur ini belum bisa otomatis karena tidak ada sumber
+data takedown yang integrasinya pernah diuji.
 
 Lihat juga bagian **Legal, Privasi & Kepatuhan** di PRD — sumber audio dan
 kewajiban takedown bukan detail teknis yang bisa ditunda.

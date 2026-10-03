@@ -156,6 +156,7 @@ function readModules(values: string[]): ModulesEnabled {
     logging: values.includes('logging'),
     reactions: values.includes('reactions'),
     tickets: values.includes('tickets'),
+    customCommands: values.includes('customCommands'),
   };
 }
 

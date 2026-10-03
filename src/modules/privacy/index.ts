@@ -1,3 +1,4 @@
+import { PrismaCustomCommandRepository } from '../customcommands/repository.js';
 import { PrismaLoggingRepository } from '../logging/repository.js';
 import { PrismaModerationRepository } from '../moderation/repository.js';
 import { PrismaPlaylistRepository } from '../playlists/repository.js';
@@ -21,6 +22,7 @@ export function getPrivacyService(): PrivacyService {
       tickets: new PrismaTicketRepository(prisma),
       logging: new PrismaLoggingRepository(prisma),
       playlists: new PrismaPlaylistRepository(prisma),
+      customCommands: new PrismaCustomCommandRepository(prisma),
     });
   }
 

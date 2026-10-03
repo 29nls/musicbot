@@ -264,3 +264,22 @@ model Playlist {
   @@index([guildId, ownerId])
   @@map("playlist")
 }
+
+/// Teks balasan buatan admin (Fase 2, PRD 5.2). Satu baris = satu pemicu,
+/// dipanggil member dengan mengetik `!nama` di channel teks.
+model CustomCommand {
+  id Int @id @default(autoincrement())
+  guildId String @db.VarChar(20)
+  /// Nama pemicu tanpa tanda `!`, huruf kecil (lihat `validation.ts`).
+  name String @db.VarChar(32)
+  /// Teks balasan; placeholder ditulis di dalam kurung kurawal.
+  response String
+  /// Admin yang membuat perintah ini (bisa pseudonim setelah `/data-delete`).
+  createdBy String @db.VarChar(20)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([guildId, name])
+  @@index([guildId, createdBy])
+  @@map("custom_command")
+}

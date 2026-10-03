@@ -2,6 +2,7 @@ import type { EmbedBuilder } from 'discord.js';
 import { getEnv } from '../../config/env.js';
 import { errorEmbed, warningEmbed } from '../../utils/embeds.js';
 import { addedToQueueEmbed } from './embeds.js';
+import { trackLimitRejectionMessage } from './limits.js';
 import type { PlayOutcome } from './types.js';
 
 /**
@@ -21,6 +22,11 @@ export function renderPlayOutcome(outcome: PlayOutcome): EmbedBuilder {
     case 'queue-full':
       return warningEmbed(
         `Antrean sudah penuh (batas ${getEnv().MAX_QUEUE_SIZE} lagu). Tunggu sampai ada lagu yang selesai.`,
+      );
+    case 'rejected':
+      return warningEmbed(
+        trackLimitRejectionMessage(outcome.reason, outcome.count),
+        '⏱️ Lagu Ditolak Batas Durasi',
       );
     case 'unavailable':
     default:

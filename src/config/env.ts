@@ -24,6 +24,10 @@ const envSchema = z.object({
   LAVALINK_PORT: z.coerce.number().int().min(1).max(65_535).default(2333),
   LAVALINK_PASSWORD: z.string().min(1, 'wajib diisi dan harus sama dengan LAVALINK_SERVER_PASSWORD di container'),
 
+  // Health check (PRD 5.1): port untuk GET /health dan /ready.
+  // 0 = matikan endpoint (mis. saat menjalankan lokal tanpa monitoring).
+  HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(8080),
+
   // Perilaku bot
   DEFAULT_VOLUME: z.coerce.number().int().min(0).max(200).default(100),
   MAX_QUEUE_SIZE: z.coerce.number().int().min(1).max(10_000).default(500),
@@ -39,6 +43,12 @@ const envSchema = z.object({
   // Lirik (PRD 5.2). LRCLIB gratis dan tanpa API key, jadi ini default-nya.
   GENIUS_ACCESS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   LYRCLIB_BASE_URL: z.string().min(1).default('https://lrclib.net/api'),
+
+  // Metadata Spotify (PRD 5.2). Hanya untuk MEMBACA judul/metadata; audio tetap
+  // dicari di Lavalink, jadi tidak butuh Spotify Premium. Kosong = tautan
+  // Spotify akan diberi tahu fitur belum aktif, bukan gagal diam-diam.
+  SPOTIFY_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  SPOTIFY_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1,4 +1,5 @@
 import { getLogger } from '../../services/logger.js';
+import type { CustomCommandRepository } from '../customcommands/repository.js';
 import type { LoggingRepository } from '../logging/repository.js';
 import type { PlaylistRepository } from '../playlists/repository.js';
 import type { ModerationRepository } from '../moderation/repository.js';
@@ -21,6 +22,7 @@ export interface PrivacyRepositories {
   tickets: Pick<TicketRepository, 'countByOpener' | 'anonymizeOpener'>;
   logging: Pick<LoggingRepository, 'countAboutUser' | 'deleteAboutUser'>;
   playlists: Pick<PlaylistRepository, 'countByOwner' | 'anonymizeOwner'>;
+  customCommands: Pick<CustomCommandRepository, 'countByCreator' | 'anonymizeCreator'>;
 }
 
 /**
@@ -47,13 +49,15 @@ export class PrivacyService {
     // sebagai "tidak ada data" padahal barisnya masih ada dalam bentuk anonim.
     const pseudonym = pseudonymFor(guildId, userId);
 
-    const [actionRows, activeWarnings, tickets, logEntries, playlists] = await Promise.all([
-      this.repositories.moderation.countTargetByTypeAndActive(guildId, userId),
-      this.repositories.moderation.countWarnings(guildId, userId),
-      this.repositories.tickets.countByOpener(guildId, userId),
-      this.repositories.logging.countAboutUser(guildId, userId, pseudonym),
-      this.repositories.playlists.countByOwner(guildId, userId),
-    ]);
+    const [actionRows, activeWarnings, tickets, logEntries, playlists, customCommands] =
+      await Promise.all([
+        this.repositories.moderation.countTargetByTypeAndActive(guildId, userId),
+        this.repositories.moderation.countWarnings(guildId, userId),
+        this.repositories.tickets.countByOpener(guildId, userId),
+        this.repositories.logging.countAboutUser(guildId, userId, pseudonym),
+        this.repositories.playlists.countByOwner(guildId, userId),
+        this.repositories.customCommands.countByCreator(guildId, userId),
+      ]);
 
     return buildInventory({
       guildId,
@@ -64,6 +68,7 @@ export class PrivacyService {
       ticketTranscripts: tickets.transcripts,
       logEntries,
       playlists,
+      customCommands,
     });
   }
 
@@ -114,6 +119,14 @@ export class PrivacyService {
       pseudonym,
     );
 
+    // Perintah custom: teks balasannya bukan tentang orang dan masih dipakai
+    // member lain, jadi yang dilepas hanya siapa yang membuatnya.
+    outcome.customCommands = await this.repositories.customCommands.anonymizeCreator(
+      guildId,
+      userId,
+      pseudonym,
+    );
+
     // Log dihapus terakhir karena tidak ada yang bergantung padanya.
     outcome.logEntries = await this.repositories.logging.deleteAboutUser(
       guildId,
@@ -131,6 +144,7 @@ export class PrivacyService {
         transcripts: outcome.transcripts,
         logEntries: outcome.logEntries,
         playlists: outcome.playlists,
+        customCommands: outcome.customCommands,
       },
       'Permintaan penghapusan data anonimasi',
     );

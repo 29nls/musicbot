@@ -63,8 +63,24 @@ export {
   searchSelectCustomId,
 } from './searchSession.js';
 export type { SearchSelection, SearchSession, TokenFactory } from './searchSession.js';
+export {
+  LONG_TRACK_THRESHOLD_MS,
+  MAX_TRACK_DURATION_MS,
+  checkTrackLimit,
+  splitByTrackLimits,
+  trackLimitReason,
+  trackLimitRejectionMessage,
+} from './limits.js';
+export type { TrackLimitInput, TrackLimitSplit, TrackLimitVerdict } from './limits.js';
 export { buildSearchIdentifier, isUrl } from './search.js';
 export { shuffleTracks } from './shuffle.js';
 export type { RandomSource } from './shuffle.js';
 export { describeTrack, formatTrackDuration, progressBar, toTrackInfo } from './track.js';
-export type { PlayOutcome, QueueSnapshot, RawTrack, SearchOutcome, TrackInfo } from './types.js';
+export type {
+  PlayOutcome,
+  QueueSnapshot,
+  RawTrack,
+  SearchOutcome,
+  SpotifySourceInfo,
+  TrackInfo,
+} from './types.js';

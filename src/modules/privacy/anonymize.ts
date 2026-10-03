@@ -71,6 +71,8 @@ export interface AnonymizeOutcome {
   logEntries: number;
   /** Playlist yang pemiliknya dilepas; isi lagunya tetap ada. */
   playlists: number;
+  /** Perintah custom yang pembuatnya dilepas; isi balasannya tetap ada. */
+  customCommands: number;
 }
 
 export function emptyAnonymizeOutcome(pseudonym: string): AnonymizeOutcome {
@@ -82,5 +84,6 @@ export function emptyAnonymizeOutcome(pseudonym: string): AnonymizeOutcome {
     transcripts: 0,
     logEntries: 0,
     playlists: 0,
+    customCommands: 0,
   };
 }

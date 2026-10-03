@@ -29,6 +29,7 @@ const modulesSchema = z
     logging: z.boolean(),
     reactions: z.boolean(),
     tickets: z.boolean(),
+    customCommands: z.boolean(),
   })
   .partial();
 

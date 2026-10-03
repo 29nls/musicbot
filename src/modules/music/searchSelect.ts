@@ -1,6 +1,7 @@
 import {
   ActionRowBuilder,
   MessageFlags,
+  PermissionFlagsBits,
   StringSelectMenuBuilder,
   type EmbedBuilder,
   type Guild,
@@ -10,6 +11,7 @@ import {
 import { getLogger } from '../../services/logger.js';
 import { errorEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService } from '../config/index.js';
+import { canControlMusic } from './permissions.js';
 import { getMusicService, getSearchSessionStore } from './singleton.js';
 import {
   parseSearchCustomId,
@@ -134,6 +136,12 @@ async function playSelection(
     tracks: [track],
     voiceChannelId,
     shardId: guild.shardId,
+    // Batas §6.2: lagu > 30 menit (atau live stream) hanya boleh diputar DJ.
+    canControl: canControlMusic({
+      djRoleId: config.djRoleId,
+      memberRoleIds: [...member.roles.cache.keys()],
+      canManageGuild: member.permissions.has(PermissionFlagsBits.ManageGuild),
+    }),
   });
 
   await replyOnce(interaction, renderPlayOutcome(outcome));

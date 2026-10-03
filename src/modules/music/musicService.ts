@@ -6,13 +6,20 @@ import { DEFAULT_IDLE_TIMEOUT_SEC } from '../config/types.js';
 import { IdleTimer } from './idleTimer.js';
 import { cycleResetOn, planAdvance, type LoopMode } from './loop.js';
 import { filterParamsFor, isWithinSafeBounds, type FilterMode } from './filters.js';
+import { splitByTrackLimits } from './limits.js';
 import { clampVolume } from './permissions.js';
 import type { FilterOptions } from 'shoukaku';
 import { MusicQueue } from './queue.js';
 import { buildSearchIdentifier } from './search.js';
 import type { RandomSource } from './shuffle.js';
 import { toTrackInfo } from './track.js';
-import type { PlayOutcome, QueueSnapshot, SearchOutcome, TrackInfo } from './types.js';
+import type {
+  PlayOutcome,
+  QueueSnapshot,
+  SearchOutcome,
+  SpotifySourceInfo,
+  TrackInfo,
+} from './types.js';
 
 export interface MusicNodeOptions {
   host: string;
@@ -39,6 +46,8 @@ export interface PlayRequest {
   requesterId: string;
   voiceChannelId: string;
   shardId: number;
+  /** true kalau peminta boleh memakai role DJ/Manage Server (batas §6.2). */
+  canControl?: boolean;
 }
 
 /** Permintaan untuk lagu yang sudah di-resolve (dipakai `/search`). */
@@ -47,6 +56,10 @@ export interface EnqueueRequest {
   tracks: readonly TrackInfo[];
   voiceChannelId: string;
   shardId: number;
+  /** true kalau peminta boleh memakai role DJ/Manage Server (batas §6.2). */
+  canControl?: boolean;
+  /** Metadata Spotify untuk ditampilkan di embed hasil. */
+  spotify?: SpotifySourceInfo;
   playlistName?: string;
 }
 
@@ -165,6 +178,7 @@ export class MusicService {
       tracks: found.tracks.map((track) => toTrackInfo(track, requesterId)),
       voiceChannelId: request.voiceChannelId,
       shardId: request.shardId,
+      canControl: request.canControl,
       playlistName: found.playlistName,
     });
   }
@@ -176,8 +190,25 @@ export class MusicService {
    * (hasil select menu), jadi tidak perlu memanggil Lavalink sekali lagi.
    */
   async enqueue(request: EnqueueRequest): Promise<PlayOutcome> {
-    const { guildId, tracks, voiceChannelId, shardId, playlistName } = request;
-    if (tracks.length === 0) return { kind: 'empty' };
+    const { guildId, voiceChannelId, shardId, playlistName } = request;
+    if (request.tracks.length === 0) return { kind: 'empty' };
+
+    // Batas §6.2: 6 jam untuk semua orang, dan lagu panjang hanya untuk DJ.
+    // Penolakan dihitung SEBELUM player dibuat supaya request yang memang tidak
+    // boleh diputar tidak pernah sempat menghubungkan bot ke voice channel.
+    const split = splitByTrackLimits(request.tracks, { canControl: request.canControl ?? false });
+    const tracks = split.accepted;
+
+    if (tracks.length === 0) {
+      return split.tooLong.length > 0
+        ? { kind: 'rejected', reason: 'too-long', count: split.tooLong.length }
+        : { kind: 'rejected', reason: 'needs-control', count: split.needsControl.length };
+    }
+
+    const rejected = {
+      rejectedTooLong: split.tooLong.length,
+      rejectedNeedsControl: split.needsControl.length,
+    };
 
     const queue = this.queueFor(guildId);
     const player = await this.ensurePlayer(guildId, voiceChannelId, shardId);
@@ -198,6 +229,8 @@ export class MusicService {
         started: true,
         position: queue.size,
         skipped: rest.length - accepted,
+        ...rejected,
+        spotify: request.spotify,
         playlistName,
       };
     }
@@ -211,6 +244,8 @@ export class MusicService {
       started: false,
       position: queue.size,
       skipped: tracks.length - accepted,
+      ...rejected,
+      spotify: request.spotify,
       playlistName,
     };
   }

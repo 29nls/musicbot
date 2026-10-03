@@ -8,6 +8,8 @@ export interface ModulesEnabled {
   reactions: boolean;
   /** Sistem tiket dasar (Fase 2, PRD §5.2). */
   tickets: boolean;
+  /** Perintah custom: teks balasan buatan admin (Fase 2, PRD §5.2). */
+  customCommands: boolean;
 }
 
 /** Konfigurasi bot untuk satu server — bentuk domain, bukan bentuk baris DB. */
@@ -66,6 +68,9 @@ export const DEFAULT_MODULES: ModulesEnabled = {
   logging: false,
   reactions: false,
   tickets: false,
+  // Default mati: bot yang membaca tiap pesan di server orang lain harus
+  // dinyalakan secara sadar oleh admin, bukan diam-diam ikut berbunyi.
+  customCommands: false,
 };
 
 export const DEFAULT_IDLE_TIMEOUT_SEC = 300;
@@ -82,4 +87,8 @@ export const MODULE_LABELS: Record<keyof ModulesEnabled, { label: string; descri
   logging: { label: 'Logging', description: 'Catat event member, pesan, dan channel ke channel log' },
   reactions: { label: 'Reaction Roles', description: 'Ambil role sendiri lewat select menu' },
   tickets: { label: 'Tiket', description: 'Channel privat untuk permintaan support' },
+  customCommands: {
+    label: 'Perintah Custom',
+    description: 'Balasan admin yang dipanggil member dengan !nama',
+  },
 };

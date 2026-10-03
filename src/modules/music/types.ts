@@ -52,11 +52,34 @@ export interface RawTrack {
 }
 
 /** Hasil `/play` yang siap dirender jadi embed. */
+/**
+ * Metadata Spotify yang ikut dibawa ke embed hasil `/play`.
+ *
+ * Bentuknya inline (bukan tipe dari modul Spotify) supaya modul musik tidak
+ * bergantung pada modul Spotify: yang dibutuhkan perintah hanya beberapa
+ * field untuk ditampilkan, dan ketergantungan satu arah lebih mudah dijaga
+ * daripada dua modul yang saling mengimpor.
+ */
+export interface SpotifySourceInfo {
+  title: string;
+  artists: string[];
+  album: string;
+  imageUrl: string | null;
+  url: string;
+  /** Judul lagu pada sumber audio yang benar-benar diputar. */
+  sourceTitle: string;
+  sourceUri: string | null;
+  /** Penjelasan jujur kenapa kandidat itu yang dipilih. */
+  matchNote: string;
+}
+
 export type PlayOutcome =
   | { kind: 'unavailable' }
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
   | { kind: 'queue-full' }
+  /** Semua lagu ditolak oleh batas §6.2 (tidak ada yang dimuat). */
+  | { kind: 'rejected'; reason: 'too-long' | 'needs-control'; count: number }
   | {
       kind: 'added';
       tracks: TrackInfo[];
@@ -65,5 +88,11 @@ export type PlayOutcome =
       position: number;
       /** Jumlah lagu yang dipotong karena antrean penuh. */
       skipped: number;
+      /** Lagu yang ditolak batas durasi 6 jam — berlaku untuk semua. */
+      rejectedTooLong?: number;
+      /** Lagu > 30 menit/live yang ditolak karena peminta bukan DJ. */
+      rejectedNeedsControl?: number;
+      /** Metadata Spotify kalau lagunya datang dari tautan Spotify. */
+      spotify?: SpotifySourceInfo;
       playlistName?: string;
     };

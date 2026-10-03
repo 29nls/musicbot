@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import {
+  canControlMusic,
   renderPlayOutcome,
   toTrackInfo,
   type MusicService,
@@ -266,6 +267,7 @@ export default {
             tracks: resolved.tracks,
             voiceChannelId: gate.voiceChannelId,
             shardId: interaction.guild.shardId,
+            canControl: gate.canControl,
           });
 
           const embed = renderPlayOutcome(outcome);
@@ -346,14 +348,23 @@ export default {
  */
 async function requireVoice(
   interaction: ChatInputCommandInteraction,
-): Promise<{ music: MusicService; voiceChannelId: string } | null> {
+): Promise<{ music: MusicService; voiceChannelId: string; canControl: boolean } | null> {
   const gate = await gateMusicCommand(interaction, { voice: true });
   if (!gate.ok) {
     await replyEphemeralError(interaction, gate.embed);
     return null;
   }
 
-  return { music: gate.ctx.music, voiceChannelId: gate.ctx.voiceChannelId };
+  return {
+    music: gate.ctx.music,
+    voiceChannelId: gate.ctx.voiceChannelId,
+    // Batas §6.2: playlist berlarut hanya boleh diputar DJ/Manage Server.
+    canControl: canControlMusic({
+      djRoleId: gate.ctx.config.djRoleId,
+      memberRoleIds: gate.ctx.memberRoleIds,
+      canManageGuild: gate.ctx.canManageGuild,
+    }),
+  };
 }
 
 /**

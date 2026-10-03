@@ -40,7 +40,8 @@ function fakeRepositories(overrides: {
   tickets?: TicketOpenerCount;
   logEntries?: number;
   playlists?: number;
-  failAnonymize?: 'moderation' | 'tickets' | 'playlists' | 'logging';
+  customCommands?: number;
+  failAnonymize?: 'moderation' | 'tickets' | 'playlists' | 'logging' | 'customCommands';
 } = {}) {
   const state = {
     anonymizedReason: new Map<string, string>(),
@@ -48,6 +49,7 @@ function fakeRepositories(overrides: {
     pseudonyms: [] as string[],
     deletedLogs: 0,
     anonymizedPlaylists: 0,
+    anonymizedCustomCommands: 0,
     calls: [] as string[],
   };
 
@@ -97,6 +99,21 @@ function fakeRepositories(overrides: {
         state.anonymizedPlaylists = overrides.playlists ?? 0;
         state.pseudonyms.push(pseudonym);
         return overrides.playlists ?? 0;
+      },
+    },
+    customCommands: {
+      async countByCreator(guildId, userId) {
+        state.calls.push(`countcustom:${guildId}:${userId}`);
+        return guildId === GUILD_ID && userId === USER_ID ? (overrides.customCommands ?? 0) : 0;
+      },
+      async anonymizeCreator(guildId, userId, pseudonym) {
+        state.calls.push(`anonymize:custom:${guildId}:${userId}`);
+        if (overrides.failAnonymize === 'customCommands') {
+          throw new Error('tabel perintah custom terkunci');
+        }
+        state.anonymizedCustomCommands = overrides.customCommands ?? 0;
+        state.pseudonyms.push(pseudonym);
+        return overrides.customCommands ?? 0;
       },
     },
     logging: {
@@ -155,6 +172,7 @@ describe('buildInventory', () => {
       ticketTranscripts: 1,
       logEntries: 12,
       playlists: 2,
+      customCommands: 1,
       ...overrides,
     });
   }
@@ -224,7 +242,7 @@ describe('buildInventory', () => {
   });
 
   it('jumlah yang akan tersentuh menjumlahkan semua kelompok data', () => {
-    expect(inventoryTouchedCount(inventory())).toBe(6 + 3 + 1 + 1 + 12 + 2);
+    expect(inventoryTouchedCount(inventory())).toBe(6 + 3 + 1 + 1 + 12 + 2 + 1);
   });
 });
 
@@ -314,6 +332,31 @@ describe('PrivacyService.anonymize', () => {
     expect(row?.removedByDataDelete).toBe(true);
   });
 
+  it('melepas identitas pembuat perintah custom tanpa menghapus teksnya', async () => {
+    // `createdBy` adalah satu-satunya bagian dari baris perintah custom yang
+    // menunjuk orang; isi balasannya masih dipakai member server itu.
+    const { repositories, state } = fakeRepositories({ customCommands: 2 });
+
+    const outcome = await new PrivacyService(repositories).anonymize(GUILD_ID, USER_ID);
+
+    expect(outcome.customCommands).toBe(2);
+    expect(state.anonymizedCustomCommands).toBe(2);
+    expect(state.calls).toContain(`anonymize:custom:${GUILD_ID}:${USER_ID}`);
+  });
+
+  it('perintah custom ikut terinventarisasi', async () => {
+    const { repositories } = fakeRepositories({ customCommands: 3 });
+
+    const inventory = await new PrivacyService(repositories).inventory(GUILD_ID, USER_ID);
+
+    expect(inventory.customCommands).toBe(3);
+    const row = inventoryRows(inventory).find(
+      (item) => item.label === 'Perintah custom yang kamu buat',
+    );
+    expect(row?.value).toBe('3');
+    expect(row?.removedByDataDelete).toBe(true);
+  });
+
   it('mengirim pseudonim yang sama ke semua modul', async () => {
     // Kalau tiap modul memakai pseudonim berbeda, permintaan berikutnya hanya
     // akan menyentuh sebagian data dan sisanya akan terlupakan diam-diam.
@@ -367,6 +410,7 @@ describe('embed privasi', () => {
       ticketTranscripts: 1,
       logEntries: 12,
       playlists: 2,
+      customCommands: 1,
     });
   }
 

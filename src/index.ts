@@ -3,9 +3,10 @@ import { BotClient } from './client.js';
 import { EnvError, getEnv } from './config/env.js';
 import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
-import { getMusicService, initMusic } from './modules/music/index.js';
+import { startHealthServer, type HealthServerHandle } from './modules/health/index.js';
+import { getMusicService, initMusic, isMusicConnected } from './modules/music/index.js';
 import { clearCaseLinks } from './modules/moderation/index.js';
-import { connectDatabase, disconnectDatabase } from './services/database.js';
+import { connectDatabase, disconnectDatabase, pingDatabase } from './services/database.js';
 import { getLogger } from './services/logger.js';
 import { startPanelExpiryJob, type PanelExpiryJob } from './services/panelExpiryJob.js';
 import { startRetentionJob, type RetentionJob } from './services/retentionJob.js';
@@ -14,6 +15,10 @@ import { startRetentionJob, type RetentionJob } from './services/retentionJob.js
 let client: BotClient | undefined;
 let retentionJob: RetentionJob | undefined;
 let panelExpiryJob: PanelExpiryJob | undefined;
+let healthServer: HealthServerHandle | null = null;
+
+/** Kapan proses ini start — dipakai health check untuk menghitung uptime. */
+const startedAt = Date.now();
 
 async function main(): Promise<void> {
   // Validasi config lebih dulu: gagal cepat kalau .env belum lengkap.
@@ -38,6 +43,20 @@ async function main(): Promise<void> {
   // Retensi data (kasus & peringatan > 12 bulan) berjalan di dalam proses:
   // ikut berhenti saat bot berhenti, tanpa cron di host.
   retentionJob = startRetentionJob();
+
+  // Endpoint health check (PRD §5.1). Dijalankan sebelum login supaya
+  // monitoring bisa melihat "proses hidup, gateway belum siap" selama bot
+  // masih handshake.
+  healthServer = startHealthServer({
+    port: env.HEALTH_PORT,
+    // HEALTH_PORT=0 = matikan endpoint, bukan "pakai port acak".
+    enabled: env.HEALTH_PORT > 0,
+    startedAt,
+    gatewayReady: () => client?.isReady() ?? false,
+    lavalinkConnected: () => isMusicConnected(),
+    guildCount: () => client?.guilds.cache.size ?? 0,
+    pingDatabase: () => pingDatabase(),
+  });
 
   logger.info(
     { node: process.version, lavalink: `${env.LAVALINK_HOST}:${env.LAVALINK_PORT}` },
@@ -73,7 +92,12 @@ function registerProcessHandlers(bot: BotClient): void {
     const forceExit = setTimeout(() => process.exit(1), 10_000);
     forceExit.unref();
 
-    void Promise.allSettled([disconnectDatabase(), stopMusic(), bot.destroy()]).then(() => {
+    void Promise.allSettled([
+      healthServer?.close() ?? Promise.resolve(),
+      disconnectDatabase(),
+      stopMusic(),
+      bot.destroy(),
+    ]).then(() => {
       logger.info('Bot berhenti dengan bersih');
       process.exit(0);
     });

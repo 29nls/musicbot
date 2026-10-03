@@ -93,5 +93,6 @@ export function parseModules(value: unknown): ModulesEnabled {
     logging: read('logging'),
     reactions: read('reactions'),
     tickets: read('tickets'),
+    customCommands: read('customCommands'),
   };
 }
