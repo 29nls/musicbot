@@ -14,6 +14,12 @@ const envSchema = z.object({
   DISCORD_TOKEN: z.string().min(20, 'wajib diisi (Developer Portal → Bot → Reset Token)'),
   DISCORD_CLIENT_ID: snowflake,
   DEV_GUILD_ID: z.preprocess(emptyToUndefined, snowflake.optional()),
+  // Darurat saja: true = jangan minta privileged intent, supaya bot tetap bisa
+  // login saat Developer Portal tidak bisa diakses. Welcome, autorole, automod,
+  // dan logging pesan ikut mati selama flag ini menyala (bukan ketik false —
+  // semua string selain "true" berarti false).
+  BOT_INTENTS_MINIMAL: z.preprocess(emptyToUndefined, z.enum(['true', 'false']).default('false'))
+    .transform((value) => value === 'true'),
 
   // Infrastruktur
   // Database produksi adalah Supabase, yang juga PostgreSQL, jadi format URL-nya

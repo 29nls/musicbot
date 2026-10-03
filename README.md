@@ -37,6 +37,18 @@ autorole, dan automod). Tanpa ini, `client.login()` akan gagal:
    **Server Members Intent** dan **Message Content Intent**
 3. Simpan
 
+Kalau portalnya sedang tidak bisa diakses dan bot tetap perlu jalan untuk
+menguji perintah lain, jalankan sekali dengan intent dimatikan:
+
+```bash
+BOT_INTENTS_MINIMAL=true npm run dev
+```
+
+Bot akan login, tapi **welcome, goodbye, autorole, automod, dan logging pesan
+ikut mati** selama flag itu menyala, dan identitas fitur yang mati ditulis
+sebagai peringatan supaya tidak disalahartikan sebagai konfigurasi normal. 
+Segera aktifkan intentnya di Portal lalu jalankan tanpa flag itu lagi.
+
 ### Ambil nilai yang dibutuhkan
 
 | Variabel | Lokasi di Developer Portal |
