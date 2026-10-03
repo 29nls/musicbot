@@ -1,4 +1,5 @@
 import { AuditLogEvent, Events, type Sticker } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { diffValues } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
@@ -9,6 +10,7 @@ export default {
   name: Events.GuildStickerUpdate,
   async execute(_client, oldSticker: Sticker, newSticker: Sticker): Promise<void> {
     if (!newSticker.guild) return;
+    const t = await translatorFor(newSticker.guild.id);
 
     const lines = diffValues(
       {
@@ -22,10 +24,11 @@ export default {
         tags: newSticker.tags ?? '',
       },
       [
-        { key: 'name', label: 'Nama' },
-        { key: 'description', label: 'Deskripsi', format: (value) => (value ? String(value) : '—') },
-        { key: 'tags', label: 'Tag', format: (value) => (value ? String(value) : '—') },
+        { key: 'name', label: t('log.embed.field.name') },
+        { key: 'description', label: t('log.embed.field.description'), format: (value) => (value ? String(value) : '—') },
+        { key: 'tags', label: t('log.embed.field.tags'), format: (value) => (value ? String(value) : '—') },
       ],
+      t,
     );
 
     if (lines.length === 0) return;
@@ -36,9 +39,9 @@ export default {
 
     const embed = logEmbed({
       category: 'server',
-      title: '📝 Sticker Diperbarui',
-      fields: compactFields([changesField(lines), ...executorFields(entry)]),
-    });
+      title: t('log.embed.title.stickerUpdate'),
+      fields: compactFields([changesField(lines, t), ...executorFields(entry, t)]),
+    }, t);
 
     await dispatchLog(newSticker.guild, 'server', embed, {
       eventKey: 'guildStickerUpdate',

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { EmbedBuilder } from 'discord.js';
 import { describe, expect, it } from 'vitest';
-import { translator } from '../src/modules/i18n/index.js';
+import { MESSAGE_KEYS, translator, type MessageKey } from '../src/modules/i18n/index.js';
 import {
   categoryLabel,
   caseSourceFields,
@@ -523,3 +523,261 @@ function looksIndonesian(literal: string): boolean {
   // Inggris, dua kata hampir tidak pernah.
   return hits >= 2;
 }
+
+/**
+ * Isi embed event handler log ikut bahasa server.
+ *
+ * Batasnya berbeda dari perintah, dan sengaja ditulis terang di sini: judul
+ * dan ringkasan sebuah entri tersimpan di tabel `log_entry`, jadi entri yang
+ * SUDAH tercatat sebelum server mengganti bahasa tidak akan ikut berubah. Yang
+ * dijaga tes ini cuma entri baru.
+ *
+ * Daftar di bawah diverifikasi oleh tesnya: begitu satu handler hilang dari
+ * daftar, atau satu handler baru muncul tanpa ikut katalog, tesnya gagal.
+ */
+const EVENT_FILES = [
+  'banAdd.ts',
+  'banRemove.ts',
+  'channelCreate.ts',
+  'channelDelete.ts',
+  'channelUpdate.ts',
+  'emojiCreate.ts',
+  'emojiDelete.ts',
+  'emojiUpdate.ts',
+  'guildUpdate.ts',
+  'memberAdd.ts',
+  'memberRemove.ts',
+  'memberUpdate.ts',
+  'messageBulkDelete.ts',
+  'messageDelete.ts',
+  'messageUpdate.ts',
+  'roleCreate.ts',
+  'roleDelete.ts',
+  'roleUpdate.ts',
+  'stickerCreate.ts',
+  'stickerDelete.ts',
+  'stickerUpdate.ts',
+  'voiceStateUpdate.ts',
+];
+
+const EVENT_DIR = 'src/events/logging';
+
+/**
+ * Teks Indonesia yang harus tetap sama seperti sebelum ada i18n.
+ */
+const LEGACY_TITLES: Partial<Record<MessageKey, string>> = {
+  'log.embed.title.banAdd': 'Member Ban',
+  'log.embed.title.banAddHarmony': 'Member Ban (Harmony)',
+  'log.embed.title.banRemove': 'Ban Dicabut',
+  'log.embed.title.banRemoveHarmony': 'Ban Dicabut (Harmony)',
+  'log.embed.title.memberAdd': 'Member Join',
+  'log.embed.title.memberKick': 'Member Kick',
+  'log.embed.title.memberLeave': 'Member Leave',
+  'log.embed.title.memberUpdate': 'Member Diperbarui',
+  'log.embed.title.memberTimeout': 'Timeout Diperbarui (Harmony)',
+  'log.embed.title.messageDelete': 'Pesan Dihapus',
+  'log.embed.title.messageBulkDelete': 'Pesan Dihapus Massal',
+  'log.embed.title.messageUpdate': 'Pesan Diedit',
+  'log.embed.title.channelCreate': 'Channel Dibuat',
+  'log.embed.title.channelDelete': 'Channel Dihapus',
+  'log.embed.title.channelUpdate': 'Channel Diperbarui',
+  'log.embed.title.channelUpdateHarmony': 'Channel Diperbarui (Harmony)',
+  'log.embed.title.roleCreate': 'Role Dibuat',
+  'log.embed.title.roleDelete': 'Role Dihapus',
+  'log.embed.title.roleUpdate': 'Role Diperbarui',
+  'log.embed.title.emojiCreate': 'Emoji Ditambahkan',
+  'log.embed.title.emojiDelete': 'Emoji Dihapus',
+  'log.embed.title.emojiUpdate': 'Emoji Diperbarui',
+  'log.embed.title.stickerCreate': 'Sticker Ditambahkan',
+  'log.embed.title.stickerDelete': 'Sticker Dihapus',
+  'log.embed.title.stickerUpdate': 'Sticker Diperbarui',
+  'log.embed.title.guildUpdate': 'Server Diperbarui',
+  'log.embed.title.voiceJoin': 'Join Voice',
+  'log.embed.title.voiceLeave': 'Leave Voice',
+  'log.embed.title.voiceMove': 'Pindah Voice',
+  'log.embed.title.voiceState': 'Voice State',
+};
+
+/**
+ * Emoji judul embed log. Dipakai dua arah: tes mengarang ulang judul
+ * Indonesia dari emoji + teks ini, jadi pemindahan ke katalog tidak boleh
+ * diam-diam menghilangkan ikon yang sudah tampil di channel log server.
+ */
+const TITLE_EMOJI = {
+  banAdd: '🔨',
+  banAddHarmony: '🔨',
+  banRemove: '♻️',
+  banRemoveHarmony: '♻️',
+  memberAdd: '👤',
+  memberKick: '👢',
+  memberLeave: '🚪',
+  memberUpdate: '📝',
+  memberTimeout: '⏱️',
+  messageDelete: '🗑️',
+  messageBulkDelete: '🧹',
+  messageUpdate: '✏️',
+  channelCreate: '📁',
+  channelDelete: '🗑️',
+  channelUpdate: '📝',
+  channelUpdateHarmony: '📝',
+  roleCreate: '🎭',
+  roleDelete: '🗑️',
+  roleUpdate: '📝',
+  emojiCreate: '😀',
+  emojiDelete: '🗑️',
+  emojiUpdate: '📝',
+  stickerCreate: '🩹',
+  stickerDelete: '🗑️',
+  stickerUpdate: '📝',
+  guildUpdate: '🏠',
+  voiceJoin: '🔊',
+  voiceLeave: '🔇',
+  voiceMove: '🔁',
+  voiceState: '🎙️',
+} as const;
+
+/**
+ * Kata yang hanya Bahasa Indonesia dan tidak mungkin muncul sebagai kode.
+ *
+ * Heuristik kalimat yang dipakai modul logging tidak bisa dipakai di sini:
+ * sisa yang paling rawan justru label pendek seperti "Nama" atau "Tipe",
+ * yang terlalu pendek buat diukur panjang kalimat.
+ */
+const KATA_INDONESIA = [
+  'Nama',
+  'Tipe',
+  'Kategori',
+  'Warna',
+  'Topik',
+  'Tidak',
+  'detik',
+  'lainnya',
+  'Bergabung',
+  'Lampiran',
+  'Penulis',
+  'Lompat',
+  'Jumlah',
+  'Ditambahkan',
+  'Dihapus',
+  'Diperbarui',
+  'Dibuat',
+  'DihapusMassal',
+  'Akun dibuat',
+  'Tidak ada',
+  'Role ditambahkan',
+  'Role dihapus',
+  'Izin ditambahkan',
+  'Izin dihapus',
+  'Nama panggilan',
+  'Isi pesan',
+];
+
+describe('penjaga: isi embed event log ikut katalog', () => {
+  it('daftar handler di src/events/logging sama persis dengan kenyataan', async () => {
+    const files = (await listModuleFiles(EVENT_DIR)).map((file) => basename(file));
+
+    expect([...files].sort()).toEqual([...EVENT_FILES].sort());
+  });
+
+  it('tidak ada judul embed atau nama field yang ditulis sebagai literal', async () => {
+    const offenders: string[] = [];
+
+    for (const file of await listModuleFiles(EVENT_DIR)) {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      for (const match of code.matchAll(/\b(?:title|name): '([^']*)/g)) {
+        offenders.push(file + ' -> ' + match[0]);
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('tidak ada sisa Bahasa Indonesia di handler event', async () => {
+    const offenders: string[] = [];
+
+    for (const file of await listModuleFiles(EVENT_DIR)) {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      for (const literal of [...stringLiterals(code), ...templateFragments(code)]) {
+        for (const word of KATA_INDONESIA) {
+          if (literal.includes(word)) offenders.push(file + ' -> ' + literal);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('setiap handler mengambil penerjemah untuk guild-nya', async () => {
+    const offenders: string[] = [];
+
+    for (const file of await listModuleFiles(EVENT_DIR)) {
+      const code = readFileSync(file, 'utf8');
+      if (!code.includes('await translatorFor(')) offenders.push(basename(file));
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('setiap kunci log.embed yang dipakai ada di kedua bahasa', async () => {
+    const used = new Set<string>();
+
+    for (const file of await listModuleFiles(EVENT_DIR)) {
+      const code = readFileSync(file, 'utf8');
+      for (const match of code.matchAll(/t\(\x27(log\.embed\.[a-zA-Z.]+)\x27/g)) {
+        if (match[1]) used.add(match[1]);
+      }
+    }
+
+    expect(used.size).toBeGreaterThan(0);
+
+    const missing: string[] = [];
+    for (const raw of used) {
+      const key = raw as MessageKey;
+      if (id(key) === key || en(key) === key) missing.push(key);
+    }
+
+    expect(missing).toEqual([]);
+  });
+
+  it('tidak ada kunci log.embed di katalog yang tidak dipakai handler mana pun', async () => {
+    const used = new Set<string>();
+
+    for (const file of await listModuleFiles(EVENT_DIR)) {
+      const code = readFileSync(file, 'utf8');
+      for (const match of code.matchAll(/t\(\x27(log\.embed\.[a-zA-Z.]+)\x27/g)) {
+        if (match[1]) used.add(match[1]);
+      }
+    }
+
+    const orphan = MESSAGE_KEYS.filter(
+      (key) => key.startsWith('log.embed.') && !used.has(key),
+    );
+
+    expect(orphan).toEqual([]);
+  });
+
+  it('judul bahasa Indonesia persis seperti sebelum ada i18n, emoji ikut', () => {
+    for (const key of Object.keys(LEGACY_TITLES) as MessageKey[]) {
+      const legacy = LEGACY_TITLES[key];
+      if (legacy === undefined) throw new Error('Judul tanpa teks legacy: ' + key);
+
+      const emoji = TITLE_EMOJI[key.replace('log.embed.title.', '') as keyof typeof TITLE_EMOJI];
+      if (emoji === undefined) throw new Error('Judul tanpa emoji: ' + key);
+
+      expect(id(key)).toBe(emoji + ' ' + legacy);
+    }
+  });
+
+  it('judul bahasa Inggris memakai kata Inggris, bukan terjemahan harfiah', () => {
+    expect(en('log.embed.title.memberAdd')).toBe(
+      TITLE_EMOJI.memberAdd + ' ' + 'Member joined',
+    );
+    expect(en('log.embed.title.messageBulkDelete')).toBe(
+      TITLE_EMOJI.messageBulkDelete + ' ' + 'Bulk message delete',
+    );
+    expect(en('log.embed.field.author')).toBe('Author');
+    expect(en('log.embed.field.color')).toBe('Colour');
+    expect(en('log.embed.value.messageCount', { count: 12 })).toBe('12 messages');
+    expect(en('log.embed.value.others', { count: 7 })).toBe('(+7 more)');
+  });
+});

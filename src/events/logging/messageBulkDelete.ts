@@ -7,6 +7,7 @@ import {
   type ReadonlyCollection,
   type Snowflake,
 } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import { compactFields, executorFields, logEmbed } from '../../modules/logging/embeds.js';
@@ -32,23 +33,26 @@ export default {
     ];
     const authorPreview = authorIds.slice(0, 5).map((id) => `<@${id}>`).join(', ');
 
+    const t = await translatorFor(channel.guild.id);
     const embed = logEmbed({
       category: 'message',
-      title: '🧹 Pesan Dihapus Massal',
+      title: t('log.embed.title.messageBulkDelete'),
       fields: compactFields([
-        { name: 'Channel', value: `<#${channel.id}>`, inline: true },
-        { name: 'Jumlah', value: `${messages.size} pesan`, inline: true },
+        { name: t('log.embed.field.channel'), value: `<#${channel.id}>`, inline: true },
+        { name: t('log.embed.field.count'), value: t('log.embed.value.messageCount', { count: messages.size }), inline: true },
         authorIds.length > 0
           ? {
-              name: 'Penulis',
+              name: t('log.embed.field.author'),
               value:
                 authorPreview +
-                (authorIds.length > 5 ? ` (+${authorIds.length - 5} lainnya)` : ''),
+                (authorIds.length > 5
+                  ? t('log.embed.value.others', { count: authorIds.length - 5 })
+                  : ''),
             }
           : null,
-        ...executorFields(entry),
+        ...executorFields(entry, t),
       ]),
-    });
+    }, t);
 
     await dispatchLog(channel.guild, 'message', embed, {
       eventKey: 'messageBulkDelete',

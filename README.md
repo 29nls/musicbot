@@ -3,19 +3,25 @@
 Bot Discord serbaguna: pemutaran musik berkualitas tinggi (Lavalink) + moderasi
 komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 
-> **Status: M4 (automod).**
-> Sudah jalan: bootstrap bot, loader perintah & event otomatis, validasi
-> environment, database PostgreSQL terkelola di Supabase + Prisma, konfigurasi per-server dengan cache
-> + wizard `/setup`, `/config`, **pemutaran musik lewat Lavalink**
-> (`/play`, `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`),
-> **moderasi lengkap dengan ID kasus** (`/ban`, `/unban`, `/kick`, `/timeout`,
-> `/warn`, `/warnings`, `/unwarn`, `/purge`, `/slowmode`, `/lock`, `/unlock`,
-> `/note`), **welcome/goodbye + autorole** otomatis, **automod 7 rule** dengan
-> whitelist (`/automod`), `/ping`, `/help`, dan stack Docker (bot + migrasi +
-> Lavalink + Redis; database-nya Supabase, bukan Postgres lokal).
-> Berikutnya: logging 6 kategori (sisa M4) dan sisa fitur musik (`/volume`,
-> `/loop`, `/seek`, `/shuffle`, `/disconnect`) mengikuti PRD.
-
+> **Status: M5 selesai + Fase 3 (statistik).**
+> **46 slash command** terdaftar: 19 admin/moderasi (`/ban`, `/unban`, `/kick`,
+> `/timeout`, `/warn`, `/warnings`, `/unwarn`, `/purge`, `/slowmode`, `/lock`,
+> `/unlock`, `/note`, `/case`, `/modprofile`, `/automod`, `/logging`, `/logs`,
+> `/customcommand`, `/reactionrole`, `/ticket`, `/config`), 18 musik (`/play`,
+> `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`, `/disconnect`,
+> `/volume`, `/loop`, `/seek`, `/shuffle`, `/move`, `/remove`, `/filter`,
+> `/lyrics`, `/search`, `/playlist`, `/stats`, `/247`), dan 6 inti (`/setup`,
+> `/ping`, `/help`, `/privacy`, `/data-delete`, `/config`).
+>
+> **Logging 6 kategori** selesai dan berjalan lewat 22 event ke embed berwarna,
+> dengan riwayat yang bisa dicari (`/logs`) dan diekspor. **Dua bahasa** (ID/EN):
+> seluruh nama & deskripsi perintah ikut saat deploy lewat `en-US` (Discord
+> menolak kode `en` polos), dan teks runtime diterjemahkan per server lewat
+> `/config set locale:id|en`. Reaction roles, custom command, tiket, playlist,
+> `/stats`, dan mode 24/7 juga sudah jalan.
+>
+> **Yang belum:** dashboard web (§5.3) sama sekali belum ada, dan sharding belum
+> boleh diaktifkan karena player Lavalink masih in-memory.
 ---
 
 ## 1. Prasyarat
@@ -56,6 +62,55 @@ Segera aktifkan intentnya di Portal lalu jalankan tanpa flag itu lagi.
 | `DISCORD_TOKEN` | Bot → Reset Token |
 | `DISCORD_CLIENT_ID` | General Information → Application ID |
 | `DEV_GUILD_ID` | Klik kanan servermu di Discord → Copy Server ID (mode developer aktif) |
+
+### Mengundang bot ke server (OAuth2)
+
+Bot yang baru dibuat di portal belum ada di server mana pun. Perintah berikut
+mencetak URL undangan yang bisa langsung dibuka di browser:
+
+```bash
+npm run invite
+```
+
+Keluarannya memuat dua hal yang bisa disalin ke
+[OAuth2 URL Generator](https://discord.com/developers/applications) di portal:
+
+| Isi | Nilai untuk bot ini |
+| --- | --- |
+| Scopes | `bot` lalu `applications.commands` (dua-duanya, berurutan) |
+| Bot Permissions | `1099783334966` |
+
+Angka itu hasil OR dari 14 izin. **11 di antaranya dipanggil kode secara
+langsung**; sisanya — `Embed Links`, `Read Message History`, dan
+`Attach Files` — tidak muncul di `src/` karena Discord yang menegakkannya
+saat pengiriman, bukan gerbang di dalam bot. Kalau nanti ada fitur baru
+yang butuh izin lain, jalankan ulang `npm run invite` dan pakai angka yang
+keluar, jangan menyalin angka lama secara manual: `tests/invitePermissions.test.ts`
+gagal kalau daftar di sini melenceng dari kode, ke arah mana pun.
+
+Dua hal yang mudah salah:
+
+- **Administrator tidak dipakai.** Satu izin itu memberi segalanya sekaligus,
+  termasuk menghapus channel dan menguras role server. Bot ini cukup dengan 14
+  izin di atas.
+- **`AddReactions` tidak dipakai.** Reaction Role (bagian 8) memakai
+  `StringSelectMenu` (menu tombol), bukan reaction emoji, jadi kode tidak pernah
+  memanggil `reaction.add` / `reaction.remove`.
+
+Scopes wajib dua-duanya: tanpa `bot` tidak ada yang masuk ke server, dan tanpa
+`applications.commands` slash command tidak akan pernah muncul walaupun botnya
+sudah online.
+
+Setelah bot masuk, daftarkan perintahnya. Dengan `DEV_GUILD_ID` terisi di
+`.env`, perintah berikut mendaftarkan ke server itu saja dan perintahnya
+muncul **seketika**:
+
+```bash
+npm run deploy
+```
+
+Perintah yang didaftarkan tanpa batas guild (global) bisa memakan waktu sampai
+sekitar satu jam untuk muncul di server yang tidak punya daftar guild-level.
 
 ---
 
@@ -524,9 +579,31 @@ Tiga keputusan yang mengubah bentuk katalog:
   bot tidak bergeser diam-diam kalau ada pemanggil yang belum meneruskan
   penerjemah.
 
-**Yang belum:** teks fitur di luar musik, moderasi, dan logging — `/automod`,
-`/customcommand`, `/reactionrole`, `/ticket`, inventaris `/privacy`, dan 22
-event handler log — masih ditulis langsung dalam bahasa Indonesia, dan katalog
+**Sapuan modul logging juga sudah tuntas untuk sisi event.** 22 handler di
+`src/events/logging/` mengambil penerjemah server mereka sendiri
+(`translatorFor(guildId)`) lalu meneruskannya ke `logEmbed`, `changesField`,
+`executorFields`, `caseAwareFields`, dan `diffValues`, sehingga judul embed,
+nama field, nilai field, dan label baris diff ikut bahasa server.
+
+**Tiga keputusan yang membuatnya bukan sekadar ganti kalimat:**
+
+1. **Emoji ikut dipindah ke katalog, bukan kehilangan.** Judul seperti
+   `👤 Member Join` adalah satu string; memindahkan teksnya ke katalog tanpa
+   emoji akan diam-diam membuat channel log kehilangan ikon. Tes penjaga
+   karena itu menyusun ulang judul Indonesia dari (emoji + teks) dan
+   membandingkannya dengan hasil katalog.
+2. **`diffValues` sudah menerima penerjemah sebagai argumen keempat.**
+   Nilai boolean di baris diff (`Ya`/`Tidak`) dirender di dalam fungsi itu
+   sendiri, jadi `label` saja diterjemahkan tidak cukup — penerjemah harus
+   masuk sampai ke sana.
+3. **Batasnya ditulis terang: entri lama tidak ikut berubah.** Judul dan
+   ringkasan sebuah entri tersimpan di tabel `log_entry`, jadi entri yang
+   sudah tercatat sebelum server mengganti bahasa tetap berbahasa lama.
+   Yang diterjemahkan adalah entri baru.
+
+**Yang belum:** teks fitur di luar musik, moderasi, dan logging —
+`/automod`, `/customcommand`, `/reactionrole`, `/ticket`, dan inventaris
+`/privacy` — masih ditulis langsung dalam bahasa Indonesia, dan katalog
 runtime jatuh ke bahasa Indonesia secara sadar untuk kunci yang belum ada,
 bukan diam-diam jadi bahasa acak. Katalog setengah terisi lebih buruk daripada
 kosong: orang akan melihat dua bahasa dalam satu layar tanpa punya cara tahu

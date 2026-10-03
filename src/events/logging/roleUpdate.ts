@@ -1,4 +1,5 @@
 import { AuditLogEvent, Events, type Role } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { diffPermissions, diffValues } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
@@ -8,6 +9,7 @@ import type { BotEvent } from '../../types/event.js';
 export default {
   name: Events.GuildRoleUpdate,
   async execute(_client, oldRole: Role, newRole: Role): Promise<void> {
+    const t = await translatorFor(newRole.guild.id);
     const lines = diffValues(
       {
         name: oldRole.name,
@@ -22,11 +24,12 @@ export default {
         mentionable: newRole.mentionable,
       },
       [
-        { key: 'name', label: 'Nama' },
-        { key: 'color', label: 'Warna' },
-        { key: 'hoist', label: 'Tampil terpisah' },
-        { key: 'mentionable', label: 'Mentionable' },
+        { key: 'name', label: t('log.embed.field.name') },
+        { key: 'color', label: t('log.embed.field.color') },
+        { key: 'hoist', label: t('log.embed.field.hoist') },
+        { key: 'mentionable', label: t('log.embed.field.mentionable') },
       ],
+      t,
     );
 
     const permissions = diffPermissions(
@@ -34,10 +37,10 @@ export default {
       newRole.permissions.bitfield,
     );
     if (permissions.added.length > 0) {
-      lines.push(`• **Izin ditambahkan**: ${permissions.added.join(', ')}`);
+      lines.push(`• **${t('log.embed.field.permsAdded')}: ${permissions.added.join(', ')}`);
     }
     if (permissions.removed.length > 0) {
-      lines.push(`• **Izin dihapus**: ${permissions.removed.join(', ')}`);
+      lines.push(`• **${t('log.embed.field.permsRemoved')}: ${permissions.removed.join(', ')}`);
     }
 
     if (lines.length === 0) return;
@@ -48,13 +51,13 @@ export default {
 
     const embed = logEmbed({
       category: 'role',
-      title: '📝 Role Diperbarui',
+      title: t('log.embed.title.roleUpdate'),
       fields: compactFields([
-        { name: 'Role', value: `<@&${newRole.id}>` },
-        changesField(lines),
-        ...executorFields(entry),
+        { name: t('log.embed.field.role'), value: `<@&${newRole.id}>` },
+        changesField(lines, t),
+        ...executorFields(entry, t),
       ]),
-    });
+    }, t);
 
     await dispatchLog(newRole.guild, 'role', embed, {
       eventKey: 'guildRoleUpdate',

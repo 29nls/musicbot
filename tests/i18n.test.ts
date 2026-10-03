@@ -204,8 +204,10 @@ describe('lokalisasi perintah saat deploy', () => {
       description: 'Putar lagu',
     });
 
-    expect(result.name_localizations).toEqual({ en: 'play' });
-    expect(result.description_localizations).toEqual({ en: 'Play a track or add it to the queue' });
+    // Kode bacanya `en-US`, bukan `en`: enum Locale Discord tidak punya `en` polos, dan
+    // mengirim `en` membuat Discord menolak seluruh payload dengan 50035.
+    expect(result.name_localizations).toEqual({ 'en-US': 'play' });
+    expect(result.description_localizations).toEqual({ 'en-US': 'Play a track or add it to the queue' });
   });
 
   it('meneruskan perintah tanpa terjemahan apa adanya', () => {
@@ -223,10 +225,10 @@ describe('lokalisasi perintah saat deploy', () => {
       description_localizations: { de: 'Ein Lied abspielen' },
     });
 
-    expect(result.name_localizations).toEqual({ de: 'abspielen', en: 'play' });
+    expect(result.name_localizations).toEqual({ de: 'abspielen', 'en-US': 'play' });
     expect(result.description_localizations).toEqual({
       de: 'Ein Lied abspielen',
-      en: 'Play a track or add it to the queue',
+      'en-US': 'Play a track or add it to the queue',
     });
   });
 
@@ -235,6 +237,23 @@ describe('lokalisasi perintah saat deploy', () => {
 
     expect(result).toHaveLength(2);
     expect(result.every((item) => item.description_localizations !== undefined)).toBe(true);
+  });
+
+  it('tidak pernah memakai kode `en` polos yang ditolak Discord', () => {
+    const result = applyCommandLocalizations<LocalizedJson>([
+      { name: 'play' },
+      { name: 'queue' },
+      { name: 'skip' },
+    ]);
+
+    const keys = new Set<string>();
+    for (const item of result) {
+      for (const key of Object.keys(item.name_localizations ?? {})) keys.add(key);
+      for (const key of Object.keys(item.description_localizations ?? {})) keys.add(key);
+    }
+
+    expect([...keys]).toEqual(['en-US']);
+    expect(keys.has('en')).toBe(false);
   });
 
   it('menyebut perintah yang belum punya terjemahan', () => {

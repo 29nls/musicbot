@@ -1,4 +1,5 @@
 import { Events, type VoiceState } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { diffValues } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import { changesField, compactFields, logEmbed } from '../../modules/logging/embeds.js';
@@ -13,6 +14,7 @@ export default {
     const joined = !oldState.channelId && Boolean(newState.channelId);
     const left = Boolean(oldState.channelId) && !newState.channelId;
     const moved = oldState.channelId !== newState.channelId && !joined && !left;
+    const t = await translatorFor(member.guild.id);
 
     const changes = diffValues(
       {
@@ -30,34 +32,35 @@ export default {
         streaming: newState.streaming,
       },
       [
-        { key: 'serverMute', label: 'Server mute' },
-        { key: 'serverDeaf', label: 'Server deaf' },
-        { key: 'selfMute', label: 'Self mute' },
-        { key: 'selfDeaf', label: 'Self deaf' },
-        { key: 'streaming', label: 'Streaming' },
+        { key: 'serverMute', label: t('log.embed.field.serverMute') },
+        { key: 'serverDeaf', label: t('log.embed.field.serverDeaf') },
+        { key: 'selfMute', label: t('log.embed.field.selfMute') },
+        { key: 'selfDeaf', label: t('log.embed.field.selfDeaf') },
+        { key: 'streaming', label: t('log.embed.field.streaming') },
       ],
+      t,
     );
 
     if (!joined && !left && !moved && changes.length === 0) return;
 
     const title = joined
-      ? '🔊 Join Voice'
+      ? t('log.embed.title.voiceJoin')
       : left
-        ? '🔇 Leave Voice'
+        ? t('log.embed.title.voiceLeave')
         : moved
-          ? '🔁 Pindah Voice'
-          : '🎙️ Voice State';
+          ? t('log.embed.title.voiceMove')
+          : t('log.embed.title.voiceState');
 
     const embed = logEmbed({
       category: 'voice',
       title,
       fields: compactFields([
-        { name: 'Member', value: `<@${member.id}> (\`${member.user.tag}\`)`, inline: true },
-        oldState.channelId ? { name: 'Dari', value: `<#${oldState.channelId}>`, inline: true } : null,
-        newState.channelId ? { name: 'Ke', value: `<#${newState.channelId}>`, inline: true } : null,
-        changesField(changes),
+        { name: t('log.embed.field.member'), value: `<@${member.id}> (\`${member.user.tag}\`)`, inline: true },
+        oldState.channelId ? { name: t('log.embed.field.from'), value: `<#${oldState.channelId}>`, inline: true } : null,
+        newState.channelId ? { name: t('log.embed.field.to'), value: `<#${newState.channelId}>`, inline: true } : null,
+        changesField(changes, t),
       ]),
-    });
+    }, t);
 
     await dispatchLog(member.guild, 'voice', embed, {
       eventKey: 'voiceStateUpdate',

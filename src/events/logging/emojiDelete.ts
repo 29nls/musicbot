@@ -1,4 +1,5 @@
 import { AuditLogEvent, Events, type GuildEmoji } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import { compactFields, executorFields, logEmbed } from '../../modules/logging/embeds.js';
@@ -11,15 +12,16 @@ export default {
       targetId: emoji.id,
     });
 
+    const t = await translatorFor(emoji.guild.id);
     const embed = logEmbed({
       category: 'server',
-      title: '🗑️ Emoji Dihapus',
+      title: t('log.embed.title.emojiDelete'),
       fields: compactFields([
-        { name: 'Nama', value: `\`${emoji.name}\``, inline: true },
-        { name: 'ID', value: `\`${emoji.id}\``, inline: true },
-        ...executorFields(entry),
+        { name: t('log.embed.field.name'), value: `\`${emoji.name}\``, inline: true },
+        { name: t('log.embed.field.id'), value: `\`${emoji.id}\``, inline: true },
+        ...executorFields(entry, t),
       ]),
-    });
+    }, t);
 
     await dispatchLog(emoji.guild, 'server', embed, {
       eventKey: 'guildEmojiDelete',

@@ -4,6 +4,7 @@ import {
   type GuildMember,
   type PartialGuildMember,
 } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { diffIdSets } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
@@ -25,11 +26,12 @@ export default {
     newMember: GuildMember,
   ): Promise<void> {
     const guild = newMember.guild;
+    const t = await translatorFor(guild.id);
     const lines: string[] = [];
 
     if (oldMember.nickname !== newMember.nickname) {
       lines.push(
-        `• **Nama panggilan**: ${oldMember.nickname ?? '—'} → ${newMember.nickname ?? '—'}`,
+        `• **${t('log.embed.field.nickname')}: ${oldMember.nickname ?? '—'} → ${newMember.nickname ?? '—'}`,
       );
     }
 
@@ -41,10 +43,10 @@ export default {
       );
 
       if (added.length > 0) {
-        lines.push(`• **Role ditambahkan**: ${added.map((id) => `<@&${id}>`).join(', ')}`);
+        lines.push(`• **${t('log.embed.field.rolesAdded')}: ${added.map((id) => `<@&${id}>`).join(', ')}`);
       }
       if (removed.length > 0) {
-        lines.push(`• **Role dihapus**: ${removed.map((id) => `<@&${id}>`).join(', ')}`);
+        lines.push(`• **${t('log.embed.field.rolesRemoved')}: ${removed.map((id) => `<@&${id}>`).join(', ')}`);
       }
       rolesChanged = added.length > 0 || removed.length > 0;
     }
@@ -56,7 +58,7 @@ export default {
     if (timeoutChanged) {
       const format = (timestamp: number | null): string =>
         timestamp ? `<t:${Math.floor(timestamp / 1_000)}:R>` : '—';
-      lines.push(`• **Timeout**: ${format(timeoutBefore)} → ${format(timeoutAfter)}`);
+      lines.push(`• **${t('log.embed.field.timeout')}: ${format(timeoutBefore)} → ${format(timeoutAfter)}`);
     }
 
     if (lines.length === 0) return;
@@ -67,7 +69,7 @@ export default {
       ? consumeCaseLink(guild.id, newMember.id, ['timeout'])
       : null;
 
-    const change = changesField(lines);
+    const change = changesField(lines, t);
     const auditType = rolesChanged && !timeoutChanged
       ? AuditLogEvent.MemberRoleUpdate
       : AuditLogEvent.MemberUpdate;
@@ -75,17 +77,18 @@ export default {
 
     const embed = logEmbed({
       category: 'member',
-      title: link ? '⏱️ Timeout Diperbarui (Harmony)' : '📝 Member Diperbarui',
+      title: link ? t('log.embed.title.memberTimeout') : t('log.embed.title.memberUpdate'),
       fields: compactFields([
-        { name: 'Member', value: `<@${newMember.id}> (\`${newMember.user.tag}\`)`, inline: true },
+        { name: t('log.embed.field.member'), value: `<@${newMember.id}> (\`${newMember.user.tag}\`)`, inline: true },
         ...caseAwareFields(
           link,
-          compactFields([change, ...executorFields(entry)]),
+          compactFields([change, ...executorFields(entry, t)]),
           entry?.executor?.id,
           client.user?.id,
+          t,
         ),
       ]),
-    });
+    }, t);
 
     await dispatchLog(guild, 'member', embed, {
       eventKey: 'guildMemberUpdate',

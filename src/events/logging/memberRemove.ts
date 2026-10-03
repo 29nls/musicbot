@@ -4,6 +4,7 @@ import {
   type GuildMember,
   type PartialGuildMember,
 } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import {
@@ -31,16 +32,17 @@ export default {
     // Hanya kicked member yang bisa punya kasus; leave biasa tidak.
     const link = consumeCaseLink(member.guild.id, member.id, ['kick']);
 
+    const t = await translatorFor(member.guild.id);
     const embed = logEmbed({
       category: 'member',
-      title: kickEntry ? '👢 Member Kick' : '🚪 Member Leave',
+      title: kickEntry ? t('log.embed.title.memberKick') : t('log.embed.title.memberLeave'),
       fields: compactFields([
-        { name: 'Member', value: `<@${member.id}> (\`${member.user.tag}\`)`, inline: true },
-        { name: 'ID', value: `\`${member.id}\``, inline: true },
-        joinedAt ? { name: 'Bergabung', value: relativeTime(joinedAt), inline: true } : null,
-        ...caseAwareFields(link, executorFields(kickEntry), kickEntry?.executor?.id, client.user?.id),
+        { name: t('log.embed.field.member'), value: `<@${member.id}> (\`${member.user.tag}\`)`, inline: true },
+        { name: t('log.embed.field.id'), value: `\`${member.id}\``, inline: true },
+        joinedAt ? { name: t('log.embed.field.joined'), value: relativeTime(joinedAt), inline: true } : null,
+        ...caseAwareFields(link, executorFields(kickEntry, t), kickEntry?.executor?.id, client.user?.id, t),
       ]),
-    });
+    }, t);
 
     await dispatchLog(member.guild, 'member', embed, {
       eventKey: 'guildMemberRemove',

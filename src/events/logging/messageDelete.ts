@@ -1,4 +1,5 @@
 import { AuditLogEvent, Events, type Message, type PartialMessage } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import { compactFields, executorFields, logEmbed, truncate } from '../../modules/logging/embeds.js';
@@ -19,18 +20,21 @@ export default {
     const author = message.author;
     const attachmentCount = message.attachments?.size ?? 0;
 
+    const t = await translatorFor(message.guild.id);
     const embed = logEmbed({
       category: 'message',
-      title: '🗑️ Pesan Dihapus',
-      description: message.content ? `> ${truncate(message.content, 400)}` : '*Isi pesan tidak tersedia.*',
+      title: t('log.embed.title.messageDelete'),
+      description: message.content
+          ? `> ${truncate(message.content, 400)}`
+          : t('log.embed.value.noContent'),
       fields: compactFields([
-        { name: 'Channel', value: `<#${message.channelId}>`, inline: true },
-        author ? { name: 'Penulis', value: `<@${author.id}> (\`${author.tag}\`)`, inline: true } : null,
-        { name: 'ID pesan', value: `\`${message.id}\``, inline: true },
-        attachmentCount > 0 ? { name: 'Lampiran', value: `${attachmentCount} file`, inline: true } : null,
-        ...executorFields(entry),
+        { name: t('log.embed.field.channel'), value: `<#${message.channelId}>`, inline: true },
+        author ? { name: t('log.embed.field.author'), value: `<@${author.id}> (\`${author.tag}\`)`, inline: true } : null,
+        { name: t('log.embed.field.messageId'), value: `\`${message.id}\``, inline: true },
+        attachmentCount > 0 ? { name: t('log.embed.field.attachments'), value: t('log.embed.value.attachmentCount', { count: attachmentCount }), inline: true } : null,
+        ...executorFields(entry, t),
       ]),
-    });
+    }, t);
 
     await dispatchLog(message.guild, 'message', embed, {
       eventKey: 'messageDelete',

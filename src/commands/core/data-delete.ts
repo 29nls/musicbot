@@ -31,16 +31,20 @@ export default {
   data: new SlashCommandBuilder()
     .setName('data-delete')
     .setDescription('Hapus data pribadi yang disimpan Harmony tentangmu di server ini')
-    .addUserOption((option) =>
-      option
-        .setName('user')
-        .setDescription('Member lain (butuh Manage Server; tanpa ini = data kamu sendiri)'),
-    )
+    // Urutannya bukan kebetulan: Discord menolak payload dengan
+    // "Required options must be placed before non-required options" (50035), jadi
+    // opsi wajib harus ditulis lebih dulu. `user` tetap opsional dan tetap
+    // dibaca lebih dulu saat dieksekusi — urutan di payload hanya soal tampilan.
     .addBooleanOption((option) =>
       option
         .setName('confirm')
         .setDescription('Konfirmasi bahwa kamu ingin menghapus data ini')
         .setRequired(true),
+    )
+    .addUserOption((option) =>
+      option
+        .setName('user')
+        .setDescription('Member lain (butuh Manage Server; tanpa ini = data kamu sendiri)'),
     ),
   category: 'core',
   guildOnly: true,

@@ -5,6 +5,7 @@ import {
   type DMChannel,
   type NonThreadGuildBasedChannel,
 } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { diffOverwrites, diffValues, type OverwriteSnapshot } from '../../modules/logging/diff.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
@@ -54,15 +55,16 @@ export default {
     newChannel: DMChannel | NonThreadGuildBasedChannel,
   ): Promise<void> {
     if (newChannel.isDMBased() || oldChannel.isDMBased()) return;
+    const t = await translatorFor(newChannel.guild.id);
 
     const lines = diffValues(snapshot(oldChannel), snapshot(newChannel), [
-      { key: 'name', label: 'Nama' },
-      { key: 'topic', label: 'Topik', format: (value) => (value ? String(value) : '—') },
-      { key: 'nsfw', label: 'NSFW' },
-      { key: 'slowmode', label: 'Slowmode', format: (value) => `${value ?? 0} detik` },
-      { key: 'parent', label: 'Kategori', format: (value) => (value ? `<#${String(value)}>` : '—') },
-      { key: 'userLimit', label: 'Batas user' },
-    ]);
+      { key: 'name', label: t('log.embed.field.name') },
+      { key: 'topic', label: t('log.embed.field.topic'), format: (value) => (value ? String(value) : '—') },
+      { key: 'nsfw', label: t('log.embed.field.nsfw') },
+      { key: 'slowmode', label: t('log.embed.field.slowmode'), format: (value) => t('log.embed.value.seconds', { count: Number(value ?? 0) }) },
+      { key: 'parent', label: t('log.embed.field.category'), format: (value) => (value ? `<#${String(value)}>` : '—') },
+      { key: 'userLimit', label: t('log.embed.field.userLimit') },
+    ], t);
 
     lines.push(...diffOverwrites(overwriteSnapshots(oldChannel), overwriteSnapshots(newChannel)));
 
@@ -77,17 +79,18 @@ export default {
 
     const embed = logEmbed({
       category: 'channel',
-      title: link ? '📝 Channel Diperbarui (Harmony)' : '📝 Channel Diperbarui',
+      title: link ? t('log.embed.title.channelUpdateHarmony') : t('log.embed.title.channelUpdate'),
       fields: compactFields([
-        { name: 'Channel', value: `<#${newChannel.id}> (\`${newChannel.name}\`)` },
+        { name: t('log.embed.field.channel'), value: `<#${newChannel.id}> (\`${newChannel.name}\`)` },
         ...caseAwareFields(
           link,
-          compactFields([changesField(lines), ...executorFields(entry)]),
+          compactFields([changesField(lines, t), ...executorFields(entry, t)]),
           entry?.executor?.id,
           client.user?.id,
+          t,
         ),
       ]),
-    });
+    }, t);
 
     await dispatchLog(newChannel.guild, 'channel', embed, {
       eventKey: 'channelUpdate',

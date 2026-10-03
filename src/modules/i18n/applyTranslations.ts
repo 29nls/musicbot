@@ -1,3 +1,4 @@
+import { Locale } from 'discord.js';
 import { EN_COMMAND_TRANSLATIONS } from './commandTranslations.js';
 
 /**
@@ -10,9 +11,15 @@ import { EN_COMMAND_TRANSLATIONS } from './commandTranslations.js';
  *
  * Fungsinya generik (`T`) supaya payload yang asli dari discord.js bisa langsung
  * diteruskan tanpa konversi — tipe `localizations` di sana memakai union kode
- * bahasa Discord (`en-US`), sedangkan yang kita tulis `en`, dan menjembatanikan
- * keduanya lewat cast di satu tempat jauh lebih aman daripada memaksa seluruh
- * kode ikut memakai bentuk yang lebih sempit.
+ * bahasa Discord, sedangkan kode internal kita memakai `en`.
+ *
+ * **Kode bahasa Discord bukan `en`.** Enum `Locale` di discord.js tidak punya
+ * `en` polos, hanya `EnglishUS` dan `EnglishGB`. Menulis `en` membuat Discord
+ * membalas 50035 (`Value "en" is not a valid enum value`) untuk SETIAP perintah
+ * yang punya terjemahan, dan karena deploy memakai satu payload untuk seluruh
+ * perintah, **tidak satu pun** perintah yang ikut ter-deploy. Itu sebabnya kode
+ * ini memakai enum Discord, bukan string: kalau kodenya salah, typecheck
+ * langsung menangkap.
  */
 
 /**
@@ -37,8 +44,11 @@ export function applyCommandLocalization<T extends { name: string }>(json: T): T
 
   return {
     ...json,
-    name_localizations: { ...(existingNames ?? {}), en: translation.en.name },
-    description_localizations: { ...(existingDescriptions ?? {}), en: translation.en.description },
+    name_localizations: { ...(existingNames ?? {}), [Locale.EnglishUS]: translation.en.name },
+    description_localizations: {
+      ...(existingDescriptions ?? {}),
+      [Locale.EnglishUS]: translation.en.description,
+    },
   } as T;
 }
 

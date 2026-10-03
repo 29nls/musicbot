@@ -1,4 +1,5 @@
 import { AuditLogEvent, Events, type GuildMember } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import { compactFields, executorFields, logEmbed, relativeTime } from '../../modules/logging/embeds.js';
@@ -12,16 +13,17 @@ export default {
       ? await findAuditEntry(member.guild, AuditLogEvent.BotAdd, { targetId: member.id })
       : null;
 
+    const t = await translatorFor(member.guild.id);
     const embed = logEmbed({
       category: 'member',
-      title: '👤 Member Join',
+      title: t('log.embed.title.memberAdd'),
       fields: compactFields([
-        { name: 'Member', value: `<@${member.id}> (\`${member.user.tag}\`)`, inline: true },
-        { name: 'ID', value: `\`${member.id}\``, inline: true },
-        { name: 'Akun dibuat', value: relativeTime(member.user.createdAt), inline: true },
-        ...executorFields(entry),
+        { name: t('log.embed.field.member'), value: `<@${member.id}> (\`${member.user.tag}\`)`, inline: true },
+        { name: t('log.embed.field.id'), value: `\`${member.id}\``, inline: true },
+        { name: t('log.embed.field.accountCreated'), value: relativeTime(member.user.createdAt), inline: true },
+        ...executorFields(entry, t),
       ]),
-    });
+    }, t);
 
     await dispatchLog(member.guild, 'member', embed, {
       eventKey: 'guildMemberAdd',

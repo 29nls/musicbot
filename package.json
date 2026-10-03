@@ -19,6 +19,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "deploy": "tsx src/deploy-commands.ts",
+    "invite": "node tools/invite.mjs",
     "deploy:prod": "node dist/deploy-commands.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

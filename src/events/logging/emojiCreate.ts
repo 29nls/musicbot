@@ -1,4 +1,5 @@
 import { AuditLogEvent, Events, type GuildEmoji } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { findAuditEntry } from '../../modules/logging/audit.js';
 import { dispatchLog } from '../../modules/logging/dispatch.js';
 import { compactFields, executorFields, logEmbed } from '../../modules/logging/embeds.js';
@@ -11,16 +12,17 @@ export default {
       targetId: emoji.id,
     });
 
+    const t = await translatorFor(emoji.guild.id);
     const embed = logEmbed({
       category: 'server',
-      title: '😀 Emoji Ditambahkan',
+      title: t('log.embed.title.emojiCreate'),
       fields: compactFields([
-        { name: 'Emoji', value: `${emoji} (\`${emoji.name}\`)`, inline: true },
-        { name: 'ID', value: `\`${emoji.id}\``, inline: true },
-        { name: 'Animasi', value: emoji.animated ? 'Ya' : 'Tidak', inline: true },
-        ...executorFields(entry),
+        { name: t('log.embed.field.emoji'), value: `${emoji} (\`${emoji.name}\`)`, inline: true },
+        { name: t('log.embed.field.id'), value: `\`${emoji.id}\``, inline: true },
+        { name: t('log.embed.field.animated'), value: emoji.animated ? t('log.diff.yes') : t('log.diff.no'), inline: true },
+        ...executorFields(entry, t),
       ]),
-    });
+    }, t);
 
     await dispatchLog(emoji.guild, 'server', embed, {
       eventKey: 'guildEmojiCreate',
