@@ -11,6 +11,22 @@ let client: PrismaClient | undefined;
  * Prisma 7 mewajibkan driver adapter; kita pakai `pg`. Driver `pg` tidak punya
  * timeout bawaan, jadi connectionTimeoutMillis diisi supaya startup tidak
  * menggantung saat database mati.
+ *
+ * **Kenapa tetap Prisma + pg, bukan SDK Supabase.** Supabase adalah PostgreSQL,
+ * dan bot ini selalu ke sana lewat satu connection string biasa. SDK
+ * `@supabase/supabase-js` menulis ke Data API dan bergantung pada Row Level
+ * Security — itu untuk aplikasi sisi klien yang tidak memegang kredensial
+ * database. Bot punya skema dan migrasinya sendiri, jadi lapisan itu cuma
+ * menambah satu tempat lagi untuk salah.
+ *
+ * **SSL mengikuti URL.** `pg-connection-string` menerjemahkan `sslmode=require`
+ * di connection string menjadi opsi SSL untuk driver `pg`, jadi tidak ada
+ * konfigurasi terpisah di sini. Supabase mewajibkan SSL, dan tanpa parameter
+ * itu koneksi akan ditolak.
+ *
+ * **Ukuran pool 5** wajar untuk backend yang hidup terus (bot), bukan serverless
+ * yang memicu ribuan koneksi sesaat. Kalau nanti memakai transaction pooler
+ * (port 6543), prepared statement harus dimatikan lewat `?pgbouncer=true`.
  */
 export function getPrisma(): PrismaClient {
   if (!client) {
@@ -55,7 +71,8 @@ export async function connectDatabase(): Promise<boolean> {
   } catch (error) {
     logger.warn(
       { err: error },
-      'Database tidak bisa dihubungi — perintah yang butuh konfigurasi akan gagal. Jalankan `npm run infra:up`.',
+      'Database tidak bisa dihubungi — perintah yang butuh konfigurasi akan gagal. ' +
+        'Periksa `DATABASE_URL` di .env dan koneksi ke server database.',
     );
     return false;
   }

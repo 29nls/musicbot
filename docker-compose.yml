@@ -1,10 +1,24 @@
-# Stack lengkap Harmony: bot + mesin audio (Lavalink) + database + cache.
+# Stack lengkap Harmony: bot + mesin audio (Lavalink) + cache.
 #
 #   docker compose up -d --build      # semua service
 #   docker compose up -d lavalink     # mesin audio saja (untuk `npm run dev` dari host)
 #   docker compose logs -f bot        # lihat log bot
 #
 # Nilai rahasia dibaca dari file .env di folder ini (lihat .env.example).
+#
+# DATABASE TIDAK ADA DI STACK INI. Database produksi adalah Supabase, jadi
+# `DATABASE_URL` (dan `DIRECT_URL` untuk Prisma CLI) diambil apa adanya dari
+# .env. Compose sengaja tidak menimpanya: menimpa URL dengan hostname
+# container berarti bot diam-diam bicara ke database yang berbeda dari yang
+# migration-nya tadi diterapkan.
+#
+# Container `postgres` masih ada, tapi hanya untuk menulis & menguji migrasi
+# secara lokal, dan harus diminta lewat profile:
+#
+#   docker compose --profile local up -d postgres
+#
+# Setelah itu pakai DATABASE_URL/POSTGRES_* versi lokal untuk `npm run db:migrate`,
+# lalu deploy hasilnya ke Supabase dengan `npm run db:deploy`.
 
 name: harmony
 
@@ -20,11 +34,8 @@ services:
     restart: "no"
     env_file:
       - .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
-    depends_on:
-      postgres:
-        condition: service_healthy
+    # `migrate deploy` (bukan `migrate dev`) karena yang kedua butuh shadow
+    # database, dan Supabase tidak mengizinkan membuatnya.
     command: ["npx", "prisma", "migrate", "deploy"]
 
   bot:
@@ -36,15 +47,14 @@ services:
       - .env
     environment:
       NODE_ENV: production
-      # Hostname diganti ke nama service supaya bot bisa menemukan container lain.
-      DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
+      # Hostname diganti ke nama service supaya bot bisa menemukan container
+      # yang lain. DATABASE_URL/DIRECT_URL sengaja TIDAK diganti: database
+      # ada di luar stack ini (Supabase).
       REDIS_URL: redis://redis:6379
       LAVALINK_HOST: lavalink
     depends_on:
       migrate:
         condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       lavalink:
@@ -83,10 +93,14 @@ services:
       - "2333"
     # Lavalink belum punya healthcheck bawaan; bot akan mencoba reconnect sendiri.
 
+  # Postgres lokal — OPSIONAL, hanya untuk menulis & menguji migrasi.
+  # Tidak ikut start unless profile `local` diminta. Database yang dipakai
+  # bot tetap Supabase (lihat .env.example).
   postgres:
     image: postgres:16-alpine
     container_name: harmony-postgres
     restart: unless-stopped
+    profiles: ["local"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-harmony}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}

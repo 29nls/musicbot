@@ -14,7 +14,7 @@ export function toReactionRoleErrorEmbed(error: unknown): EmbedBuilder {
   if (isDatabaseUnavailableError(error)) {
     return errorEmbed(
       'Database tidak bisa dihubungi, jadi panel role tidak bisa disimpan.\n' +
-        'Jalankan `npm run infra:up` (atau `docker compose up -d postgres`) lalu coba lagi.',
+        'Periksa `DATABASE_URL` di .env dan koneksi internetmu; `npm run infra:up` hanya berlaku kalau memakai Postgres lokal.',
       '❌ Database Offline',
     );
   }

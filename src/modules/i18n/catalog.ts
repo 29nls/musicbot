@@ -310,7 +310,7 @@ const idMessages = {
     'Terjadi kesalahan saat memproses aksi moderasi. Detailnya sudah dicatat di log bot.',
   'mod.databaseDown':
     'Database tidak bisa dihubungi, jadi aksi moderasi tidak dijalankan dan tidak ada yang dicatat.\n' +
-    'Jalankan `npm run infra:up` (atau `docker compose up -d postgres`) lalu coba lagi.',
+    'Periksa `DATABASE_URL` di .env dan koneksi internetmu; `npm run infra:up` hanya berlaku kalau memakai Postgres lokal.',
   'mod.databaseDownTitle': 'Database Offline',
 
   'mod.action.note': 'Catatan',
@@ -591,7 +591,7 @@ const idMessages = {
   'log.error.rejectedTitle': 'Pengaturan Log Ditolak',
   'log.error.dbOfflineTitle': 'Database Offline',
   'log.error.dbOffline':
-    'Database tidak bisa dihubungi, jadi routing log belum bisa dibaca atau disimpan.\nJalankan `npm run infra:up` (atau `docker compose up -d postgres`) lalu coba lagi.',
+    'Database tidak bisa dihubungi, jadi routing log belum bisa dibaca atau disimpan.\nPeriksa `DATABASE_URL` di .env dan koneksi internetmu; `npm run infra:up` hanya berlaku kalau memakai Postgres lokal.',
   'log.error.generic':
     'Terjadi kesalahan saat mengakses pengaturan log. Detailnya sudah dicatat di log bot.',
   'log.cmd.moduleOff':
@@ -951,7 +951,7 @@ const enMessages: Record<MessageKey, string> = {
     'Something went wrong while handling that moderation action. The details are in the bot log.',
   'mod.databaseDown':
     'The database cannot be reached, so the moderation action was not run and nothing was ' +
-    'recorded.\nRun `npm run infra:up` (or `docker compose up -d postgres`) and try again.',
+    'recorded.\nCheck `DATABASE_URL` in .env and your network; `npm run infra:up` only applies when you use local Postgres.',
   'mod.databaseDownTitle': 'Database is offline',
 
   'mod.action.note': 'Note',
@@ -1222,7 +1222,7 @@ const enMessages: Record<MessageKey, string> = {
   'log.error.rejectedTitle': 'Log settings rejected',
   'log.error.dbOfflineTitle': 'Database offline',
   'log.error.dbOffline':
-    'The database cannot be reached, so log routing cannot be read or saved yet.\nRun `npm run infra:up` (or `docker compose up -d postgres`) and try again.',
+    'The database cannot be reached, so log routing cannot be read or saved yet.\nCheck `DATABASE_URL` in .env and your network; `npm run infra:up` only applies when you use local Postgres.',
   'log.error.generic':
     'Something went wrong while accessing the log settings. The details are in the bot log.',
   'log.cmd.moduleOff':
