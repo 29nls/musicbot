@@ -76,6 +76,7 @@ export {
   DEFAULT_LOG_RETENTION_DAYS,
   LOG_CATEGORIES,
   LOG_PAGE_SIZE,
+  categoryLabel,
   isLogCategory,
 } from './types.js';
 export type {

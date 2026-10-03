@@ -398,7 +398,7 @@ describe('renderer moderasi tanpa penerjemah', () => {
  * daftar di sini harus ikut diperkecil — jadi tidak ada perintah yang diam-diam
  * lolos dari penjaga.
  */
-const BELUM_DITERJEMAHKAN = ['customcommand.ts', 'logs.ts', 'reactionrole.ts', 'ticket.ts'];
+const BELUM_DITERJEMAHKAN = ['customcommand.ts', 'reactionrole.ts', 'ticket.ts'];
 
 /**
  * Penjaga: tidak boleh ada kalimat Bahasa Indonesia yang ditulis langsung di

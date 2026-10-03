@@ -5,6 +5,7 @@ import {
   type ChatInputCommandInteraction,
 } from 'discord.js';
 import { getGuildConfigService } from '../../modules/config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import {
   CATEGORY_META,
   DEFAULT_LOG_RETENTION_DAYS,
@@ -88,15 +89,27 @@ export default {
   guildOnly: true,
   cooldownSeconds: 5,
   async execute(interaction) {
-    if (!interaction.inGuild() || !canManageGuild(interaction)) {
+    if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const guildId = interaction.guildId;
+    const t = await translatorFor(guildId);
+
+    // Lapis kedua: Discord sudah menyembunyikan perintah di server tanpa izin
+    // ini, tapi moderator pun bisa membukanya secara manual.
+    if (!canManageGuild(interaction)) {
+      await interaction.reply({
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     // Disimpan di sini: penyempitan `interaction.guild` hilang setelah await.
     const guildName = interaction.guild?.name ?? undefined;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -107,11 +120,7 @@ export default {
       if (!config.modules.logging) {
         await interaction.editReply({
           embeds: [
-            warningEmbed(
-              'Modul logging sedang mati, jadi tidak ada riwayat yang dikumpulkan.\n' +
-                'Nyalakan dengan `/config set logging:true` lalu tunggu event berikutnya tercatat.',
-              '❌ Logging Mati',
-            ),
+            warningEmbed(t('log.cmd.moduleOff'), t('log.cmd.moduleOffTitle')),
           ],
         });
         return;
@@ -134,20 +143,13 @@ export default {
 
       if (wantStats && format !== null) {
         await interaction.editReply({
-          embeds: [
-            warningEmbed(
-              'Opsi `stats` dan `format` tidak bisa dipakai bersamaan.\n' +
-                'Jalankan `/logs stats:true` untuk ringkasan di Discord, ' +
-                'atau `/logs format:…` untuk mengunduh data mentahnya.',
-              '⚠️ Mode Bertabrakan',
-            ),
-          ],
+          embeds: [warningEmbed(t('log.cmd.conflict'), t('log.cmd.conflictTitle'))],
         });
         return;
       }
 
       if (wantStats) {
-        await sendStats(interaction, filter);
+        await sendStats(interaction, filter, t);
         return;
       }
 
@@ -159,23 +161,20 @@ export default {
       const { rows, total } = await getLoggingService().search(effective);
 
       if (format !== null) {
-        await sendExport(interaction, guildId, guildName, format, effective, rows, total);
+        await sendExport(interaction, guildId, guildName, format, effective, rows, total, t);
         return;
       }
-      const description = describeLogFilter(filter);
+      const description = describeLogFilter(filter, t);
 
       if (rows.length === 0) {
         await interaction.editReply({
           embeds: [
             infoEmbed(
-              '🔎 Riwayat Log',
-              `Tidak ada entri yang cocok.\n\n**Filter:** ${description}`,
+              t('log.results.title'),
+              t('log.results.noMatch', { filter: description }),
             ).addFields({
-              name: 'Cek lagi',
-              value:
-                'Riwayat hanya berisi event yang terjadi setelah modul logging dinyalakan, ' +
-                `dan disimpan selama ${DEFAULT_LOG_RETENTION_DAYS} hari. ` +
-                'Perlebar rentang tanggal atau kosongkan filter.',
+              name: t('log.cmd.checkAgain'),
+              value: t('log.cmd.checkAgainHistory', { days: DEFAULT_LOG_RETENTION_DAYS }),
             }),
           ],
         });
@@ -184,16 +183,20 @@ export default {
 
       await interaction.editReply({
         embeds: [
-          logResultsEmbed(rows, {
-            guildId,
-            page: filter.page,
-            pageSize: filter.pageSize,
-            total,
-          }).setDescription(description),
+          logResultsEmbed(
+            rows,
+            {
+              guildId,
+              page: filter.page,
+              pageSize: filter.pageSize,
+              total,
+            },
+            t,
+          ).setDescription(description),
         ],
       });
     } catch (error) {
-      await interaction.editReply({ embeds: [toLoggingErrorEmbed(error)] });
+      await interaction.editReply({ embeds: [toLoggingErrorEmbed(error, t)] });
     }
   },
 } satisfies BotCommand;
@@ -208,6 +211,7 @@ export default {
 async function sendStats(
   interaction: ChatInputCommandInteraction,
   filter: LogSearchFilter,
+  t: Translator,
 ): Promise<void> {
   const period = statsPeriod(filter);
   const stats = await getLoggingService().stats({ ...filter, from: period.from, to: period.to });
@@ -216,21 +220,18 @@ async function sendStats(
     await interaction.editReply({
       embeds: [
         infoEmbed(
-          '📊 Statistik Log',
-          `Tidak ada entri yang cocok.\n\n**Filter:** ${describeLogFilter(filter)}`,
+          t('log.stats.title'),
+          t('log.results.noMatch', { filter: describeLogFilter(filter, t) }),
         ).addFields({
-          name: 'Cek lagi',
-          value:
-            'Statistik dihitung dari riwayat yang tersimpan ' +
-            `sepanjang ${DEFAULT_LOG_RETENTION_DAYS} hari terakhir. ` +
-            'Perlebar rentang tanggal (`from:`/`to:`) atau kosongkan filter.',
+          name: t('log.cmd.checkAgain'),
+          value: t('log.cmd.checkAgainStats', { days: DEFAULT_LOG_RETENTION_DAYS }),
         }),
       ],
     });
     return;
   }
 
-  await interaction.editReply({ embeds: [logStatsEmbed(stats, { filter, period })] });
+  await interaction.editReply({ embeds: [logStatsEmbed(stats, { filter, period }, t)] });
 }
 
 /**
@@ -245,6 +246,7 @@ async function sendExport(
   filter: LogSearchFilter,
   rows: LogRecord[],
   total: number,
+  t: Translator,
 ): Promise<void> {
   const file = buildLogExport({ format, records: rows, guildId, guildName, total, filter });
 
@@ -252,9 +254,8 @@ async function sendExport(
     await interaction.editReply({
       embeds: [
         warningEmbed(
-          `File ekspor terlalu besar (${Math.round(file.bytes / 1024 / 1024)} MB).\n` +
-            'Persempit dengan filter kategori, user, atau rentang tanggal lalu coba lagi.',
-          '⚠️ Ekspor Terlalu Besar',
+          t('log.export.tooBig', { size: Math.round(file.bytes / 1024 / 1024) }),
+          t('log.export.tooBigTitle'),
         ),
       ],
     });
@@ -263,16 +264,18 @@ async function sendExport(
 
   const saved = await saveLogExport(file);
   const lines = [
-    `Menhimpun **${file.exported}** dari **${total}** entri (${describeExportCategories(filter)}).`,
-    file.truncated
-      ? `⚠️ Dipotong di ${EXPORT_MAX_ROWS} entri terbaru — perlebar atau persempit filter agar lengkap.`
-      : null,
-    saved ? `📁 Tersimpan di server: \`${saved}\`` : null,
-    `📎 Lampiran: \`${file.filename}\` (${formatKb(file.bytes)})`,
+    t('log.export.collected', {
+      exported: file.exported,
+      total,
+      categories: describeExportCategories(filter, t),
+    }),
+    file.truncated ? t('log.export.truncated', { max: EXPORT_MAX_ROWS }) : null,
+    saved ? t('log.export.saved', { path: saved }) : null,
+    t('log.export.attachment', { file: file.filename, size: formatKb(file.bytes) }),
   ].filter((line): line is string => line !== null);
 
   await interaction.editReply({
-    embeds: [successEmbed(lines.join('\n'), '📤 Ekspor Log Selesai')],
+    embeds: [successEmbed(lines.join('\n'), t('log.export.title'))],
     files: [{ attachment: Buffer.from(file.content, 'utf8'), name: file.filename }],
   });
 }

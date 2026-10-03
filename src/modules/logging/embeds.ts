@@ -12,7 +12,7 @@ import {
   type LogStats,
   type LogStatsPeriod,
 } from './stats.js';
-import { CATEGORY_META, type LogCategory, type LogRecord, type LogSearchFilter } from './types.js';
+import { CATEGORY_META, categoryLabel, type LogCategory, type LogRecord, type LogSearchFilter } from './types.js';
 
 export interface LogField {
   name: string;
@@ -35,18 +35,21 @@ export function relativeTime(date: Date | null | undefined): string {
 }
 
 /** Embed dasar semua kategori log: warna & label kategori + timestamp. */
-export function logEmbed(input: {
-  category: LogCategory;
-  title: string;
-  description?: string;
-  fields?: LogField[];
-  footer?: string;
-}): EmbedBuilder {
+export function logEmbed(
+  input: {
+    category: LogCategory;
+    title: string;
+    description?: string;
+    fields?: LogField[];
+    footer?: string;
+  },
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const meta = CATEGORY_META[input.category];
   const embed = new EmbedBuilder()
     .setColor(meta.color)
     .setTitle(input.title)
-    .setFooter({ text: input.footer ?? `${meta.emoji} ${meta.label}` })
+    .setFooter({ text: input.footer ?? `${meta.emoji} ${categoryLabel(input.category, t)}` })
     .setTimestamp();
 
   if (input.description) embed.setDescription(truncate(input.description, 4_000));
@@ -62,24 +65,28 @@ export function logEmbed(input: {
 }
 
 /** Field "Perubahan" dari baris diff; null kalau tidak ada perubahan. */
-export function changesField(lines: readonly string[]): LogField | null {
+export function changesField(lines: readonly string[], t: Translator = defaultTranslator): LogField | null {
   if (lines.length === 0) return null;
-  return { name: 'Perubahan', value: lines.join('\n') };
+  return { name: t('log.field.changes'), value: lines.join('\n') };
 }
 
 /** Field executor & alasan dari entri audit log (kalau ada). */
-export function executorFields(entry: GuildAuditLogsEntry | null): LogField[] {
+export function executorFields(
+  entry: GuildAuditLogsEntry | null,
+  t: Translator = defaultTranslator,
+): LogField[] {
   if (!entry) return [];
 
   const fields: LogField[] = [];
   if (entry.executor) {
     fields.push({
+      // "Executor" sama di kedua bahasa; alasannya diterjemahkan saja.
       name: 'Executor',
       value: `<@${entry.executor.id}> (\`${entry.executor.tag}\`)`,
       inline: true,
     });
   }
-  if (entry.reason) fields.push({ name: 'Alasan', value: entry.reason, inline: true });
+  if (entry.reason) fields.push({ name: t('log.field.reason'), value: entry.reason, inline: true });
 
   return fields;
 }
@@ -106,20 +113,32 @@ export function channelField(
 }
 
 /** Ringkasan filter aktif — ditampilkan di atas hasil `/logs`. */
-export function describeLogFilter(filter: LogSearchFilter): string {
+export function describeLogFilter(
+  filter: LogSearchFilter,
+  t: Translator = defaultTranslator,
+): string {
   const parts: string[] = [];
 
   if (filter.categories.length > 0) {
-    parts.push(`Kategori: ${filter.categories.map((c) => CATEGORY_META[c].label).join(', ')}`);
+    const labels = filter.categories.map((c) => categoryLabel(c, t)).join(', ');
+    parts.push(t('log.filter.category', { value: labels }));
   }
-  if (filter.userId) parts.push(`User: <@${filter.userId}>`);
-  if (filter.channelId) parts.push(`Channel: <#${filter.channelId}>`);
-  if (filter.keyword) parts.push(`Kata kunci: \`${truncate(filter.keyword, 40)}\``);
-  if (filter.caseNumber) parts.push(`Kasus: \`${formatCaseId(filter.caseNumber)}\``);
-  if (filter.from) parts.push(`Dari: <t:${Math.floor(filter.from.getTime() / 1_000)}:f>`);
-  if (filter.to) parts.push(`Sampai: <t:${Math.floor(filter.to.getTime() / 1_000)}:f>`);
+  if (filter.userId) parts.push(t('log.filter.user', { user: filter.userId }));
+  if (filter.channelId) parts.push(t('log.filter.channel', { channel: filter.channelId }));
+  if (filter.keyword) {
+    parts.push(t('log.filter.keyword', { value: truncate(filter.keyword, 40) }));
+  }
+  if (filter.caseNumber) {
+    parts.push(t('log.filter.case', { value: formatCaseId(filter.caseNumber) }));
+  }
+  if (filter.from) {
+    parts.push(t('log.filter.from', { value: Math.floor(filter.from.getTime() / 1_000) }));
+  }
+  if (filter.to) {
+    parts.push(t('log.filter.to', { value: Math.floor(filter.to.getTime() / 1_000) }));
+  }
 
-  return parts.length > 0 ? parts.join(' · ') : 'Semua kategori · tanpa batas waktu';
+  return parts.length > 0 ? parts.join(' · ') : t('log.filter.all');
 }
 
 /** Bentuk minim tautan kasus yang dibutuhkan embed (tanpa memuat modul moderation). */
@@ -136,12 +155,13 @@ export function caseSourceFields(
   link: LogCaseSource | null,
   executorId: string | null | undefined,
   botUserId: string | null | undefined,
+  t: Translator = defaultTranslator,
 ): LogField[] {
   if (link) {
     return [
-      { name: 'Sumber', value: '🤖 Harmony (perintah bot)', inline: true },
-      { name: 'Kasus', value: `\`${formatCaseId(link.caseNumber)}\``, inline: true },
-      { name: 'Moderator', value: `<@${link.moderatorId}>`, inline: true },
+      { name: t('log.field.source'), value: t('log.source.harmony'), inline: true },
+      { name: t('log.field.case'), value: `\`${formatCaseId(link.caseNumber)}\``, inline: true },
+      { name: t('log.field.moderator'), value: `<@${link.moderatorId}>`, inline: true },
     ];
   }
 
@@ -151,10 +171,10 @@ export function caseSourceFields(
 
   return [
     {
-      name: 'Sumber',
+      name: t('log.field.source'),
       value: doneByThisBot
-        ? '🤖 Bot — di luar kasus Harmony'
-        : `👤 Moderator lain (<@${executorId}>)`,
+        ? t('log.source.botOutside')
+        : t('log.source.otherModerator', { user: executorId }),
       inline: true,
     },
   ];
@@ -173,10 +193,11 @@ export function caseAwareFields(
   externalFields: LogField[],
   executorId: string | null | undefined,
   botUserId: string | null | undefined,
+  t: Translator = defaultTranslator,
 ): LogField[] {
-  if (link) return caseSourceFields(link, null, null);
+  if (link) return caseSourceFields(link, null, null, t);
 
-  return [...externalFields, ...caseSourceFields(null, executorId, botUserId)];
+  return [...externalFields, ...caseSourceFields(null, executorId, botUserId, t)];
 }
 
 /** Sebut target sesuai jenisnya: member, channel, atau role. */
@@ -208,7 +229,11 @@ export interface LogRecordSummary {
  * Dipakai bersama oleh `/logs` dan halaman ringkasan kasus supaya dua tempat
  * menampilkan entri yang sama dengan cara yang sama.
  */
-export function logRecordSummary(record: LogRecord, guildId: string): LogRecordSummary {
+export function logRecordSummary(
+  record: LogRecord,
+  guildId: string,
+  t: Translator = defaultTranslator,
+): LogRecordSummary {
   const meta = CATEGORY_META[record.category];
   const timestamp = Math.floor(record.createdAt.getTime() / 1_000);
   const lines = [`⏱️ <t:${timestamp}:f> · \`${record.eventKey}\``];
@@ -216,11 +241,11 @@ export function logRecordSummary(record: LogRecord, guildId: string): LogRecordS
   const target = targetMention(record);
   if (target) lines.push(target);
   if (record.caseId && Number.isInteger(Number(record.caseId))) {
-    lines.push(`🤖 Harmony · Kasus \`${formatCaseId(Number(record.caseId))}\``);
+    lines.push(t('log.summary.case', { case: formatCaseId(Number(record.caseId)) }));
   }
-  if (record.executorId) lines.push(`Oleh: <@${record.executorId}>`);
+  if (record.executorId) lines.push(t('log.summary.by', { user: record.executorId }));
   if (record.channelId && record.category !== 'channel') {
-    lines.push(`Channel: <#${record.channelId}>`);
+    lines.push(t('log.summary.channel', { channel: record.channelId }));
   }
 
   // Hanya kategori pesan yang menampilkan isi — di kategori lain nilai field
@@ -231,7 +256,7 @@ export function logRecordSummary(record: LogRecord, guildId: string): LogRecordS
 
   if (record.logChannelId && record.logMessageId) {
     const url = `https://discord.com/channels/${guildId}/${record.logChannelId}/${record.logMessageId}`;
-    lines.push(`[Lompat ke pesan log](${url})`);
+    lines.push(t('log.summary.jump', { url }));
   }
 
   return { title: truncate(`${meta.emoji} ${record.title}`, MAX_FIELD_NAME_LENGTH), lines };
@@ -246,6 +271,7 @@ export function logRecordSummary(record: LogRecord, guildId: string): LogRecordS
 export function logResultsEmbed(
   records: readonly LogRecord[],
   options: LogResultsOptions,
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
   const { guildId, page, pageSize, total } = options;
   const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -253,19 +279,19 @@ export function logResultsEmbed(
 
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle('🔎 Riwayat Log')
+    .setTitle(t('log.results.title'))
     .setTimestamp()
-    .setFooter({ text: `Halaman ${page} · entri ${first}–${last} dari ${total}` });
+    .setFooter({ text: t('log.results.footer', { page, first, last, total }) });
 
   for (const record of records) {
-    const summary = logRecordSummary(record, guildId);
+    const summary = logRecordSummary(record, guildId, t);
     embed.addFields({ name: summary.title, value: summary.lines.join('\n') });
   }
 
   if (total > page * pageSize) {
     embed.addFields({
-      name: 'Halaman berikutnya',
-      value: `Masih ada entri lain — jalankan ulang dengan \`page:${page + 1}\`.`,
+      name: t('log.results.nextTitle'),
+      value: t('log.results.nextValue', { page: page + 1 }),
     });
   }
 
@@ -287,7 +313,11 @@ export interface LogStatsEmbedOptions {
  * Baris ringkas (bukan satu field per entri) supaya periode yang ramai pun
  * tetap muat di satu embed.
  */
-export function logStatsEmbed(stats: LogStats, options: LogStatsEmbedOptions): EmbedBuilder {
+export function logStatsEmbed(
+  stats: LogStats,
+  options: LogStatsEmbedOptions,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const { filter, period } = options;
   const topActions = options.topActions ?? STATS_TOP_ACTIONS;
   const topMembers = options.topMembers ?? STATS_TOP_MEMBERS;
@@ -297,28 +327,28 @@ export function logStatsEmbed(stats: LogStats, options: LogStatsEmbedOptions): E
 
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle('📊 Statistik Log')
+    .setTitle(t('log.stats.title'))
     .setTimestamp()
-    .setFooter({ text: `${stats.total} event · ${from} – ${to}` });
+    .setFooter({ text: t('log.stats.footer', { total: stats.total, from, to }) });
 
-  const periodNote = period.defaulted
-    ? '\n\n_Periode default: seluruh masa simpan riwayat. Batonai `from:` untuk mempersempit._'
-    : '';
-  embed.setDescription(`${describeLogFilter(filter)}\n\n**Periode:** ${from} – ${to}${periodNote}`);
+  const periodNote = period.defaulted ? t('log.stats.periodDefault') : '';
+  embed.setDescription(
+    `${describeLogFilter(filter, t)}\n\n${t('log.stats.period', { from, to })}${periodNote}`,
+  );
 
   embed.addFields({
-    name: 'Event per kategori',
-    value: categoryLines(stats),
+    name: t('log.stats.categoriesField'),
+    value: categoryLines(stats, t),
   });
 
   embed.addFields(
     {
-      name: `Aksi teratas (${Math.min(topActions, stats.topActions.length)})`,
-      value: actionLines(stats, topActions),
+      name: t('log.stats.topActionsField', { count: Math.min(topActions, stats.topActions.length) }),
+      value: actionLines(stats, topActions, t),
     },
     {
-      name: `Member paling sering terkait (${Math.min(topMembers, stats.topMembers.length)})`,
-      value: memberLines(stats, topMembers),
+      name: t('log.stats.topMembersField', { count: Math.min(topMembers, stats.topMembers.length) }),
+      value: memberLines(stats, topMembers, t),
     },
   );
 
@@ -326,41 +356,41 @@ export function logStatsEmbed(stats: LogStats, options: LogStatsEmbedOptions): E
 }
 
 /** Enam kategori, lengkap dengan batang proporsi terhadap kategori teramai. */
-function categoryLines(stats: LogStats): string {
+function categoryLines(stats: LogStats, t: Translator): string {
   const max = Math.max(...stats.categories.map((item) => item.count));
 
   return stats.categories
     .map((item) => {
       const meta = CATEGORY_META[item.category];
-      return `${meta.emoji} ${meta.label} \`${statsBar(item.count, max)}\` **${item.count}** (${formatShare(item.count, stats.total)})`;
+      return `${meta.emoji} ${categoryLabel(item.category, t)} \`${statsBar(item.count, max)}\` **${item.count}** (${formatShare(item.count, stats.total)})`;
     })
     .join('\n');
 }
 
-function actionLines(stats: LogStats, limit: number): string {
-  if (stats.topActions.length === 0) return 'Tidak ada event pada periode ini.';
+function actionLines(stats: LogStats, limit: number, t: Translator): string {
+  if (stats.topActions.length === 0) return t('log.stats.noActions');
 
   return stats.topActions
     .slice(0, limit)
     .map((item, index) => {
       const emoji = eventKeyEmoji(item.eventKey);
-      const label = eventKeyLabel(item.eventKey);
+      const label = eventKeyLabel(item.eventKey, t);
       return `\`${index + 1}.\` ${emoji} **${label}** — ${item.count} event \`${item.eventKey}\``;
     })
     .join('\n');
 }
 
-function memberLines(stats: LogStats, limit: number): string {
+function memberLines(stats: LogStats, limit: number, t: Translator): string {
   if (stats.topMembers.length === 0) {
-    return 'Tidak ada member yang tercatat pada periode ini.';
+    return t('log.stats.noMembers');
   }
 
   return stats.topMembers
     .slice(0, limit)
     .map((item, index) => {
       const roles = [
-        item.asTarget > 0 ? `🎯 ${item.asTarget} jadi target` : null,
-        item.asExecutor > 0 ? `⚡ ${item.asExecutor} melakukan` : null,
+        item.asTarget > 0 ? t('log.stats.roleTarget', { count: item.asTarget }) : null,
+        item.asExecutor > 0 ? t('log.stats.roleExecutor', { count: item.asExecutor }) : null,
       ].filter((line): line is string => line !== null);
 
       return `\`${index + 1}.\` <@${item.userId}> — **${item.count}** event · ${roles.join(' · ')}`;
@@ -398,7 +428,7 @@ export function logEntriesEmbed(
   }
 
   const blocks = records.map((record) => {
-    const summary = logRecordSummary(record, options.guildId);
+    const summary = logRecordSummary(record, options.guildId, t);
     return `**${summary.title}**\n${summary.lines.join('\n')}`;
   });
 

@@ -246,7 +246,25 @@ describe('lokalisasi perintah saat deploy', () => {
 });
 
 describe('cakupan terjemahan perintah', () => {
-  async function realCommandNames(): Promise<string[]> {
+  /**
+   * Batas khusus untuk tes yang mengimpor seluruh 46 modul perintah.
+   *
+   * Impor pertama itu dingin: harus memuat loader, Prisma, Redis, dan
+   * Lavalink lebih dulu. Di luar bawah lima detik saat mesinnya sedang dipakai
+   * atau saat coverage menginstrumentasi tiap berkas, itu bukan kegagalan
+   * apa pun — hanya pekerjaan yang memang mahal. Assertion-nya tidak berubah.
+   */
+  const IMPORT_ALL_COMMANDS_TIMEOUT_MS = 30_000;
+
+  /**
+   * Daftar nama perintah asli, dihitung sekali untuk seluruh blok.
+   *
+   * Empat tes di bawah butuh data yang sama; menghitungnya berulang berarti
+   * mengimpor 46 modul sebanyak empat kali tanpa menambah cakupan apa pun.
+   */
+  let commandNames: Promise<string[]> | undefined;
+
+  async function loadCommandNames(): Promise<string[]> {
     const names: string[] = [];
 
     for (const file of listModuleFiles('src/commands')) {
@@ -260,11 +278,20 @@ describe('cakupan terjemahan perintah', () => {
     return names;
   }
 
-  it('menerjemahkan setiap perintah yang benar-benar ada', async () => {
-    const missing = commandsMissingTranslation(await realCommandNames());
+  function realCommandNames(): Promise<string[]> {
+    commandNames ??= loadCommandNames();
+    return commandNames;
+  }
 
-    expect(missing).toEqual([]);
-  });
+  it(
+    'menerjemahkan setiap perintah yang benar-benar ada',
+    async () => {
+      const missing = commandsMissingTranslation(await realCommandNames());
+
+      expect(missing).toEqual([]);
+    },
+    IMPORT_ALL_COMMANDS_TIMEOUT_MS,
+  );
 
   it('tidak punya entri untuk perintah yang sudah dihapus', async () => {
     const actual = new Set(await realCommandNames());

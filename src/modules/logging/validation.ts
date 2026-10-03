@@ -1,3 +1,4 @@
+import { defaultTranslator, type MessageKey } from '../i18n/index.js';
 import { parseCaseNumber } from '../moderation/caseNumber.js';
 import {
   isLogCategory,
@@ -7,12 +8,22 @@ import {
   type LogSearchFilter,
 } from './types.js';
 
-/** Error validasi yang pesannya aman ditampilkan ke user Discord. */
+/**
+ * Error validasi yang pesannya aman ditampilkan ke user Discord.
+ *
+ * Yang disimpan bukan kalimatnya, melainkan kunci katalog + parameternya:
+ * `toLoggingErrorEmbed` yang menyusun kalimat akhir, jadi pesan yang sama bisa
+ * tampil dalam bahasa server mana pun. `message` tetap diisi bahasa Indonesia
+ * supaya `Error` biasa (log internal, `toThrow` di tes) tidak kehilangan teks.
+ */
 export class LoggingValidationError extends Error {
   public override readonly name = 'LoggingValidationError';
 
-  constructor(message: string) {
-    super(message);
+  constructor(
+    public readonly key: MessageKey,
+    public readonly params?: Record<string, string | number>,
+  ) {
+    super(defaultTranslator(key, params));
   }
 }
 
@@ -21,14 +32,14 @@ const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 export function assertSnowflake(value: string, label: string): string {
   const trimmed = value.trim();
   if (!SNOWFLAKE_PATTERN.test(trimmed)) {
-    throw new LoggingValidationError(`ID ${label} tidak valid: \`${value}\`.`);
+    throw new LoggingValidationError('log.err.invalidId', { label, value });
   }
   return trimmed;
 }
 
 export function assertCategory(value: string): LogCategory {
   if (!isLogCategory(value)) {
-    throw new LoggingValidationError(`Kategori \`${value}\` tidak dikenal.`);
+    throw new LoggingValidationError('log.err.unknownCategory', { value });
   }
   return value;
 }
@@ -64,7 +75,7 @@ export function parseDateFilter(
     const amount = Number(relative[1]);
     const unit = relative[2] ?? 'd';
     const unitMs = UNIT_MS[unit];
-    if (!unitMs) throw new LoggingValidationError(`Format tanggal \`${label}\` tidak dikenali.`);
+    if (!unitMs) throw new LoggingValidationError('log.err.unknownUnit', { label });
 
     return new Date(now.getTime() - amount * unitMs);
   }
@@ -79,9 +90,7 @@ export function parseDateFilter(
     return buildLocalDate(Number(local[3]), Number(local[2]), Number(local[1]), label, options.endOfDay);
   }
 
-  throw new LoggingValidationError(
-    `Tanggal \`${label}\` tidak valid. Contoh yang diterima: \`7d\`, \`24h\`, \`2026-10-02\`, atau \`02/10/2026\`.`,
-  );
+  throw new LoggingValidationError('log.err.invalidDate', { label });
 }
 
 function buildLocalDate(
@@ -95,7 +104,7 @@ function buildLocalDate(
 
   // Tolak tanggal yang "melewati" — mis. 31/02 yang digeser oleh Date ke bulan berikutnya.
   if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    throw new LoggingValidationError(`Tanggal \`${label}\` tidak ada di kalender.`);
+    throw new LoggingValidationError('log.err.dateMissing', { label });
   }
 
   return date;
@@ -123,7 +132,7 @@ export function parseLogSearch(
   const to = input.to?.trim() ? parseDateFilter(input.to, 'to', { now, endOfDay: true }) : null;
 
   if (from && to && from.getTime() > to.getTime()) {
-    throw new LoggingValidationError('Rentang tanggal terbalik — `from` harus lebih dulu dari `to`.');
+    throw new LoggingValidationError('log.err.rangeReversed');
   }
 
   return {
@@ -147,9 +156,7 @@ function parseCaseFilter(value: string | null | undefined): number | null {
 
   const caseNumber = parseCaseNumber(trimmed);
   if (caseNumber === null) {
-    throw new LoggingValidationError(
-      'Nomor kasus tidak valid. Contoh yang diterima: `#CASE-0142`, `0142`, atau `142`.',
-    );
+    throw new LoggingValidationError('log.err.badCase');
   }
 
   return caseNumber;
@@ -172,7 +179,7 @@ function parseKeyword(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
   if (trimmed.length > 100) {
-    throw new LoggingValidationError('Kata kunci terlalu panjang (maks 100 karakter).');
+    throw new LoggingValidationError('log.err.keywordTooLong');
   }
 
   return trimmed;
@@ -181,10 +188,10 @@ function parseKeyword(value: string | null | undefined): string | null {
 function parsePage(value: number | null | undefined): number {
   if (value === null || value === undefined) return 1;
   if (!Number.isInteger(value) || value < 1) {
-    throw new LoggingValidationError('Nomor halaman harus bilangan bulat mulai dari 1.');
+    throw new LoggingValidationError('log.err.pageNotInteger');
   }
   if (value > MAX_LOG_PAGE) {
-    throw new LoggingValidationError(`Halaman maksimal ${MAX_LOG_PAGE}.`);
+    throw new LoggingValidationError('log.err.pageMax', { max: MAX_LOG_PAGE });
   }
 
   return value;

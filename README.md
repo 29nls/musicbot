@@ -263,15 +263,39 @@ Discord. Yang membacanya moderator lewat menu Audit Log bawaan Discord, dan
 audit log itu tidak punya tempat untuk bahasa server. Alasan moderator juga
 selalu dia ketik sendiri dalam bahasanya.
 
-Yang **belum** ikut diterjemahkan: `/automod` `/customcommand` `/logging`
-`/logs` `/reactionrole` `/ticket` — teksnya sebagian besar hidup di modulnya
-sendiri, dan perintahnya masih bahasa Indonesia.(`/automod` dan `/logging`
-kebetulan lolos dari penjaga teks, karena kalimatnya pendek dan tidak punya
-dua kata penanda — bukan karena sudah diterjemahkan.) `/logs` menampilkan
-ringkasan per-entri dari
-[logging/embeds.ts](src/modules/logging/embeds.ts) yang baris per barisnya
-masih bahasa Indonesia; hanya bingkai embed-nya (judul, keadaan kosong,
-catatan ">N entri lain") yang sudah mengikuti bahasa server.
+**Sapuan modul logging juga sudah selesai** untuk `/logs` dan `/logging`.
+Yang ikut diterjemahkan: ringkasan filter, daftar hasil `/logs` beserta kaki
+halaman dan catatan "halaman berikutnya", **baris per baris ringkasan tiap
+entri** (kasus, executor, channel, tautan lompat ke pesan log), embed statistik
+(daftar kategori, aksi teratas, member paling sering terkait, catatan periode
+default), ringkasan `/logging` beserta status modul, baris ekspor, semua
+pesan validasi `/logs`, dan embed error logging. Label event (22 label) dan
+label kategori (6 label) ikut lewat katalog, jadi `/logs stats:true` di server
+English tidak lagi mencampur bahasa.
+
+Dua keputusan yang mencegah sapuan ini jadi "ubah kalimat":
+
+- **Error validasi menyimpan kunci, bukan kalimat.** `LoggingValidationError`
+  sekarang membawa `(key, params)` dan `message`-nya diturunkan dari katalog
+  bahasa Indonesia, jadi `toLoggingErrorEmbed(error, t)` yang menyusun kalimat
+  akhir. Kalau kalimatnya disimpan di `validation.ts`, setiap `"from"` atau
+  `"to"` yang diketik user akan menghasilkan pesan bahasa Indonesia di server
+  English.
+- **Label `CATEGORY_META.label` sengaja tetap bahasa Indonesia.** Label itu
+  ikut registering sebagai nama pilihan (`choice`) di `/logs` dan `/logging`,
+  dan Discord membaca nama pilihan dari payload saat deploy — sama seperti
+  nama perintah. Embed memakai `categoryLabel(category, t)` yang baru, jadi
+  teks yang tampil ikut bahasa server tanpa merusak nama pilihan.
+
+Yang **belum** ikut diterjemahkan: `/automod` `/customcommand`
+`/reactionrole` `/ticket`, plus **22 berkas event log** di
+[src/events/logging/](src/events/logging/) (judul embed seperti "Channel
+Diperbarui" dan nama field seperti "Nama" / "Topik" masih bahasa Indonesia).
+Event handler itu punya sifat yang berbeda: **judul dan ringkasannya tersimpan
+di tabel `log_entry`**, jadi entri yang sudah tercatat sebelum server diganti ke
+bahasa Inggris **tidak akan ikut berubah** — penerjemahan susulan mustahil tanpa
+menulis ulang riwayat. Itulah alasan sapuan ini berhenti di renderer dan bukan
+di event handler: bagian renderer selesai sekarang, bagian event handler menyusul pada sapuan berikutnya.
 
 **Mekanismenya:** `gateMusicCommand` sudah membaca config server untuk aturan
 lain, jadi penerjemah diambil sekali di sana lalu dipakai ulang lewat
@@ -290,16 +314,17 @@ Tiga keputusan yang mengubah bentuk katalog:
   karena itu instruksi, bukan keterangan. Sintaksnya sama untuk dua bahasa,
   tapi penjelasannya tidak.
 - **Nilai bawaan renderer adalah bahasa Indonesia**, bukan "tidak ada".
-  Semua 1.266 tes lama tetap lulus tanpa diubah satu baris pun, dan teks
+  Semua 1.300 tes lama tetap lulus tanpa diubah satu baris pun, dan teks
   bot tidak bergeser diam-diam kalau ada pemanggil yang belum meneruskan
   penerjemah.
 
-**Yang belum:** teks fitur di luar musik — `/automod`, `/modlog`, `/case`,
-reaction role, tiket, welcome, privasi — masih ditulis langsung dalam bahasa
-Indonesia, dan katalog runtime jatuh ke bahasa Indonesia secara sadar untuk
-kunci yang belum ada, bukan diam-diam jadi bahasa acak. Katalog setengah
-terisi lebih buruk daripada kosong: orang akan melihat dua bahasa dalam satu
-layar tanpa punya cara tahu mana yang belum.
+**Yang belum:** teks fitur di luar musik, moderasi, dan logging — `/automod`,
+`/customcommand`, `/reactionrole`, `/ticket`, inventaris `/privacy`, dan 22
+event handler log — masih ditulis langsung dalam bahasa Indonesia, dan katalog
+runtime jatuh ke bahasa Indonesia secara sadar untuk kunci yang belum ada,
+bukan diam-diam jadi bahasa acak. Katalog setengah terisi lebih buruk daripada
+kosong: orang akan melihat dua bahasa dalam satu layar tanpa punya cara tahu
+mana yang belum.
 
 Teks command tidak ikut diperiksa penjaga yang sama, karena memang tidak
 perlu: nama dan deskripsinya dibaca Discord dari payload saat deploy, bukan
@@ -1724,7 +1749,7 @@ dan penjadwalan job per shard.
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~56,5% statements** dari **1.300 tes di 69
+yang tidak di-commit). Angka saat ini: **~57,0% statements** dari **1.318 tes di 70
 file** (naik dari ~43% waktu playlist, filter, lirik, health check, statistik,
 store bersama, metrik, state musik bersama, multi-node Lavalink, penulisan
 atomik, dan multi-bahasa).

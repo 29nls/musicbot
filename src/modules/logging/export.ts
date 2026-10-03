@@ -1,4 +1,5 @@
-import { CATEGORY_META, type LogRecord, type LogSearchFilter } from './types.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
+import { categoryLabel, type LogRecord, type LogSearchFilter } from './types.js';
 
 export type LogExportFormat = 'json' | 'csv';
 
@@ -169,7 +170,10 @@ function csvCell(value: string | null): string {
 }
 
 /** Label kategori yang enak dibaca — dipakai ringkasan pada lampiran. */
-export function describeExportCategories(filter: LogSearchFilter): string {
-  if (filter.categories.length === 0) return 'semua kategori';
-  return filter.categories.map((category) => CATEGORY_META[category].label).join(', ');
+export function describeExportCategories(
+  filter: LogSearchFilter,
+  t: Translator = defaultTranslator,
+): string {
+  if (filter.categories.length === 0) return t('log.export.allCategories');
+  return filter.categories.map((category) => categoryLabel(category, t)).join(', ');
 }

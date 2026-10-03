@@ -1,4 +1,4 @@
-import { defaultTranslator, type Translator } from '../i18n/index.js';
+import { defaultTranslator, type MessageKey, type Translator } from '../i18n/index.js';
 import { actionEmoji, actionLabel, isModerationAction } from '../moderation/types.js';
 import {
   DEFAULT_LOG_RETENTION_DAYS,
@@ -171,7 +171,8 @@ export function eventKeyLabel(
       : t('mod.parse.unknownAction', { action });
   }
 
-  return EVENT_LABELS[eventKey] ?? eventKey;
+  const labelKey = EVENT_LABEL_KEYS[eventKey];
+  return labelKey ? t(labelKey) : eventKey;
 }
 
 /** Emoji kecil untuk `eventKey`, dipakai daftar aksi teratas. */
@@ -184,30 +185,30 @@ export function eventKeyEmoji(eventKey: string): string {
   return EVENT_EMOJIS[eventKey] ?? '•';
 }
 
-/** Label keputusan event Discord (22 event yang dilingkupi Harmony). */
-const EVENT_LABELS: Record<string, string> = {
-  guildBanAdd: 'Member di-ban',
-  guildBanRemove: 'Ban dilepas',
-  guildMemberAdd: 'Member bergabung',
-  guildMemberRemove: 'Member keluar',
-  guildMemberUpdate: 'Member diperbarui',
-  messageDelete: 'Pesan dihapus',
-  messageUpdate: 'Pesan diedit',
-  messageBulkDelete: 'Pesan dihapus massal',
-  channelCreate: 'Channel dibuat',
-  channelDelete: 'Channel dihapus',
-  channelUpdate: 'Channel diperbarui',
-  guildRoleCreate: 'Role dibuat',
-  guildRoleDelete: 'Role dihapus',
-  guildRoleUpdate: 'Role diperbarui',
-  voiceStateUpdate: 'Perubahan voice',
-  guildUpdate: 'Server diperbarui',
-  guildEmojiCreate: 'Emoji ditambahkan',
-  guildEmojiUpdate: 'Emoji diubah',
-  guildEmojiDelete: 'Emoji dihapus',
-  guildStickerCreate: 'Stiker ditambahkan',
-  guildStickerUpdate: 'Stiker diubah',
-  guildStickerDelete: 'Stiker dihapus',
+/** Kunci katalog untuk label ramah tiap event Discord (22 event yang dilingkupi Harmony). */
+const EVENT_LABEL_KEYS: Record<string, MessageKey> = {
+  guildBanAdd: 'log.event.guildBanAdd',
+  guildBanRemove: 'log.event.guildBanRemove',
+  guildMemberAdd: 'log.event.guildMemberAdd',
+  guildMemberRemove: 'log.event.guildMemberRemove',
+  guildMemberUpdate: 'log.event.guildMemberUpdate',
+  messageDelete: 'log.event.messageDelete',
+  messageUpdate: 'log.event.messageUpdate',
+  messageBulkDelete: 'log.event.messageBulkDelete',
+  channelCreate: 'log.event.channelCreate',
+  channelDelete: 'log.event.channelDelete',
+  channelUpdate: 'log.event.channelUpdate',
+  guildRoleCreate: 'log.event.guildRoleCreate',
+  guildRoleDelete: 'log.event.guildRoleDelete',
+  guildRoleUpdate: 'log.event.guildRoleUpdate',
+  voiceStateUpdate: 'log.event.voiceStateUpdate',
+  guildUpdate: 'log.event.guildUpdate',
+  guildEmojiCreate: 'log.event.guildEmojiCreate',
+  guildEmojiUpdate: 'log.event.guildEmojiUpdate',
+  guildEmojiDelete: 'log.event.guildEmojiDelete',
+  guildStickerCreate: 'log.event.guildStickerCreate',
+  guildStickerUpdate: 'log.event.guildStickerUpdate',
+  guildStickerDelete: 'log.event.guildStickerDelete',
 };
 
 const EVENT_EMOJIS: Record<string, string> = {

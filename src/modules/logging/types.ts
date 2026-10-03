@@ -1,3 +1,5 @@
+import { defaultTranslator, type MessageKey, type Translator } from '../i18n/index.js';
+
 /** Enam kategori log sesuai PRD §7.3. */
 export const LOG_CATEGORIES = ['member', 'message', 'channel', 'role', 'voice', 'server'] as const;
 
@@ -16,6 +18,28 @@ export const CATEGORY_META: Record<LogCategory, { label: string; emoji: string; 
   voice: { label: 'Voice', emoji: '🔊', color: 0x1abc9c },
   server: { label: 'Server', emoji: '🏠', color: 0xed4245 },
 };
+
+/**
+ * Kunci katalog untuk label tiap kategori.
+ *
+ * `CATEGORY_META.label` sengaja tetap bahasa Indonesia: label itu ikut
+ * registering sebagai nama pilihan (`choice`) di `/logs` dan `/logging`, dan
+ * nama pilihan Discord dibaca dari payload saat deploy — bukan saat runtime.
+ * Embed memakai `categoryLabel()` supaya ikut bahasa server.
+ */
+const CATEGORY_LABEL_KEYS: Record<LogCategory, MessageKey> = {
+  member: 'log.category.member',
+  message: 'log.category.message',
+  channel: 'log.category.channel',
+  role: 'log.category.role',
+  voice: 'log.category.voice',
+  server: 'log.category.server',
+};
+
+/** Label kategori sesuai bahasa server. */
+export function categoryLabel(category: LogCategory, t: Translator = defaultTranslator): string {
+  return t(CATEGORY_LABEL_KEYS[category]);
+}
 
 /** Satu baris routing: kategori X dikirim ke channel Y. */
 export interface LogSubscription {

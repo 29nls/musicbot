@@ -1,4 +1,5 @@
 import { PermissionFlagsBits } from 'discord.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 
 export interface DiffSpec<T> {
   key: keyof T & string;
@@ -7,17 +8,18 @@ export interface DiffSpec<T> {
   format?: (value: unknown) => string;
 }
 
-const defaultFormat = (value: unknown): string => {
+function defaultFormat(value: unknown, t: Translator): string {
   if (value === null || value === undefined) return '—';
-  if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak';
+  if (typeof value === 'boolean') return value ? t('log.diff.yes') : t('log.diff.no');
   return String(value);
-};
+}
 
 /** Bandingkan dua snapshot objek dan hasilkan baris "• **Label**: lama → baru". */
 export function diffValues<T extends Record<string, unknown>>(
   before: T,
   after: T,
   specs: readonly DiffSpec<T>[],
+  t: Translator = defaultTranslator,
 ): string[] {
   const lines: string[] = [];
 
@@ -26,7 +28,7 @@ export function diffValues<T extends Record<string, unknown>>(
     const to = after[spec.key];
     if (from === to) continue;
 
-    const format = spec.format ?? defaultFormat;
+    const format = spec.format ?? ((value: unknown) => defaultFormat(value, t));
     lines.push(`• **${spec.label}**: ${format(from)} → ${format(to)}`);
   }
 
@@ -81,6 +83,7 @@ export interface OverwriteSnapshot {
 export function diffOverwrites(
   before: readonly OverwriteSnapshot[],
   after: readonly OverwriteSnapshot[],
+  t: Translator = defaultTranslator,
 ): string[] {
   const beforeMap = new Map(before.map((item) => [item.key, item]));
   const afterMap = new Map(after.map((item) => [item.key, item]));
@@ -90,7 +93,7 @@ export function diffOverwrites(
     const previous = beforeMap.get(key);
 
     if (!previous) {
-      lines.push(`• ${next.label}: overwrite **ditambahkan**`);
+      lines.push(`• ${next.label}: ${t('log.diff.overwriteAdded')}`);
       continue;
     }
 
@@ -100,16 +103,22 @@ export function diffOverwrites(
     const denyAdded = permissionNames(next.deny & ~previous.deny);
     const denyRemoved = permissionNames(previous.deny & ~next.deny);
 
-    if (allowAdded.length > 0) parts.push(`izinkan +${allowAdded.join(', ')}`);
-    if (allowRemoved.length > 0) parts.push(`izinkan -${allowRemoved.join(', ')}`);
-    if (denyAdded.length > 0) parts.push(`tolak +${denyAdded.join(', ')}`);
-    if (denyRemoved.length > 0) parts.push(`tolak -${denyRemoved.join(', ')}`);
+    if (allowAdded.length > 0) {
+      parts.push(t('log.diff.allowAdd', { names: allowAdded.join(', ') }));
+    }
+    if (allowRemoved.length > 0) {
+      parts.push(t('log.diff.allowRemove', { names: allowRemoved.join(', ') }));
+    }
+    if (denyAdded.length > 0) parts.push(t('log.diff.denyAdd', { names: denyAdded.join(', ') }));
+    if (denyRemoved.length > 0) {
+      parts.push(t('log.diff.denyRemove', { names: denyRemoved.join(', ') }));
+    }
 
     if (parts.length > 0) lines.push(`• ${next.label}: ${parts.join(' • ')}`);
   }
 
   for (const [key, previous] of beforeMap) {
-    if (!afterMap.has(key)) lines.push(`• ${previous.label}: overwrite **dihapus**`);
+    if (!afterMap.has(key)) lines.push(`• ${previous.label}: ${t('log.diff.overwriteRemoved')}`);
   }
 
   return lines;
