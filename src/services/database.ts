@@ -19,10 +19,20 @@ let client: PrismaClient | undefined;
  * database. Bot punya skema dan migrasinya sendiri, jadi lapisan itu cuma
  * menambah satu tempat lagi untuk salah.
  *
- * **SSL mengikuti URL.** `pg-connection-string` menerjemahkan `sslmode=require`
- * di connection string menjadi opsi SSL untuk driver `pg`, jadi tidak ada
- * konfigurasi terpisah di sini. Supabase mewajibkan SSL, dan tanpa parameter
- * itu koneksi akan ditolak.
+ * **SSL mengikuti URL, tapi `sslmode=require` saja tidak cukup.** Driver `pg`
+ * memetakan `require` menjadi verifikasi penuh: sertifikat server harus
+ * ditandatangani CA yang dipercaya Node. Supabase memakai PKI sendiri
+ * (leaf <- `Supabase Intermediate 2021 CA` <- `Supabase Root 2021 CA`) dan CA
+ * itu tidak ada di trust store publik, jadi `sslmode=require` berakhir dengan
+ * `self-signed certificate in certificate chain` — bukan di Prisma CLI (Rust
+ * miliknya), tapi di sini. Yang dipakai runtime:
+ *
+ *   ?sslmode=verify-full&sslrootcert=C:/Users/.../global-root.crt
+ *
+ * `sslrootcert` dibaca driver dan ditambahkan ke trust store koneksi; path di
+ * dalam query string ditulis dengan garis miring. Kalau CA belum pernah
+ * diunduh dan verifikasi harus dinyalakan sekarang juga, `?sslmode=no-verify`
+ * tetap terenkripsi tapi tidak memverifikasi identitas server.
  *
  * **Ukuran pool 5** wajar untuk backend yang hidup terus (bot), bukan serverless
  * yang memicu ribuan koneksi sesaat. Kalau nanti memakai transaction pooler
@@ -72,7 +82,9 @@ export async function connectDatabase(): Promise<boolean> {
     logger.warn(
       { err: error },
       'Database tidak bisa dihubungi — perintah yang butuh konfigurasi akan gagal. ' +
-        'Periksa `DATABASE_URL` di .env dan koneksi ke server database.',
+        'Periksa `DATABASE_URL` di .env dan koneksi ke server database. ' +
+        'Kalau errornya soal TLS atau sertifikat, `DATABASE_URL` butuh ' +
+        '`sslmode=verify-full&sslrootcert=<path ke CA Supabase>` — lihat .env.example.',
     );
     return false;
   }

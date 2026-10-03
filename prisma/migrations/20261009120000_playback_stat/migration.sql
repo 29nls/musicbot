@@ -20,4 +20,4 @@ CREATE UNIQUE INDEX "playback_stat_guildId_kind_key_day_key" ON "playback_stat"(
 CREATE INDEX "playback_stat_guildId_kind_day_idx" ON "playback_stat"("guildId", "kind", "day");
 
 -- CreateIndex
-CREATE INDEX "playback_stat_guildId_kind_count_idx" ON "playback_stat"("guildId", "kind", "count"(DESC));
+CREATE INDEX "playback_stat_guildId_kind_count_idx" ON "playback_stat"("guildId", "kind", "count" DESC);

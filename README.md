@@ -220,6 +220,49 @@ Tiga hal yang sering membuat orang tersesat di sini:
 
 Karakter khusus pada password (`&`, `#`, `?`, spasi) harus di percent-encode.
 
+#### SSL: kenapa `sslmode=require` saja gagal
+
+Supabase menyajikan sertifikat dari PKI sendiri:
+
+```
+db.<project>.supabase.co  <-  Supabase Intermediate 2021 CA  <-  Supabase Root 2021 CA
+```
+
+CA terakhir itu tidak ada di trust store publik, jadi Node tidak mempercayainya.
+Driver `pg` memetakan `sslmode=require` menjadi verifikasi penuh, dan hasilnya:
+
+```
+Error opening a TLS connection: self-signed certificate in certificate chain
+```
+
+Yang penting: **Prisma CLI tetap bisa konek**, jadi `npm run db:deploy`
+berhasil sementara bot-nya diam-diam tidak bisa query apa pun. Diperbaikinya
+dengan menambahkan CA tadi lewat `sslrootcert`:
+
+```bash
+# Ambil CA sekali. Cara paling pasti: unduh dari Supabase Dashboard
+# (Project Settings -> Database -> SSL). Cadangannya, ambil dari rantai
+# yang disajikan server itu sendiri (sertifikat terakhir = Supabase Root 2021 CA):
+openssl s_client -starttls postgres -connect db.REF.supabase.co:5432 -showcerts > chain.pem
+#
+# Simpan sertifikat terakhir sebagai global-root.crt, lalu di .env:
+DATABASE_URL=postgresql://...?sslmode=verify-full&sslrootcert=C:/Users/ANDA/.supabase/global-root.crt
+```
+
+Path di dalam query string **harus garis miring**, dan foldernya sebaiknya
+tanpa spasi (kalau ada spasi, driver `pg` tidak mengurai percent-encoding-nya).
+Kalau mau memastikan CA yang kamu pakai memang yang benar, sidik jari SHA-256
+untuk `Supabase Root 2021 CA` saat ini:
+
+```
+80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA
+```
+
+Kalau CA belum ada dan verifikasi harus aktif sekarang juga, pakai
+`?sslmode=no-verify` — trafik tetap terenkripsi, tapi identitas server tidak
+diverifikasi. Bot otomatis menulis peringatan yang menyebut `sslrootcert`
+kalau koneksinya ditolak karena sertifikat.
+
 #### Migrasi: `deploy`, bukan `dev`
 
 `prisma migrate dev` membuat **shadow database** untuk membandingkan hasil
