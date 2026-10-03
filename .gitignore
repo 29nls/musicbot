@@ -16,6 +16,8 @@ src/generated/
 logs/
 lavalink/logs/
 lavalink/plugins/
+# Lavalink.jar hasil `npm run infra:lavalink -- --download` (sekitar 96 MB)
+lavalink/*.jar
 
 # Arsip ekspor log (/logs … format:) — jangan ikut ter-commit
 data/

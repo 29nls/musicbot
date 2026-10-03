@@ -23,7 +23,8 @@ komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 | Kebutuhan | Keterangan |
 | --- | --- |
 | Node.js **22+** | `node --version` |
-| Docker + Docker Compose | untuk Lavalink + Redis. **Database tidak butuh Docker** — memakai Supabase |
+| Java **17+** | hanya kalau Lavalink dijalankan dari host tanpa Docker (diuji di Temurin 21) |
+| Docker + Docker Compose | opsional, untuk Lavalink + Redis. **Tidak wajib** — lihat bagian "Menjalankan tanpa Docker". **Database tidak butuh Docker** — memakai Supabase |
 | Aplikasi Discord | dibuat di [Developer Portal](https://discord.com/developers/applications) |
 
 ### ⚠️ Wajib: aktifkan Privileged Intents
@@ -102,6 +103,66 @@ Compose mengganti `REDIS_URL` dan `LAVALINK_HOST` menjadi hostname container
 database itu di luar stack. Dulu compose menimpanya ke hostname `postgres`,
 dan itu berbahaya: bot akan diam-diam bicara ke database yang berbeda dari
 yang migrasinya tadi diterapkan.
+
+### Menjalankan tanpa Docker (laptop kecil)
+
+Docker Desktop itu mahal: virtualisasi, image, dan satu daemon yang jalan terus.
+Untuk mesin audio saja, itu berlebihan — Lavalink cuma butuh Java. Botnya
+sendiri memang dirancang untuk jalan dari host, jadi tanpa Docker begini:
+
+```bash
+# 1. Dependency + Prisma Client
+npm install
+
+# 2. .env: DATABASE_URL & DIRECT_URL menunjuk ke Supabase (JANGAN localhost),
+#    LAVALINK_HOST=localhost, LAVALINK_PORT=2333, LAVALINK_PASSWORD terisi.
+
+# 3. Skema database (ulangi setiap ada migrasi baru)
+npm run db:deploy
+
+# 4. Mesin audio: sekali unduh (~96 MB), lalu jalan
+npm run infra:lavalink -- --download
+
+# 5. Terminal lain: jalankan bot
+npm run dev
+```
+
+| Kebutuhan | Pakai Docker | Tanpa Docker |
+| --- | --- | --- |
+| Database | Supabase (di luar stack) | Sama: Supabase. Tidak ada Postgres lokal yang perlu hidup |
+| Lavalink | Service `lavalink` | JVM dari `lavalink/Lavalink.jar` lewat `npm run infra:lavalink` |
+| Redis | Service `redis` | **Tidak wajib.** Kalau `localhost:6379` tidak ada, bot tetap jalan dengan store memori + peringatan di log. Rate limit jadi per proses dan sharding tetap belum aman |
+| Prasyarat tambahan | Docker Desktop | Java 17+ |
+
+`npm run infra:lavalink` membaca `LAVALINK_PASSWORD` dari `.env` lalu
+meneruskannya ke Lavalink sebagai `LAVALINK_SERVER_PASSWORD`, jadi password tidak
+pernah ditulis di baris perintah atau di log. Dua plugin (`youtube-source`,
+`LavaSrc`) tetap diunduh sendiri oleh Lavalink ke `lavalink/plugins/` pada start
+pertama, sama seperti di dalam container.
+
+Mau lebih hemat? `LAVALINK_HEAP=256m npm run infra:lavalink` — cukup untuk satu
+guild, dan hanya relevan kalau sedang tidak memutar lagu panjang.
+
+#### Beban RAM terukur di laptop ini (Windows, 8 GB, tanpa Docker)
+
+| Proses | Working set | Catatan |
+| --- | --- | --- |
+| Lavalink 4.2.2, `-Xmx512m` | sekitar 270 MB | Siap (menerima permintaan) dalam sekitar 10 detik; start pertama juga mengunduh 2 plugin (sekitar 4,8 MB) |
+| Bot, `node dist/index.js` (setelah `npm run build`) | sekitar 165 MB | Angka cold start; setelah menganggur lebih kecil |
+| Bot, `npm run dev` (tsx watch) | sekitar 340 MB | Loader + transpiler menambah satu proses Node lagi |
+
+Bot + Lavalink tanpa Redis lokal dan tanpa database lokal jadi sekitar setengah
+gigabyte. Kalau sedang menguji moderasi, automod, reaction role, tiket, atau
+logging saja, Lavalink **tidak perlu dijalankan sama sekali**: bot tetap login,
+`/ready` membalas 503 dengan `checks.lavalink: false`, dan perintah musik
+menolak dengan pesan jelas.
+
+Kalau jendela ditutup paksa (bukan Ctrl+C), JVM kadang tertinggal dan port 2333
+masih dipakai. Bersihkan dengan:
+
+```bash
+taskkill /IM java.exe /F
+```
 
 ### Database: Supabase (bukan Postgres lokal)
 

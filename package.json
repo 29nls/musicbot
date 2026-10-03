@@ -27,7 +27,8 @@
     "db:prune": "tsx src/prune-retention.ts",
     "postinstall": "prisma generate",
     "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d",
-    "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down"
+    "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
+    "infra:lavalink": "node tools/start-lavalink.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
