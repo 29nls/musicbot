@@ -88,6 +88,11 @@ yang butuh izin lain, jalankan ulang `npm run invite` dan pakai angka yang
 keluar, jangan menyalin angka lama secara manual: `tests/invitePermissions.test.ts`
 gagal kalau daftar di sini melenceng dari kode, ke arah mana pun.
 
+Untuk tahu izin mana yang belum terdaftar tanpa menunggu tes merah,
+`npm run perms:scan` memindai seluruh `src/` lalu mencetak tiap izin beserta
+file dan baris tempatnya dipakai, status pendaftaran, danusulan baris untuk
+izin yang belum ada.
+
 Dua hal yang mudah salah:
 
 - **Administrator tidak dipakai.** Satu izin itu memberi segalanya sekaligus,
@@ -2059,6 +2064,8 @@ lewat mock besar akan menguji mock itu sendiri, bukan bot.
 | `npm run clean` | Hapus `dist/` (mencegah file lama ikut dimuat loader) |
 | `npm start` | Jalankan hasil build (produksi) |
 | `npm run deploy` | Daftarkan slash command (guild dev bila `DEV_GUILD_ID` diisi, jika tidak global) |
+| `npm run invite` | Cetak URL undangan OAuth2 + angka izin yang bot butuhkan |
+| `npm run perms:scan` | Pindai `src/`: izin Discord yang dipanggil vs yang diminta saat undangan |
 | `npm run infra:up` / `infra:down` | Nyalakan/matikan Postgres + Lavalink + Redis untuk dev lokal |
 | `npm run db:migrate` | Buat + terapkan migrasi baru (pengembangan) |
 | `npm run db:deploy` | Terapkan migrasi yang sudah ada (produksi/CI) |
