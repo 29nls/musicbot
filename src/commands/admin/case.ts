@@ -59,10 +59,7 @@ export default {
       if (caseNumber === null) {
         await replyEphemeralError(
           interaction,
-          warningEmbed(
-            'Nomor kasus tidak dikenali. Contoh yang diterima: `#CASE-0142`, `142`, atau `CASE 142`.',
-            '⚠️ Format Salah',
-          ),
+          warningEmbed(ctx.t('mod.case.parseError'), ctx.t('mod.case.parseErrorTitle')),
         );
         return;
       }
@@ -72,9 +69,8 @@ export default {
         await replyEphemeralError(
           interaction,
           warningEmbed(
-            `Kasus \`${formatCaseId(caseNumber)}\` tidak ada di server ini.\n` +
-              'Nomor kasus berbeda antar server — pastikan memakai nomor dari server ini.',
-            '❌ Kasus Tidak Ditemukan',
+            ctx.t('mod.case.notFound', { case: formatCaseId(caseNumber) }),
+            ctx.t('mod.case.notFoundTitle'),
           ),
         );
         return;
@@ -97,16 +93,23 @@ export default {
 
       await interaction.editReply({
         embeds: [
-          caseSummaryEmbed(record, { currentState: state }),
-          caseHistoryEmbed(record, history.slice(0, CASE_HISTORY_LIMIT), history.length),
-          logEntriesEmbed(prioritizeCaseLogs(logs.rows, caseNumber), {
-            title: '📎 Log terkait',
-            guildId: ctx.guildId,
-            total: logs.total,
-            footer:
-              'Log sekitar ±1 jam · ' +
-              `\`/logs case:${formatCaseId(caseNumber)}\` untuk daftar kasus ini saja`,
-          }),
+          caseSummaryEmbed(record, { currentState: state }, ctx.t),
+          caseHistoryEmbed(
+            record,
+            history.slice(0, CASE_HISTORY_LIMIT),
+            history.length,
+            ctx.t,
+          ),
+          logEntriesEmbed(
+            prioritizeCaseLogs(logs.rows, caseNumber),
+            {
+              title: ctx.t('mod.case.relatedLogsTitle'),
+              guildId: ctx.guildId,
+              total: logs.total,
+              footer: ctx.t('mod.case.relatedLogsFooter', { case: formatCaseId(caseNumber) }),
+            },
+            ctx.t,
+          ),
         ],
       });
     } catch (error) {

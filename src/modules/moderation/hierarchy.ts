@@ -1,3 +1,5 @@
+import { defaultTranslator, type Translator } from '../i18n/index.js';
+
 /**
  * Cek anti-hierarki (PRD §7.1). Murni — tidak menyentuh discord.js supaya
  * semua aturan bisa dites tanpa server Discord.
@@ -21,21 +23,40 @@ export interface HierarchyInput {
   requireOutrank?: boolean;
 }
 
-export type HierarchyCheck = { ok: true } | { ok: false; message: string };
+/**
+ * Hasil pemeriksaan hierarki.
+ *
+ * `messageKey` disimpan, bukan kalimatnya, supaya berkas ini tetap murni
+ * tanpa perlu tahu bahasa apa pun. Pemanggil yang mengembalikannya
+ * menjadi kalimat.
+ */
+export type HierarchyCheck =
+  | { ok: true }
+  | {
+      ok: false;
+      messageKey:
+        | 'mod.hierarchy.self'
+        | 'mod.hierarchy.botSelf'
+        | 'mod.hierarchy.owner'
+        | 'mod.hierarchy.botOutranked'
+        | 'mod.hierarchy.actorOutranked';
+    };
 
-const fail = (message: string): HierarchyCheck => ({ ok: false, message });
+const fail = (
+  messageKey: Extract<HierarchyCheck, { ok: false }>['messageKey'],
+): HierarchyCheck => ({ ok: false, messageKey });
 
 export function checkModerationHierarchy(input: HierarchyInput): HierarchyCheck {
   if (input.targetId === input.actorId) {
-    return fail('Kamu tidak bisa memoderasi dirimu sendiri.');
+    return fail('mod.hierarchy.self');
   }
 
   if (input.targetId === input.botId) {
-    return fail('Aku tidak bisa memoderasi diriku sendiri. Pakai Discord langsung kalau memang perlu.');
+    return fail('mod.hierarchy.botSelf');
   }
 
   if (input.targetId === input.guildOwnerId) {
-    return fail('Pemilik server tidak bisa dimoderasi oleh bot.');
+    return fail('mod.hierarchy.owner');
   }
 
   if (input.targetHighestRolePosition === null || input.requireOutrank === false) {
@@ -43,12 +64,20 @@ export function checkModerationHierarchy(input: HierarchyInput): HierarchyCheck 
   }
 
   if (input.botHighestRolePosition <= input.targetHighestRolePosition) {
-    return fail('Role target lebih tinggi atau setara dengan role-ku, jadi aku tidak punya kuasa untuk memoderasinya.');
+    return fail('mod.hierarchy.botOutranked');
   }
 
   if (input.actorHighestRolePosition <= input.targetHighestRolePosition) {
-    return fail('Role target lebih tinggi atau setara dengan role-mu. Minta moderator yang lebih senior.');
+    return fail('mod.hierarchy.actorOutranked');
   }
 
   return { ok: true };
+}
+
+/** Kalimat penolakan hierarki dalam bahasa yang diminta. */
+export function hierarchyMessage(
+  check: Extract<HierarchyCheck, { ok: false }>,
+  t: Translator = defaultTranslator,
+): string {
+  return t(check.messageKey);
 }

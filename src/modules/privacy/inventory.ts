@@ -8,7 +8,13 @@
  * embed terlihat lebih ramping.
  */
 
-import { ACTION_LABELS, isModerationAction, type ModerationAction } from '../moderation/types.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
+import {
+  actionLabel,
+  compareActions,
+  isModerationAction,
+  type ModerationAction,
+} from '../moderation/types.js';
 
 /** Berapa jenis aksi yang dirinci sebelum sisanya jadi "+N jenis lain". */
 const BREAKDOWN_LIMIT = 4;
@@ -87,10 +93,7 @@ export function buildInventory(input: {
 
   const cases = [...counts.entries()]
     .map(([type, count]) => ({ type, count }))
-    .sort(
-      (a, b) =>
-        b.count - a.count || ACTION_LABELS[a.type].label.localeCompare(ACTION_LABELS[b.type].label, 'id'),
-    );
+    .sort((a, b) => b.count - a.count || compareActions(a.type, b.type));
 
   return {
     guildId: input.guildId,
@@ -107,14 +110,19 @@ export function buildInventory(input: {
 }
 
 /** Baris sebaran jenis aksi, dipangkas supaya tidak jadi paragraf. */
-export function inventoryActionLine(inventory: DataInventory): string | null {
+export function inventoryActionLine(
+  inventory: DataInventory,
+  t: Translator = defaultTranslator,
+): string | null {
   if (inventory.cases.length === 0) return null;
 
   const shown = inventory.cases.slice(0, BREAKDOWN_LIMIT);
   const rest = inventory.cases.length - shown.length;
-  const parts = shown.map((item) => `${ACTION_LABELS[item.type].label} \`${item.count}\``);
+  const parts = shown.map(
+    (item) => `${actionLabel(item.type, t)} \`${item.count}\``,
+  );
 
-  if (rest > 0) parts.push(`+${rest} jenis lain`);
+  if (rest > 0) parts.push(t('mod.prior.moreActions', { count: rest }));
 
   return parts.join(' · ');
 }

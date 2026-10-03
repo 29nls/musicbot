@@ -1,5 +1,6 @@
 import { EmbedBuilder, type GuildAuditLogsEntry } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { formatCaseId } from '../moderation/caseNumber.js';
 import {
   STATS_TOP_ACTIONS,
@@ -383,6 +384,7 @@ export interface LogEntriesEmbedOptions {
 export function logEntriesEmbed(
   records: readonly LogRecord[],
   options: LogEntriesEmbedOptions,
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
@@ -392,7 +394,7 @@ export function logEntriesEmbed(
   if (options.footer) embed.setFooter({ text: options.footer });
 
   if (records.length === 0) {
-    return embed.setDescription('Tidak ada entri log yang tercatat.');
+    return embed.setDescription(t('mod.logs.empty'));
   }
 
   const blocks = records.map((record) => {
@@ -401,10 +403,7 @@ export function logEntriesEmbed(
   });
 
   const hidden = options.total - records.length;
-  const note =
-    hidden > 0
-      ? `\n\n*+${hidden} entri lain tidak ditampilkan — pakai \`/logs\` untuk melihat semuanya.*`
-      : '';
+  const note = hidden > 0 ? t('mod.logs.moreHidden', { count: hidden }) : '';
 
   return embed.setDescription(truncate(`${blocks.join('\n\n')}${note}`, 4_000));
 }

@@ -35,38 +35,37 @@ export default {
         return;
       }
 
+      const { music, guildId, t } = gate.ctx;
       const from = interaction.options.getInteger('from', true);
       const to = interaction.options.getInteger('to', true);
-      const snapshot = await gate.ctx.music.snapshot(gate.ctx.guildId);
+      const snapshot = await music.snapshot(guildId);
 
       // Pengecekan di perintah, bukan diam-diam di service: nomor yang di luar
       // jangkauan adalah kesalahan input yang perlu dijelaskan, bukan kegagalan
       // internal yang harus disembunyikan.
       const size = snapshot.upcoming.length;
       if (size === 0) {
-        await interaction.editReply({ embeds: [errorEmbed('Antrean sedang kosong.')] });
+        await interaction.editReply({ embeds: [errorEmbed(t('music.queue.moveEmpty'))] });
         return;
       }
 
       if (from > size || to > size) {
         await interaction.editReply({
-          embeds: [
-            errorEmbed(`Antrean hanya berisi ${size} lagu. Periksa nomornya dengan \`/queue\`.`),
-          ],
+          embeds: [errorEmbed(t('music.queue.wrongNumber', { count: size }))],
         });
         return;
       }
 
-      const moved = await gate.ctx.music.moveInQueue(gate.ctx.guildId, from, to);
+      const moved = await music.moveInQueue(guildId, from, to);
       const text =
         moved === null
-          ? 'Posisi tidak bisa dipindahkan. Periksa nomor yang dimasukkan.'
+          ? t('music.queue.moveFailed')
           : from === to
-            ? `↔️ ${describeTrack(moved, 90)} sudah berada di posisi **${from}**.`
-            : `↔️ ${describeTrack(moved, 90)} dipindahkan dari **${from}** ke **${to}**.`;
+            ? `↔️ ${t('music.queue.moveSame', { track: describeTrack(moved, 90), position: from })}`
+            : `↔️ ${t('music.queue.moveDone', { track: describeTrack(moved, 90), from, to })}`;
 
       await interaction.editReply({
-        embeds: [successEmbed(text, '↔️ Antrean Ditata ulang')],
+        embeds: [successEmbed(text, `↔️ ${t('music.queue.retitledTitle')}`)],
       });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'move');

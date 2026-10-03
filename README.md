@@ -207,6 +207,105 @@ Keduanya butuh izin **Manage Server** dan hanya bisa dipakai di dalam server.
 Nilai yang tidak valid ditolak sebelum menyentuh database, dengan pesan yang
 menyebut field bermasalahnya.
 
+### Bahasa server (ID / EN)
+
+`/config set locale:id` atau `/config set locale:en`, dan tampilannya ikut berubah
+di `/config show`. Bahasa server disimpan di kolom `guild_config.locale`.
+
+Kolom itu **sudah ada sejak migrasi pertama** — lengkap dengan tipe domain,
+mapping, dan validasi — tapi tidak satu baris kode pun memakainya, dan `/config`
+tidak punya opsi untuk mengubahnya. Pola yang sama seperti `REDIS_URL` dulu:
+infrastrukturnya siap, fiturnya tidak pernah dibuat, dan tidak ada yang gagal
+karena kekosongan itu tidak terlihat dari mana pun.
+
+Ada dua hal yang harus dibedakan, karena kelihatan mirip tapi mekanismenya beda:
+
+- **Nama & deskripsi perintah** tidak pernah dirender bot. Discord yang
+  menampilkannya, dari data yang dikirim saat deploy — jadi terjemahannya harus
+  ikut di payload `name_localizations` / `description_localizations`.
+  Semuanya dikirim dari [commandTranslations.ts](src/modules/i18n/commandTranslations.ts),
+  dan **tes gagal kalau satu perintah pun belum punya terjemahan**.
+- **Teks balasan** (embed, pesan kesalahan) dicari saat runtime lewat katalog
+  di [catalog.ts](src/modules/i18n/catalog.ts), dan bahasa server dibaca lewat
+  cache 30 detik yang langsung dibuang begitu `/config set locale` dipakai.
+
+Nama perintah **tidak** diterjemahkan: nama Indonesia jadi nama kanonik, dan
+`/queue` tetap bisa diketik sama seperti `/antrean`. Menerjemahkan nama perintah
+justru merusak — nama itu bagian antarmuka yang paling sering dibacakan.
+
+**Sapuan modul musik sudah selesai.** Semua teks yang tampil dari perintah
+musik — nama field, judul, footer, pesan kesalahan, label mode loop & filter,
+tombol navigasi antrean, dan placeholder select menu — sekarang datang dari
+katalog, begitu juga embed `/stats` dan seluruh pesan `/playlist`.
+
+**Sapuan modul moderasi juga sudah selesai** untuk 14 perintah intinya:
+`/ban` `/kick` `/unban` `/warn` `/unwarn` `/warnings` `/timeout` `/note`
+`/case` `/modprofile` `/purge` `/slowmode` `/lock` `/unlock`. Yang ikut
+diterjemahkan: gerbang izin,embed log kasus, DM ke target, halaman kasus
+(status, kondisi target sekarang, hasil DM), daftar peringatan & catatan,
+profil moderator, log purge, penolakan hierarki, error database, sampai baris
+ringkasan yang menempel di balasan tiap aksi.
+
+Tiga keputusan yang membuat sapuan ini tidak hanya "ubah kalimat":
+
+- **Hierarki menyimpan kunci, bukan kalimat.** `checkModerationHierarchy`
+  mengembalikan `{ ok: false, messageKey }`, dan pemanggil yang
+  menerjemahkannya lewat `hierarchyMessage(check, t)`. Kalau berkas hierarki
+  tetap menyimpan kalimat Indonesia, modul murni itu ikut tahu soal bahasa.
+- **Urutan daftar tidak ikut berubah saat bahasa diganti.** `compareActions`
+  mengurutkan lewat nama aksi, bukan `localeCompare` pada label — kalau tidak,
+  daftar jenis aksi di `/modprofile` akan tertukar begitu server-nya English.
+- **Label aksi tetap kapital.** `actionLabel('ban')` mengembalikan `Ban`, bukan
+  nilai enum `ban`, supaya moderator membaca kata di awal baris.
+
+Satu hal **sengaja** tidak diterjemahkan: alasan yang masuk ke audit log
+Discord. Yang membacanya moderator lewat menu Audit Log bawaan Discord, dan
+audit log itu tidak punya tempat untuk bahasa server. Alasan moderator juga
+selalu dia ketik sendiri dalam bahasanya.
+
+Yang **belum** ikut diterjemahkan: `/automod` `/customcommand` `/logging`
+`/logs` `/reactionrole` `/ticket` — teksnya sebagian besar hidup di modulnya
+sendiri, dan perintahnya masih bahasa Indonesia.(`/automod` dan `/logging`
+kebetulan lolos dari penjaga teks, karena kalimatnya pendek dan tidak punya
+dua kata penanda — bukan karena sudah diterjemahkan.) `/logs` menampilkan
+ringkasan per-entri dari
+[logging/embeds.ts](src/modules/logging/embeds.ts) yang baris per barisnya
+masih bahasa Indonesia; hanya bingkai embed-nya (judul, keadaan kosong,
+catatan ">N entri lain") yang sudah mengikuti bahasa server.
+
+**Mekanismenya:** `gateMusicCommand` sudah membaca config server untuk aturan
+lain, jadi penerjemah diambil sekali di sana lalu dipakai ulang lewat
+`MusicContext.t`. Tidak ada perintah yang perlu `await` kedua hanya untuk
+teks. Handler komponen (`/queue` tombol, `/search` select) menerjemahkan
+dengan cara yang sama. `gateAdminCommand` memakai pola yang sama persis lewat
+`AdminContext.t`, jadi 14 perintah admin tidak perlu lookup sendiri.
+
+Tiga keputusan yang mengubah bentuk katalog:
+
+- **Durasi dan contoh format ikut diterjemahkan, bukan disalin.** `"6 jam"`
+  dan `"6 hours"` bukan beda kosakata, dan menyalin angka batas ke katalog
+  berarti batas yang salah diam-diam kalau `_constant_` itu diubah. Jadi
+  `formatDuration()` masih dipakai, hasilnya jadi placeholder.
+- **Contoh format posisi ikut diterjemahkan** (`90`, `1:30`, `1m30s`)
+  karena itu instruksi, bukan keterangan. Sintaksnya sama untuk dua bahasa,
+  tapi penjelasannya tidak.
+- **Nilai bawaan renderer adalah bahasa Indonesia**, bukan "tidak ada".
+  Semua 1.266 tes lama tetap lulus tanpa diubah satu baris pun, dan teks
+  bot tidak bergeser diam-diam kalau ada pemanggil yang belum meneruskan
+  penerjemah.
+
+**Yang belum:** teks fitur di luar musik — `/automod`, `/modlog`, `/case`,
+reaction role, tiket, welcome, privasi — masih ditulis langsung dalam bahasa
+Indonesia, dan katalog runtime jatuh ke bahasa Indonesia secara sadar untuk
+kunci yang belum ada, bukan diam-diam jadi bahasa acak. Katalog setengah
+terisi lebih buruk daripada kosong: orang akan melihat dua bahasa dalam satu
+layar tanpa punya cara tahu mana yang belum.
+
+Teks command tidak ikut diperiksa penjaga yang sama, karena memang tidak
+perlu: nama dan deskripsinya dibaca Discord dari payload saat deploy, bukan
+dari kode, dan `commandTranslations.ts` sudah memaksa tiap perintah punya
+terjemahan Inggris.
+
 ### Menambah field konfigurasi baru
 
 1. Tambahkan kolom di [prisma/schema.prisma](prisma/schema.prisma) (dan field di
@@ -540,15 +639,56 @@ pemutaran atau perintahnya, tapi dicatat ke log supaya tidak hilang diam-diam.
 ### Cara bot memegang state
 
 `player.track` milik Lavalink hanya berisi data base64 — tanpa judul, artis, atau
-metadata lain. Karena itu **antrean dan lagu aktif disimpan oleh bot**
-([queue.ts](src/modules/music/queue.ts), [musicService.ts](src/modules/music/musicService.ts)),
-dan perpindahan lagu dikendalikan event `end` dari Lavalink (event `replaced`
-diabaikan agar tidak melompat dua kali). Konsekuensinya wajar: restart bot
-mengosongkan antrean.
+metadata lain. Karena itu **lagu yang sedang diputar disimpan oleh bot**
+([musicService.ts](src/modules/music/musicService.ts)), dan perpindahan lagu
+dikendalikan event `end` dari Lavalink (event `replaced` diabaikan agar tidak
+melompat dua kali). Yang **tidak** disimpan bot adalah antrean: itu ditulis ke
+store bersama seperti cooldown dan session `/search` (lihat
+[Antrean musik di store bersama](#antrean-musik-di-store-bersama)), jadi **antrean
+tidak hilang saat bot restart** dan bisa dibaca proses lain.
 
 Kalau Lavalink mati saat memutar, node akan dicoba sambung ulang dan player
-dipindahkan ke node lain bila ada (`moveOnDisconnect`). Perintah musik memberi
-pesan jelas “Lavalink belum terhubung” alih-alih gagal diam-diam.
+dipindahkan ke node lain **bila ada node lain** (`moveOnDisconnect`).
+Perintah musik memberi pesan jelas “Lavalink belum terhubung” alih-alih gagal
+diam-diam.
+
+### Multi-node Lavalink
+
+NFR §11 menjanjikan “tambah node Lavalink tanpa mengubah kode bot”. Dulu itu
+hanya tertulis: `LAVALINK_HOST` dan `LAVALINK_PORT` cuma punya satu pasangan dan
+service selalu membangun persis satu node, jadi node kedua berarti mengubah kode
+lalu deploy ulang. Sekarang daftar node masuk lewat environment:
+
+```env
+# Kosong = pakai LAVALINK_HOST/LAVALINK_PORT di bawah, jadi konfigurasi lama tetap berlaku
+LAVALINK_NODES=lavalink-a:2333,lavalink-b:2333
+```
+
+Formatnya `host:port` dipisah koma, dan **port boleh tidak ditulis** —
+`lavalink-a,lavalink-b` memakai `LAVALINK_PORT`. IPv6 wajib pakai kurung siku
+(`[fd00::2]:2333`) karena `fd00::2` tanpa kurung tidak bisa dibedakan dari
+`host:port`. Parser-nya ada di [nodes.ts](src/modules/music/nodes.ts) dan murni,
+jadi aturannya bisa diuji tanpa Lavalink.
+
+Empat hal yang perlu diketahui:
+
+- **Semua node didaftarkan ke Shoukaku sekaligus**, dan pembagian bebannya
+  memakai `nodeResolver` bawaannya: player baru goes ke node paling sepi. Jadi
+  tidak ada load balancer di depan yang perlu disiapkan.
+- **Entri rusak dibuang, bukan menggagalkan startup.** Salah ketik satu node di
+  antara lima node lain tidak boleh membuat bot tidak mau menyala sama sekali:
+  node yang sehat tetap dipakai, dan entri yang dibuang dicatat di log lengkap
+  dengan alasannya (`lava-b:port`, `lavalink:70000`, `lava-3 (duplikat)`).
+- **Batas 16 node.** Di atas itu hampir pasti salah ketik, bukan cluster
+  sungguhan, jadi sisanya juga dibuang dan disebut alasannya.
+- **Jumlah player per node** dibaca dari laporan `/stats` node itu
+  (`MusicService.nodeReport()`). Angka 0 sebelum laporan pertama masuk berarti
+  “belum dilaporkan”, bukan “node ini kosong”.
+
+Yang **belum** ada: menambah atau mencabut node saat bot sedang jalan
+(`Shoukaku.addNode()` memang tersedia, tapi kalau tidak disimpan ke mana pun
+perubahan itu hilang saat restart, jadi lebih baik konfigurasi lewat environment
+daripada fitur setengah jadi).
 
 ---
 
@@ -1387,6 +1527,9 @@ src/
 │  │                        # limits.ts = batas durasi track §6.2 (6 jam & >30 menit butuh DJ)
 │  │                        # stay.ts = aturan mode 24/7 (murni), stayService.ts = penerapan
 │  │                        # queuePage.ts = pagination antrean (murni), queueNav.ts = tombol navigasi
+│  │                        # sharedState.ts = antrean + mode loop di store bersama (§5.3)
+│  │                        # sharedStateCodec.ts = serialisasinya (toleran: rusak = antrean kosong)
+│  │                        # nodes.ts = parser LAVALINK_NODES multi-node & laporan status node
 │  ├─ stats/                # statistik playback & perintah (Fase 3 §5.3)
 │  │                        # day.ts = bucket UTC, aggregate.ts = leaderboard & grafik (murni)
 │  │                        # validation.ts = kunci/lagu, retention.ts = batas 90 hari
@@ -1398,6 +1541,11 @@ src/
 │  │                        # service.ts = token client-credentials + HTTP, bridge.ts = orkestrasi
 │  ├─ health/                # endpoint /health, /ready & /metrics untuk monitoring (PRD §5.1 & §11 ✅)
 │  ├─ metrics/               # penghitung metrik proses (PRD §11 ✅)
+  ├─ i18n/                  # bahasa server ID/EN (PRD §5.3)
+  │                        # types.ts = locale & alias, catalog.ts = teks runtime
+  │                        # commandTranslations.ts = nama & deskripsi perintah
+  │                        # applyTranslations.ts = penyisip ke payload deploy
+  │                        # service.ts = bahasa per server (cache 30 detik)
 │  │                        # registry.ts = counter, format.ts = teks Prometheus, probe.ts = latensi Lavalink
 │  │                        # report.ts = aturan status (murni), server.ts = HTTP-nya
 │  ├─ customcommands/        # balasan admin yang dipanggil !nama (Fase 2 ✅)
@@ -1515,22 +1663,71 @@ Empat hal yang perlu diketahui soal pilihan ini:
   sisi store tetap dipasang supaya key hilang tepat saat jendela habis.
 
 **Yang sudah pindah ke store bersama:** rate limit, cache daftar perintah custom,
-dan session `/search` (termasuk klaim sekali pakainya).
+session `/search` (termasuk klaim sekali pakainya), dan **antrean musik** —
+serta `take()` dan `compareAndSet()`, dua operasi yang benar-benar atomik di
+Redis dan tidak bisa ditiru dengan GET lalu SET.
 
-**Yang belum pindah dan masih membatasi sharding:** antrean musik. Queue, posisi
-lagu, dan loop mode masih hidup di memori satu proses, jadi guild yang ditangani
-dua shard akan hears-kan antrean berbeda. Karena itu **sharding belum boleh
-diaktifkan** — batasan yang sengaja dibaca berulang, bukan disembunyikan. Butuh
-satu langkah lagi: queue jadi state di store bersama, dengan perhatian
-tersendiri pada bagian yang harus tetap lokal (shoukaku, koneksi voice, dan
-pemrosesan event audio).
+### Antrean musik di store bersama
+
+Dulu antrean ada di dua `Map` di dalam [musicService.ts](src/modules/music/musicService.ts):
+lagu yang belum diputar dan mode loop. Keduanya hilang saat bot restart dan
+tidak terlihat oleh shard lain, jadi guild yang ditangani dua shard akan melihat
+antrean berbeda tergantung shard mana yang menjawab. Sekarang keduanya lewat
+[sharedState.ts](src/modules/music/sharedState.ts), satu record per guild dengan
+TTL 12 jam.
+
+Yang dipindahkan adalah bagian state yang **benar-benar boleh dibagi**. Player
+Lavalink, koneksi voice, lagu yang sedang diputar, posisi, filter, dan riwayat
+siklus tetap milik satu proses — koneksi voice cuma bisa dipegang satu proses,
+jadi memindahkannya ke store tidak akan membuat dua proses bisa memutar lagu
+yang sama. Yang harus diperbaiki adalah antreannya, supaya proses lain tidak
+lagi menampilkan "antrean kosong" padahal isinya ada.
+
+Lima aturan yang perlu diketahui:
+
+- **Setiap perubahan membaca dulu, baru menulis.** Jadi penambahan dari proses
+  lain ikut terbaca dan tidak hilang diam-diam.
+- **Penulisannya bersyarat dan atomik.** Sebelum menulis, bot cek bahwa nilai di
+  store masih persis sama dengan yang tadi dibaca; kalau ada proses lain yang
+  menyisip duluan, perubahan itu **dibaca ulang dan diterapkan di atasnya**, bukan
+  menimpanya. Di Redis ini satu skrip Lua (`compareAndSet` di [kvStore.ts](src/services/kvStore.ts)),
+  jadi tidak ada jeda antara membaca dan menulis. Maksimal tiga percobaan; kalau
+  masih berebut, perubahan hanya berlaku di proses itu dan dicatat di log —
+  memaksa penulisan di titik itu berarti menimpa orang lain.
+- **Baca yang gagal berarti jangan tulis.** Perubahan tetap berjalan di salinan
+  lokal, tapi tidak menimpa record yang tidak bisa dibaca — menebak-nebak di atas
+  state orang lain lebih merusak daripada kehilangan satu perubahan.
+- **Record yang tidak berubah tidak ditulis ulang**, supaya lagu yang berakhir
+  dengan antrean kosong tidak membanjiri store dengan record identik.
+- **Tanpa `EVAL`, jaminan ini hilang.** Redis sangat lama (dan beberapa klien
+  tiruan) tidak punya `EVAL`; store lalu turun ke baca-lalu-tulis biasa dan
+  **menyinggirkan batas itu di log**, bukan diam-diam berpura-pura atomik.
+
+Serialization-nya ada di [sharedStateCodec.ts](src/modules/music/sharedStateCodec.ts)
+dan **toleran**: JSON rusak dibaca sebagai antrean kosong, bukan error. Berbeda
+dengan session `/search` yang dibuang seluruhnya, di sini keadaan kosong selalu
+benar dan selalu bisa dipulihkan — user mengetik `/play` lagi. Membatalkan
+pemutaran yang sedang berjalan demi satu baris JSON yang salah baca adalah
+kerugian yang jauh lebih besar daripada mengulang satu lagu. Satu track salah
+bentuk cukup dilewati, bukan membatalkan seluruh antrean.
+
+**Multi-node Lavalink** juga sudah memakai store bersama ini — lihat bagian
+[Multi-node Lavalink](#multi-node-lavalink).
+
+**Sharding sendiri masih belum boleh diaktifkan**, tapi blokernya tinggal satu:
+player Lavalink, yang emang hanya bisa dipegang satu proses karena koneksi voice
+begitu. Yang sudah beres adalah state yang boleh dibagi — antrean, mode loop,
+cooldown, cache, session — dan penulisan yang raced tidak lagi saling menimpa.
+Yang belum: `ShardManager` benar-benar dipakai saat `DISCORD_MAX_SHARDS > 1`,
+dan penjadwalan job per shard.
 
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~51% statements** dari **1.163 tes di 64
+yang tidak di-commit). Angka saat ini: **~56,5% statements** dari **1.300 tes di 69
 file** (naik dari ~43% waktu playlist, filter, lirik, health check, statistik,
-store bersama, dan metrik).
+store bersama, metrik, state musik bersama, multi-node Lavalink, penulisan
+atomik, dan multi-bahasa).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
 fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang
@@ -1539,9 +1736,10 @@ Logika inti justru tercover tinggi: mesin automod, mapping & hierarki
 moderasi, agregasi log, loop/posisi/shuffle/filter musik, parser lirik, privasi,
 dan validasi tiket semuanya di atas 90%, begitu juga perhitungan statistik
 per server, perhitungan halaman antrean, session `/search` (97% termasuk jalur
-gagal store), modul metrik (98%), modul health (94%), dan kedua implementasi
-store. Menaikkan angka global dengan
-mem-bypass lapisan lem lewat mock besar akan menguji mock itu sendiri, bukan bot.
+gagal store), modul metrik (98%), modul health (94%), modul i18n (98%), modul
+moderasi (84%), modul logging (72%), modul privasi (95%), dan kedua
+implementasi store. Menaikkan angka global dengan mem-bypass lapisan lem
+lewat mock besar akan menguji mock itu sendiri, bukan bot.
 ---
 
 ## 14. Perintah npm

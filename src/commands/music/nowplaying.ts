@@ -21,17 +21,23 @@ export default {
         return;
       }
 
-      const snapshot = await gate.ctx.music.snapshot(gate.ctx.guildId);
+      const { music, guildId, t } = gate.ctx;
+      const snapshot = await music.snapshot(guildId);
       const current = snapshot.current;
 
       if (!current) {
         await interaction.editReply({
-          embeds: [infoEmbed('🔇 Tidak ada lagu', 'Bot sedang tidak memutar apa pun di server ini.')],
+          embeds: [
+            infoEmbed(
+              `🔇 ${t('music.nowPlaying.nothingTitle')}`,
+              t('music.nowPlaying.nothingBody'),
+            ),
+          ],
         });
         return;
       }
 
-      await interaction.editReply({ embeds: [nowPlayingEmbed(current, snapshot)] });
+      await interaction.editReply({ embeds: [nowPlayingEmbed(current, snapshot, t)] });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'nowplaying');
     }

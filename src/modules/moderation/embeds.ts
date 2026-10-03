@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { formatCaseId } from './caseNumber.js';
 import {
   caseHistoryLine,
@@ -23,7 +24,8 @@ import {
   type PriorCaseSummary,
 } from './priorCases.js';
 import {
-  ACTION_LABELS,
+  actionEmoji,
+  actionLabel,
   type ModerationAction,
   type ModerationCase,
   type NotifiableAction,
@@ -31,8 +33,6 @@ import {
 } from './types.js';
 
 const toUnix = (date: Date): number => Math.floor(date.getTime() / 1_000);
-const trimReason = (reason: string | null): string =>
-  reason ? reason.slice(0, 1_000) : '*tidak disebutkan*';
 
 /** Target aksi bisa berupa user (default) atau channel. */
 export type TargetKind = 'user' | 'channel';
@@ -52,6 +52,16 @@ const ACTION_COLORS: Record<ModerationAction, number> = {
   note: EMBED_COLORS.primary,
 };
 
+/**
+ * Alasan yang dipotong ke batas field Discord.
+ *
+ * Nilai bakanya "tidak disebutkan" sedikit berbeda dari `caseReasonText`,
+ * yang memakai bentuk miring — pemanggilnya sudah punya konteks soal field
+ * mana yang sedang diisi, jadi bentuknya tidak selalu sama.
+ */
+const trimReason = (reason: string | null, t: Translator = defaultTranslator): string =>
+  reason ? reason.slice(0, 1_000) : t('mod.reason.missing');
+
 export interface ModerationLogInput {
   action: ModerationAction;
   caseNumber: number;
@@ -66,27 +76,29 @@ export interface ModerationLogInput {
 }
 
 /** Embed yang dikirim ke channel log server untuk setiap aksi moderasi. */
-export function moderationLogEmbed(input: ModerationLogInput): EmbedBuilder {
-  const meta = ACTION_LABELS[input.action];
+export function moderationLogEmbed(
+  input: ModerationLogInput,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(ACTION_COLORS[input.action])
-    .setTitle(`${meta.emoji} ${meta.label} — ${formatCaseId(input.caseNumber)}`)
+    .setTitle(
+      `${actionEmoji(input.action)} ${actionLabel(input.action, t)} — ${formatCaseId(input.caseNumber)}`,
+    )
     .addFields(
-      { name: 'Kasus', value: `\`${formatCaseId(input.caseNumber)}\``, inline: true },
-      { name: 'Target', value: formatTarget(input.targetId, input.targetKind), inline: true },
-      { name: 'Moderator', value: `<@${input.moderatorId}>`, inline: true },
-      { name: 'Alasan', value: trimReason(input.reason) },
+      { name: t('mod.field.case'), value: `\`${formatCaseId(input.caseNumber)}\``, inline: true },
+      { name: t('mod.field.target'), value: formatTarget(input.targetId, input.targetKind), inline: true },
+      { name: t('mod.field.moderator'), value: `<@${input.moderatorId}>`, inline: true },
+      { name: t('mod.field.reason'), value: trimReason(input.reason, t) },
     )
     .setTimestamp(input.createdAt ?? new Date());
 
   if (input.expiresAt) {
-    embed.addFields({ name: 'Berakhir', value: `<t:${toUnix(input.expiresAt)}:R>` });
+    embed.addFields({ name: t('mod.field.expires'), value: `<t:${toUnix(input.expiresAt)}:R>` });
   }
 
   if (input.dmSent !== undefined) {
-    embed.setFooter({
-      text: input.dmSent ? 'DM ke target terkirim' : 'DM ke target tidak terkirim (DM tertutup)',
-    });
+    embed.setFooter({ text: input.dmSent ? t('mod.dm.sent') : t('mod.dm.closed') });
   }
 
   return embed;
@@ -100,24 +112,38 @@ export interface ModerationDmInput {
   expiresAt?: Date | null;
 }
 
-const DM_TITLES: Record<NotifiableAction, string> = {
-  ban: '🔨 Kamu di-ban dari {server}',
-  kick: '👢 Kamu di-kick dari {server}',
-  timeout: '⏳ Kamu di-timeout di {server}',
-  warn: '⚠️ Kamu mendapat peringatan di {server}',
-  unban: '🔓 Ban-mu di server {server} telah dibuka',
+/**
+ * Kunci katalog untuk judul DM.
+ *
+ * Emoji ikut di dalam nilainya, bukan di luar, karena tiap Judul punya ikon
+ * sendiri dan memisahkannya jadi dua peta hanya menambah tempat salah ketik.
+ */
+const DM_TITLE_KEYS: Record<
+  NotifiableAction,
+  'mod.dm.banTitle' | 'mod.dm.kickTitle' | 'mod.dm.timeoutTitle' | 'mod.dm.warnTitle' | 'mod.dm.unbanTitle'
+> = {
+  ban: 'mod.dm.banTitle',
+  kick: 'mod.dm.kickTitle',
+  timeout: 'mod.dm.timeoutTitle',
+  warn: 'mod.dm.warnTitle',
+  unban: 'mod.dm.unbanTitle',
 };
 
 /** DM yang dikirim ke target — selalu berisi ID kasus. */
-export function moderationDmEmbed(input: ModerationDmInput): EmbedBuilder {
+export function moderationDmEmbed(
+  input: ModerationDmInput,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(input.action === 'ban' ? EMBED_COLORS.error : EMBED_COLORS.warning)
-    .setTitle(DM_TITLES[input.action].replace('{server}', input.guildName))
-    .setDescription('Kalau kamu merasa ini keliru, hubungi moderator server.')
-    .addFields({ name: 'Kasus', value: `\`${formatCaseId(input.caseNumber)}\``, inline: true });
+    .setTitle(t(DM_TITLE_KEYS[input.action], { server: input.guildName }))
+    .setDescription(t('mod.dm.contactModerator'))
+    .addFields({ name: t('mod.field.case'), value: `\`${formatCaseId(input.caseNumber)}\``, inline: true });
 
-  if (input.reason) embed.addFields({ name: 'Alasan', value: trimReason(input.reason) });
-  if (input.expiresAt) embed.addFields({ name: 'Berakhir', value: `<t:${toUnix(input.expiresAt)}:R>` });
+  if (input.reason) embed.addFields({ name: t('mod.field.reason'), value: trimReason(input.reason, t) });
+  if (input.expiresAt) {
+    embed.addFields({ name: t('mod.field.expires'), value: `<t:${toUnix(input.expiresAt)}:R>` });
+  }
 
   return embed;
 }
@@ -133,51 +159,62 @@ export interface ModerationResultInput {
 }
 
 /** Balasan setelah aksi berhasil — menampilkan ID kasus. */
-export function moderationResultEmbed(input: ModerationResultInput): EmbedBuilder {
-  const meta = ACTION_LABELS[input.action];
+export function moderationResultEmbed(
+  input: ModerationResultInput,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(ACTION_COLORS[input.action])
-    .setTitle(`${meta.emoji} ${meta.label} Berhasil`)
+    .setTitle(
+      `${actionEmoji(input.action)} ${actionLabel(input.action, t)} ${t('mod.action.successSuffix')}`,
+    )
     .addFields(
-      { name: 'Kasus', value: `\`${formatCaseId(input.caseNumber)}\``, inline: true },
-      { name: 'Target', value: formatTarget(input.targetId, input.targetKind), inline: true },
+      { name: t('mod.field.case'), value: `\`${formatCaseId(input.caseNumber)}\``, inline: true },
+      { name: t('mod.field.target'), value: formatTarget(input.targetId, input.targetKind), inline: true },
     )
     .setTimestamp();
 
-  if (input.reason) embed.addFields({ name: 'Alasan', value: trimReason(input.reason) });
-  if (input.expiresAt) embed.addFields({ name: 'Berakhir', value: `<t:${toUnix(input.expiresAt)}:R>` });
-  if (input.extraLines && input.extraLines.length > 0) embed.setDescription(input.extraLines.join('\n'));
+  if (input.reason) {
+    embed.addFields({ name: t('mod.field.reason'), value: trimReason(input.reason, t) });
+  }
+  if (input.expiresAt) {
+    embed.addFields({ name: t('mod.field.expires'), value: `<t:${toUnix(input.expiresAt)}:R>` });
+  }
+  if (input.extraLines && input.extraLines.length > 0) {
+    embed.setDescription(input.extraLines.join('\n'));
+  }
 
   return embed;
 }
 
 /** DM pemberitahuan saat warning dicabut. */
-export function warningRevokedDmEmbed(input: {
-  caseNumber: number;
-  guildName: string;
-  moderatorId: string;
-}): EmbedBuilder {
+export function warningRevokedDmEmbed(
+  input: { caseNumber: number; guildName: string; moderatorId: string },
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.success)
-    .setTitle(`✅ Peringatan dicabut di ${input.guildName}`)
+    .setTitle(t('mod.dm.revokedTitle', { server: input.guildName }))
     .setDescription(
-      `Peringatan \`${formatCaseId(input.caseNumber)}\` dicabut oleh <@${input.moderatorId}>.`,
+      t('mod.dm.revokedBody', {
+        case: formatCaseId(input.caseNumber),
+        moderator: input.moderatorId,
+      }),
     )
     .setTimestamp();
 }
 
 /** Log saat warning dicabut (kasus asli ditandai tidak aktif, tidak dihapus). */
-export function warningRevokedLogEmbed(input: {
-  caseNumber: number;
-  targetId: string;
-  moderatorId: string;
-}): EmbedBuilder {
+export function warningRevokedLogEmbed(
+  input: { caseNumber: number; targetId: string; moderatorId: string },
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.success)
-    .setTitle(`♻️ Peringatan Dicabut — ${formatCaseId(input.caseNumber)}`)
+    .setTitle(`♻️ ${t('mod.log.revokedTitle')} — ${formatCaseId(input.caseNumber)}`)
     .addFields(
-      { name: 'Target', value: `<@${input.targetId}>`, inline: true },
-      { name: 'Moderator', value: `<@${input.moderatorId}>`, inline: true },
+      { name: t('mod.field.target'), value: `<@${input.targetId}>`, inline: true },
+      { name: t('mod.field.moderator'), value: `<@${input.moderatorId}>`, inline: true },
     )
     .setTimestamp();
 }
@@ -187,21 +224,22 @@ export function warningsEmbed(
   target: { id: string; tag: string },
   warnings: WarningRecord[],
   total: number,
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.warning)
-    .setTitle(`⚠️ Peringatan — ${target.tag}`)
-    .setFooter({ text: `Total ${total} peringatan tercatat` })
+    .setTitle(t('mod.warnings.title', { target: target.tag }))
+    .setFooter({ text: t('mod.warnings.footer', { count: total }) })
     .setTimestamp();
 
   if (warnings.length === 0) {
-    return embed.setDescription('Tidak ada peringatan yang tercatat untuk user ini.');
+    return embed.setDescription(t('mod.warnings.empty'));
   }
 
   const lines = warnings.map(
     (warning) =>
-      `**\`${formatCaseId(warning.caseNumber)}\`** • <t:${toUnix(warning.createdAt)}:R> • oleh <@${warning.moderatorId}>\n` +
-      `> ${warning.reason ? warning.reason.slice(0, 150) : '*tanpa alasan*'}`,
+      `**\`${formatCaseId(warning.caseNumber)}\`** • <t:${toUnix(warning.createdAt)}:R> • ${t('mod.audit.mention', { moderator: warning.moderatorId })}\n` +
+      `> ${warning.reason ? warning.reason.slice(0, 150) : t('mod.reason.noneShort')}`,
   );
 
   return embed.setDescription(lines.join('\n\n').slice(0, 4_000));
@@ -211,47 +249,50 @@ export function warningsEmbed(
 export function notesEmbed(
   target: { id: string; tag: string },
   notes: ModerationCase[],
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle(`📝 Catatan Internal — ${target.tag}`)
+    .setTitle(t('mod.notes.title', { target: target.tag }))
     .setTimestamp();
 
   if (notes.length === 0) {
-    return embed.setDescription('Belum ada catatan untuk user ini.');
+    return embed.setDescription(t('mod.notes.empty'));
   }
 
   const lines = notes.map(
     (note) =>
-      `**\`${formatCaseId(note.caseNumber)}\`** • <t:${toUnix(note.createdAt)}:R> • oleh <@${note.moderatorId}>\n` +
-      `> ${note.reason ? note.reason.slice(0, 200) : '*tanpa isi*'}`,
+      `**\`${formatCaseId(note.caseNumber)}\`** • <t:${toUnix(note.createdAt)}:R> • ${t('mod.audit.mention', { moderator: note.moderatorId })}\n` +
+      `> ${note.reason ? note.reason.slice(0, 200) : t('mod.reason.noneNote')}`,
   );
 
   return embed
     .setDescription(lines.join('\n\n').slice(0, 4_000))
-    .setFooter({ text: `${notes.length} catatan terbaru ditampilkan` });
+    .setFooter({ text: t('mod.notes.footer', { count: notes.length }) });
 }
 
 /** Embed yang dicatat ke channel log setiap kali `/purge` dijalankan. */
-
-export function purgeLogEmbed(input: {
-  moderatorId: string;
-  channelId: string;
-  deleted: number;
-  filters: string[];
-}): EmbedBuilder {
+export function purgeLogEmbed(
+  input: {
+    moderatorId: string;
+    channelId: string;
+    deleted: number;
+    filters: string[];
+  },
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.warning)
-    .setTitle('🧹 Purge Pesan')
+    .setTitle(t('mod.log.purgeTitle'))
     .addFields(
-      { name: 'Jumlah', value: `${input.deleted} pesan`, inline: true },
-      { name: 'Channel', value: `<#${input.channelId}>`, inline: true },
-      { name: 'Moderator', value: `<@${input.moderatorId}>`, inline: true },
+      { name: t('mod.field.amount'), value: t('mod.log.messagesCount', { count: input.deleted }), inline: true },
+      { name: t('mod.field.channel'), value: `<#${input.channelId}>`, inline: true },
+      { name: t('mod.field.moderator'), value: `<@${input.moderatorId}>`, inline: true },
     )
     .setTimestamp();
 
   if (input.filters.length > 0) {
-    embed.addFields({ name: 'Filter', value: input.filters.join('\n') });
+    embed.addFields({ name: t('mod.field.filter'), value: input.filters.join('\n') });
   }
 
   return embed;
@@ -266,41 +307,43 @@ export function purgeLogEmbed(input: {
 export function caseSummaryEmbed(
   record: ModerationCase,
   options: { currentState?: CaseTargetState | null } = {},
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
-  const meta = ACTION_LABELS[record.type];
   const embed = new EmbedBuilder()
     .setColor(ACTION_COLORS[record.type])
-    .setTitle(`${meta.emoji} ${meta.label} — ${formatCaseId(record.caseNumber)}`)
+    .setTitle(
+      `${actionEmoji(record.type)} ${actionLabel(record.type, t)} — ${formatCaseId(record.caseNumber)}`,
+    )
     .setTimestamp(record.createdAt)
     .addFields(
-      { name: 'Target', value: formatTarget(record.targetId, caseTargetKind(record)), inline: true },
-      { name: 'Moderator', value: `<@${record.moderatorId}>`, inline: true },
-      { name: 'Status', value: describeCaseStatus(record), inline: true },
-      { name: 'Waktu', value: `<t:${toUnix(record.createdAt)}:f> · <t:${toUnix(record.createdAt)}:R>`, inline: true },
-      { name: 'Alasan', value: caseReasonText(record) },
+      { name: t('mod.field.target'), value: formatTarget(record.targetId, caseTargetKind(record)), inline: true },
+      { name: t('mod.field.moderator'), value: `<@${record.moderatorId}>`, inline: true },
+      { name: t('mod.field.status'), value: describeCaseStatus(record, t), inline: true },
+      { name: t('mod.field.time'), value: `<t:${toUnix(record.createdAt)}:f> · <t:${toUnix(record.createdAt)}:R>`, inline: true },
+      { name: t('mod.field.reason'), value: caseReasonText(record, t) },
     );
 
   if (record.expiresAt) {
     const expired = record.expiresAt.getTime() <= record.createdAt.getTime();
     embed.addFields({
-      name: 'Berakhir',
+      name: t('mod.field.expires'),
       value: expired
-        ? `<t:${toUnix(record.expiresAt)}:f> — *sudah lewat*`
+        ? t('mod.case.expired', { when: toUnix(record.expiresAt) })
         : `<t:${toUnix(record.expiresAt)}:f> · <t:${toUnix(record.expiresAt)}:R>`,
       inline: true,
     });
   }
 
-  const stateLines = currentStateLines(record, options.currentState ?? null);
+  const stateLines = currentStateLines(record, options.currentState ?? null, t);
   if (stateLines.length > 0) {
-    embed.addFields({ name: 'Kondisi sekarang', value: stateLines.join('\n') });
+    embed.addFields({ name: t('mod.field.currentState'), value: stateLines.join('\n') });
   }
 
   // Hanya untuk aksi yang memang mengirim DM; aksi channel & `/note` tidak
   // punya baris sama sekali, bukan baris yang menyatakan "tidak dikirim".
-  const dmLine = dmDeliveryLine(record);
+  const dmLine = dmDeliveryLine(record, t);
   if (dmLine) {
-    embed.addFields({ name: 'Notifikasi', value: dmLine, inline: true });
+    embed.addFields({ name: t('mod.field.notification'), value: dmLine, inline: true });
   }
 
   return embed;
@@ -316,21 +359,21 @@ export function caseSummaryEmbed(
 export function moderatorProfileEmbed(
   profile: ModeratorProfile,
   options: { displayName: string } = { displayName: '' },
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
   const name = options.displayName || `<@${profile.moderatorId}>`;
-  const embed = new EmbedBuilder()
+
+  return new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle(`🛡️ Profil Moderator — ${name}`)
-    .setDescription(moderatorOverviewLines(profile).join('\n'))
+    .setTitle(t('mod.profile.title', { name }))
+    .setDescription(moderatorOverviewLines(profile, t).join('\n'))
     .addFields({
-      name: 'Sebaran aksi',
-      value: moderatorActionLines(profile).slice(0, 1_024),
+      name: t('mod.field.actionSpread'),
+      value: moderatorActionLines(profile, t).slice(0, 1_024),
       inline: false,
     })
-    .setFooter({ text: 'Hanya kasus yang tercatat Harmony · data lama dihapus setelah 12 bulan' })
+    .setFooter({ text: t('mod.profile.footer') })
     .setTimestamp();
-
-  return embed;
 }
 
 /**
@@ -344,50 +387,59 @@ export function moderatorProfileEmbed(
  * sini tidak membuka data yang tidak boleh dilihat target: alasan lengkapnya
  * tetap hanya di `/case`.
  */
-export function priorCaseEmbed(summary: PriorCaseSummary): EmbedBuilder {
-  const overview = priorCaseNoteLines(summary);
-  const recent = priorCaseRecentLines(summary);
+export function priorCaseEmbed(
+  summary: PriorCaseSummary,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
+  const overview = priorCaseNoteLines(summary, t);
+  const recent = priorCaseRecentLines(summary, t);
   const body = [...overview, ...(recent.length > 0 ? ['', ...recent] : [])].join('\n');
   const hint = summary.recentCases[0]
-    ? ` · \`/case kasus:${formatCaseId(summary.recentCases[0].caseNumber)}\` untuk detail`
+    ? t('mod.prior.hint', { case: formatCaseId(summary.recentCases[0].caseNumber) })
     : '';
 
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle(`🗂️ Riwayat terkait <@${summary.targetId}>`)
+    .setTitle(t('mod.prior.title', { target: summary.targetId }))
     .setDescription(body.slice(0, 4_000))
-    .setFooter({
-      text: `${summary.total} kasus sebelumnya tercatat di Harmony${hint}`,
-    })
+    .setFooter({ text: t('mod.prior.footer', { count: summary.total, hint }) })
     .setTimestamp();
 }
 
 /** Daftar kasus terbaru milik moderator — kasus lengkapnya ada di `/case`. */
-export function moderatorRecentCasesEmbed(profile: ModeratorProfile): EmbedBuilder {
+export function moderatorRecentCasesEmbed(
+  profile: ModeratorProfile,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle('🗂️ Kasus Terbaru')
+    .setTitle(t('mod.profile.recentTitle'))
     .setTimestamp();
 
   if (profile.recentCases.length === 0) {
-    return embed.setDescription(
-      'Belum ada kasus yang tercatat untuk moderator ini di server ini.',
-    );
+    return embed.setDescription(t('mod.profile.recentEmpty'));
   }
 
   const lines = profile.recentCases.map((record) =>
-    moderatorCaseLine(record, moderatorTargetKind(record.type)),
+    moderatorCaseLine(record, moderatorTargetKind(record.type), t),
   );
   const hidden = profile.totals.total - profile.recentCases.length;
-  const detailHint = ' · `/case kasus:NNN` untuk detailnya';
+  const detailHint = t('mod.profile.detailHint');
 
   return embed
     .setDescription(lines.join('\n'))
     .setFooter({
       text:
         hidden > 0
-          ? `${profile.recentCases.length} terbaru dari ${profile.totals.total} kasus${detailHint}`
-          : `${profile.recentCases.length} kasus terbaru${detailHint}`,
+          ? t('mod.profile.ofTotal', {
+              shown: profile.recentCases.length,
+              total: profile.totals.total,
+              hint: detailHint,
+            })
+          : t('mod.profile.recentCount', {
+              count: profile.recentCases.length,
+              hint: detailHint,
+            }),
     });
 }
 
@@ -396,24 +448,22 @@ export function caseHistoryEmbed(
   target: ModerationCase,
   history: readonly ModerationCase[],
   total: number,
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle(
-      `🗂️ Riwayat ${formatTarget(target.targetId, caseTargetKind(target))}`,
-    )
+    .setTitle(t('mod.case.historyTitle', { target: formatTarget(target.targetId, caseTargetKind(target)) }))
     .setTimestamp();
 
   if (history.length === 0) {
-    return embed.setDescription(
-      'Tidak ada kasus lain atas target ini — ini satu-satunya kasusnya.',
-    );
+    return embed.setDescription(t('mod.case.historyEmpty'));
   }
 
-  const lines = history.map(caseHistoryLine);
-  const note = total > history.length ? `\n\n*+${total - history.length} kasus lain tidak ditampilkan.*` : '';
+  const lines = history.map((record) => caseHistoryLine(record, t));
+  const note =
+    total > history.length ? t('mod.case.historyHidden', { count: total - history.length }) : '';
 
   return embed
     .setDescription(`${lines.join('\n')}${note}`.slice(0, 4_000))
-    .setFooter({ text: `${total} kasus lain tercatat untuk target ini` });
+    .setFooter({ text: t('mod.case.historyFooter', { count: total }) });
 }

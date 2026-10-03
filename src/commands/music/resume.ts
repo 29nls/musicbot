@@ -19,21 +19,22 @@ export default {
         return;
       }
 
-      const resumed = await gate.ctx.music.setPaused(gate.ctx.guildId, false);
+      const { music, guildId, t } = gate.ctx;
+      const resumed = await music.setPaused(guildId, false);
       if (!resumed) {
-        await replyEphemeralError(interaction, warningEmbed('Tidak ada pemutaran aktif untuk dilanjutkan.'));
+        await replyEphemeralError(interaction, warningEmbed(t('music.control.nothingToResume')));
         return;
       }
 
-      const snapshot = await gate.ctx.music.snapshot(gate.ctx.guildId);
+      const snapshot = await music.snapshot(guildId);
 
       await interaction.editReply({
         embeds: [
           successEmbed(
             snapshot.current
-              ? `▶️ ${describeTrack(snapshot.current, 80)} dilanjutkan.`
-              : '▶️ Pemutaran dilanjutkan.',
-            '▶️ Dilanjutkan',
+              ? `▶️ ${t('music.control.resumedTrack', { track: describeTrack(snapshot.current, 80) })}`
+              : `▶️ ${t('music.control.resumedTrack', { track: t('music.control.resumedTitle') })}`,
+            `▶️ ${t('music.control.resumedTitle')}`,
           ),
         ],
       });

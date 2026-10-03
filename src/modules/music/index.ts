@@ -13,6 +13,13 @@ export {
   resetMusicSingletons,
 } from './singleton.js';
 export { MusicService } from './musicService.js';
+export {
+  MAX_LAVALINK_NODES,
+  lavalinkNodeName,
+  parseLavalinkNodes,
+  summarizeLavalinkNodes,
+} from './nodes.js';
+export type { LavalinkNodeList, LavalinkNodeReport, LavalinkNodeSpec, LavalinkNodeStatus } from './nodes.js';
 export type { EnqueueRequest, MusicServiceOptions, PlayRequest } from './musicService.js';
 export { canControlMusic, clampVolume, isInSameVoiceChannel } from './permissions.js';
 export { renderPlayOutcome } from './render.js';
@@ -65,6 +72,20 @@ export {
   sessionKey,
 } from './searchSession.js';
 export type { SearchSelection, SearchSession, TokenFactory } from './searchSession.js';
+export {
+  SHARED_STATE_KEY_PREFIX,
+  SHARED_STATE_TTL_MS,
+  SharedMusicState,
+  sharedStateKey,
+} from './sharedState.js';
+export type { AddQueueResult, SharedMusicStateOptions } from './sharedState.js';
+export {
+  MAX_STORED_TRACKS,
+  decodeSharedMusicState,
+  emptyRecord,
+  encodeSharedMusicState,
+} from './sharedStateCodec.js';
+export type { SharedMusicRecord } from './sharedStateCodec.js';
 export {
   LONG_TRACK_THRESHOLD_MS,
   MAX_TRACK_DURATION_MS,

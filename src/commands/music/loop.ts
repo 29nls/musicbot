@@ -36,15 +36,16 @@ export default {
         return;
       }
 
-      const previous = gate.ctx.music.setLoopMode(gate.ctx.guildId, mode);
-      const from = loopModeLabel(previous);
-      const to = loopModeLabel(mode);
+      const { music, guildId, t } = gate.ctx;
+      const previous = await music.setLoopMode(guildId, mode);
+      const from = loopModeLabel(previous, t);
+      const to = loopModeLabel(mode, t);
       const text =
         mode === 'off'
-          ? `🔁 Loop dimatikan (sebelumnya ${from}).`
-          : `🔁 Loop diubah dari ${from} ke **${to}**.`;
+          ? `🔁 ${t('music.loop.disabledText', { from })}`
+          : `🔁 ${t('music.loop.changedText', { from, to })}`;
 
-      await interaction.editReply({ embeds: [successEmbed(text, '🔁 Mode Loop')] });
+      await interaction.editReply({ embeds: [successEmbed(text, `🔁 ${t('music.loop.title')}`)] });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'loop');
     }

@@ -12,6 +12,7 @@ import { recordLogEntry, resolveLogTarget } from '../../modules/logging/index.js
 import {
   checkModerationHierarchy,
   getModerationService,
+  hierarchyMessage,
   LINKED_CASE_ACTIONS,
   moderationDmEmbed,
   moderationLogCategory,
@@ -25,6 +26,7 @@ import {
   type ModerationService,
   type NotifiableAction,
 } from '../../modules/moderation/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import { getLogger } from '../../services/logger.js';
 import { errorEmbed } from '../../utils/embeds.js';
 
@@ -58,6 +60,15 @@ export interface AdminContext {
   actor: GuildMember;
   me: GuildMember;
   moderation: ModerationService;
+  /**
+   * Penerjemah bahasa server, sudah terikat.
+   *
+   * Gate admin sudah membaca config untuk aturan modul, jadi penerjemah
+   * diambil di sana sekali lalu dipakai ulang. Tanpa ini tiap perintah
+   * akan membaca locale-nya sendiri, dan 14 perintah yang semuanya memakai
+   * pola sama adalah 14 tempat untuk lupa.
+   */
+  t: Translator;
 }
 
 export type AdminGate = { ok: true; ctx: AdminContext } | { ok: false; embed: EmbedBuilder };
@@ -73,38 +84,37 @@ export async function gateAdminCommand(
   permission: AdminPermission,
 ): Promise<AdminGate> {
   if (!interaction.inCachedGuild()) {
-    return fail(errorEmbed('Perintah ini hanya bisa dipakai di dalam server.'));
+    return fail(errorEmbed(defaultTranslator('mod.gate.guildOnly')));
   }
 
   const guild = interaction.guild;
   const actor = interaction.member;
+  const t = await translatorFor(guild.id);
 
   // Lapis kedua: Discord sudah menyembunyikan perintah, tapi server bisa
   // menimpa default permission-nya.
   if (!(interaction.memberPermissions?.has(permission.bit) ?? false)) {
-    return fail(errorEmbed(`Perintah ini butuh izin **${permission.label}**.`));
+    return fail(errorEmbed(t('mod.gate.needsPermission', { permission: permission.label })));
   }
 
   let config: GuildConfig;
   try {
     config = await getGuildConfigService().get(guild.id);
   } catch (error) {
-    return fail(toModerationErrorEmbed(error));
+    return fail(toModerationErrorEmbed(error, t));
   }
 
   if (!config.modules.moderation) {
-    return fail(
-      errorEmbed('Modul moderasi dimatikan di server ini. Nyalakan lewat `/setup` atau `/config`.'),
-    );
+    return fail(errorEmbed(t('mod.gate.moduleDisabled')));
   }
 
   const me = guild.members.me ?? (await guild.members.fetchMe().catch(() => null));
   if (!me) {
-    return fail(errorEmbed('Aku belum termuat di server ini. Coba lagi sebentar lagi.'));
+    return fail(errorEmbed(t('mod.gate.botNotLoaded')));
   }
 
   if (!me.permissions.has(permission.bit)) {
-    return fail(errorEmbed(`Aku tidak punya izin **${permission.label}** di server ini.`));
+    return fail(errorEmbed(t('mod.gate.botLacksPermission', { permission: permission.label })));
   }
 
   return {
@@ -116,6 +126,7 @@ export async function gateAdminCommand(
       actor,
       me,
       moderation: getModerationService(),
+      t,
     },
   };
 }
@@ -144,12 +155,26 @@ export function hierarchyFailure(
     targetHighestRolePosition: targetMember?.roles.highest.position ?? null,
   });
 
-  return result.ok ? null : errorEmbed(result.message);
+  return result.ok ? null : errorEmbed(hierarchyMessage(result, ctx.t));
 }
 
-/** Alasan yang tercatat di audit log Discord (maks 512 karakter). */
-export function auditReason(actor: { tag: string; id: string }, reason: string | null): string {
-  return `${reason ?? 'Tanpa alasan'} • oleh ${actor.tag} (${actor.id})`.slice(0, 512);
+/**
+ * Alasan yang tercatat di audit log Discord (maks 512 karakter).
+ *
+ * String ini masuk ke **audit log Discord milik server**, jadi isinya
+ * sengaja bahasa Indonesia: yang membacanya moderator lewat menu Audit Log,
+ * dan audit log itu tidak punya tempat untuk bahasa server. Moderator
+ * yang mengetik alasan juga sudah mengetik dalam bahasanya sendiri.
+ */
+export function auditReason(
+  actor: { tag: string; id: string },
+  reason: string | null,
+  t: Translator = defaultTranslator,
+): string {
+  return `${reason ?? t('mod.audit.noReason')} • ${t('mod.audit.by', {
+    actor: actor.tag,
+    id: actor.id,
+  })}`.slice(0, 512);
 }
 
 /** Kirim DM ke target; false = DM tertutup/diblokir, bukan alasan membatalkan aksi. */
@@ -164,12 +189,14 @@ export async function dmTarget(user: User, embed: EmbedBuilder): Promise<boolean
 }
 
 /** Catatan kondisi pengiriman; `undefined` = aksi ini memang tidak mengirim DM. */
-export function deliveryNotes(dmSent: boolean | undefined, logged: boolean): string[] {
+export function deliveryNotes(
+  dmSent: boolean | undefined,
+  logged: boolean,
+  t: Translator = defaultTranslator,
+): string[] {
   const notes: string[] = [];
-  if (dmSent === false) notes.push('⚠️ DM ke target tidak terkirim (DM tertutup atau bot diblokir).');
-  if (!logged) {
-    notes.push('⚠️ Channel log belum diatur atau tidak bisa dikirim, jadi log tidak tersimpan.');
-  }
+  if (dmSent === false) notes.push(t('mod.dm.notSent'));
+  if (!logged) notes.push(t('mod.delivery.logMissing'));
   return notes;
 }
 
@@ -208,6 +235,7 @@ type RecordedActionOptions = RecordedActionBase &
  */
 async function runRecordedAction(options: RecordedActionOptions): Promise<void> {
   const { interaction, ctx, reason } = options;
+  const { t } = ctx;
   const expiresAt = options.expiresAt ?? null;
 
   const created = await ctx.moderation.recordAction({
@@ -223,13 +251,16 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
   if (options.notify) {
     dmSent = await dmTarget(
       options.notify,
-      moderationDmEmbed({
-        action: options.action,
-        caseNumber: created.caseNumber,
-        guildName: ctx.guild.name,
-        reason,
-        expiresAt,
-      }),
+      moderationDmEmbed(
+        {
+          action: options.action,
+          caseNumber: created.caseNumber,
+          guildName: ctx.guild.name,
+          reason,
+          expiresAt,
+        },
+        t,
+      ),
     );
 
     // Dicatat di kasusnya supaya `/case` bisa menampilkan apakah targetnya
@@ -262,17 +293,20 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
     }
   }
 
-  const caseEmbed = moderationLogEmbed({
-    action: options.action,
-    caseNumber: created.caseNumber,
-    targetId: options.targetId,
-    targetKind: options.targetKind,
-    moderatorId: interaction.user.id,
-    reason,
-    createdAt: created.createdAt,
-    expiresAt,
-    dmSent,
-  });
+  const caseEmbed = moderationLogEmbed(
+    {
+      action: options.action,
+      caseNumber: created.caseNumber,
+      targetId: options.targetId,
+      targetKind: options.targetKind,
+      moderatorId: interaction.user.id,
+      reason,
+      createdAt: created.createdAt,
+      expiresAt,
+      dmSent,
+    },
+    t,
+  );
 
   const logged = await deliverCaseLog(ctx, options.action, caseEmbed, {
     targetId: options.targetId,
@@ -282,15 +316,18 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
   });
 
   const embeds = [
-    moderationResultEmbed({
-      action: options.action,
-      caseNumber: created.caseNumber,
-      targetId: options.targetId,
-      targetKind: options.targetKind,
-      reason,
-      expiresAt,
-      extraLines: [...(options.extraLines ?? []), ...deliveryNotes(dmSent, logged)],
-    }),
+    moderationResultEmbed(
+      {
+        action: options.action,
+        caseNumber: created.caseNumber,
+        targetId: options.targetId,
+        targetKind: options.targetKind,
+        reason,
+        expiresAt,
+        extraLines: [...(options.extraLines ?? []), ...deliveryNotes(dmSent, logged, t)],
+      },
+      t,
+    ),
   ];
 
   // Riwayat dibaca SETELAH kasus tercatat & Discord sudah dipanggil, lalu
@@ -303,6 +340,7 @@ async function runRecordedAction(options: RecordedActionOptions): Promise<void> 
       ctx.guildId,
       options.targetId,
       created.caseNumber,
+      t,
     ).catch((error) => {
       getLogger()
         .warn({ err: error, guildId: ctx.guildId, target: options.targetId }, 'Gagal memuat riwayat kasus');
@@ -330,10 +368,11 @@ export async function priorCaseEmbedFor(
   guildId: string,
   targetId: string,
   caseNumber: number,
+  t: Translator = defaultTranslator,
 ): Promise<EmbedBuilder | null> {
   const summary = await service.priorCaseSummary(guildId, targetId, caseNumber);
 
-  return summary.hasHistory ? priorCaseEmbed(summary) : null;
+  return summary.hasHistory ? priorCaseEmbed(summary, t) : null;
 }
 
 /**
@@ -445,14 +484,17 @@ export type LockPlan =
  * Channel teks → tolak `SendMessages`; channel voice → tolak `Connect`.
  * Nilai `null` saat unlock mengembalikan izin ke default (bukan memaksa allow).
  */
-export function resolveLockPlan(interaction: ChatInputCommandInteraction): LockPlan {
+export function resolveLockPlan(
+  interaction: ChatInputCommandInteraction,
+  t: Translator = defaultTranslator,
+): LockPlan {
   if (!interaction.inCachedGuild()) {
-    return { ok: false, embed: errorEmbed('Perintah ini hanya bisa dipakai di dalam server.') };
+    return { ok: false, embed: errorEmbed(t('mod.gate.guildOnly')) };
   }
 
   const channel = interaction.channel;
   if (!channel || channel.isDMBased()) {
-    return { ok: false, embed: errorEmbed('Perintah ini hanya bisa dipakai di channel server.') };
+    return { ok: false, embed: errorEmbed(t('mod.gate.channelOnly')) };
   }
 
   if (channel.isVoiceBased()) {
@@ -491,9 +533,7 @@ export function resolveLockPlan(interaction: ChatInputCommandInteraction): LockP
 
   return {
     ok: false,
-    embed: errorEmbed(
-      'Perintah ini hanya bisa dipakai di channel teks atau voice — bukan thread atau kategori.',
-    ),
+    embed: errorEmbed(t('mod.gate.textVoiceOnly')),
   };
 }
 
@@ -517,5 +557,7 @@ export async function handleAdminFailure(
     'Perintah admin gagal',
   );
 
-  await replyEphemeralError(interaction, toModerationErrorEmbed(error));
+  const t = await translatorFor(interaction.guildId ?? 'unknown');
+
+  await replyEphemeralError(interaction, toModerationErrorEmbed(error, t));
 }

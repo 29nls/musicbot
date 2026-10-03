@@ -54,7 +54,7 @@ export default {
       if (!channel || !channel.isTextBased() || channel.isDMBased() || !('bulkDelete' in channel)) {
         await replyEphemeralError(
           interaction,
-          errorEmbed('Perintah ini hanya bisa dipakai di channel teks dalam server.'),
+          errorEmbed(ctx.t('mod.gate.textChannelOnly')),
         );
         return;
       }
@@ -74,7 +74,7 @@ export default {
 
       if (selected.length === 0) {
         await interaction.editReply({
-          embeds: [warningEmbed('Tidak ada pesan yang cocok dengan filter itu dalam rentang yang diperiksa.')],
+          embeds: [warningEmbed(ctx.t('mod.purge.noMatch'))],
         });
         return;
       }
@@ -82,31 +82,34 @@ export default {
       const deletedCount = await deleteMessages(channel, selected);
 
       const filters: string[] = [];
-      if (filterUser) filters.push(`Penulis: <@${filterUser.id}>`);
-      if (contains) filters.push(`Mengandung: \`${contains}\``);
+      if (filterUser) filters.push(ctx.t('mod.purge.filterAuthor', { id: filterUser.id }));
+      if (contains) filters.push(ctx.t('mod.purge.filterContains', { value: contains }));
 
       const logged = await sendGuildEmbed(
         ctx.guild,
         ctx.config.logChannelId,
-        purgeLogEmbed({
-          moderatorId: interaction.user.id,
-          channelId: channel.id,
-          deleted: deletedCount,
-          filters,
-        }),
+        purgeLogEmbed(
+          {
+            moderatorId: interaction.user.id,
+            channelId: channel.id,
+            deleted: deletedCount,
+            filters,
+          },
+          ctx.t,
+        ),
       );
 
-      const lines = [`🧹 **${deletedCount}** pesan dihapus dari <#${channel.id}>.`];
+      const lines = [ctx.t('mod.purge.deletedLine', { count: deletedCount, channel: channel.id })];
       if (deletedCount < selected.length) {
-        lines.push(
-          `ℹ️ **${selected.length - deletedCount}** pesan tidak bisa dihapus (lebih tua dari 14 hari atau dipinned).`,
-        );
+        lines.push(ctx.t('mod.purge.skippedLine', { count: selected.length - deletedCount }));
       }
       if (!logged) {
-        lines.push('⚠️ Channel log belum diatur atau tidak bisa dikirim, jadi log tidak tersimpan.');
+        lines.push(ctx.t('mod.delivery.logMissing'));
       }
 
-      await interaction.editReply({ embeds: [successEmbed(lines.join('\n'), '🧹 Purge Selesai')] });
+      await interaction.editReply({
+        embeds: [successEmbed(lines.join('\n'), ctx.t('mod.purge.doneTitle'))],
+      });
     } catch (error) {
       await handleAdminFailure(interaction, error, 'purge');
     }

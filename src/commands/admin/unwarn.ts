@@ -49,7 +49,7 @@ export default {
       if (caseNumber === null) {
         await replyEphemeralError(
           interaction,
-          errorEmbed('Format kasus tidak dikenal. Contoh: `#CASE-0007` atau `7`.'),
+          errorEmbed(ctx.t('mod.case.parseError')),
         );
         return;
       }
@@ -59,7 +59,7 @@ export default {
         await replyEphemeralError(
           interaction,
           errorEmbed(
-            `Kasus \`${formatCaseId(caseNumber)}\` tidak ditemukan di server ini atau bukan kasus peringatan.`,
+            ctx.t('mod.case.notFound', { case: formatCaseId(caseNumber) }),
           ),
         );
         return;
@@ -69,31 +69,40 @@ export default {
       const dmSent = target
         ? await dmTarget(
             target,
-            warningRevokedDmEmbed({
-              caseNumber,
-              guildName: ctx.guild.name,
-              moderatorId: interaction.user.id,
-            }),
+            warningRevokedDmEmbed(
+              {
+                caseNumber,
+                guildName: ctx.guild.name,
+                moderatorId: interaction.user.id,
+              },
+              ctx.t,
+            ),
           )
         : false;
 
       const logged = await sendGuildEmbed(
         ctx.guild,
         ctx.config.logChannelId,
-        warningRevokedLogEmbed({
-          caseNumber,
-          targetId: revoked.targetId,
-          moderatorId: interaction.user.id,
-        }),
+        warningRevokedLogEmbed(
+          {
+            caseNumber,
+            targetId: revoked.targetId,
+            moderatorId: interaction.user.id,
+          },
+          ctx.t,
+        ),
       );
 
       const lines = [
-        `Peringatan \`${formatCaseId(caseNumber)}\` milik <@${revoked.targetId}> sudah dicabut.`,
-        ...deliveryNotes(dmSent, logged),
+        ctx.t('mod.unwarn.revokedLine', {
+          case: formatCaseId(caseNumber),
+          target: revoked.targetId,
+        }),
+        ...deliveryNotes(dmSent, logged, ctx.t),
       ];
 
       await interaction.editReply({
-        embeds: [successEmbed(lines.join('\n'), '♻️ Peringatan Dicabut')],
+        embeds: [successEmbed(lines.join('\n'), ctx.t('mod.log.revokedTitle'))],
       });
     } catch (error) {
       await handleAdminFailure(interaction, error, 'unwarn');

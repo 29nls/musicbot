@@ -17,7 +17,7 @@ export { ModerationService } from './service.js';
 export { PrismaModerationRepository } from './repository.js';
 export type { ModerationRepository } from './repository.js';
 export type { WarningSummary } from './service.js';
-export { checkModerationHierarchy } from './hierarchy.js';
+export { checkModerationHierarchy, hierarchyMessage } from './hierarchy.js';
 export { RETENTION_MONTHS, purgeExpiredRecords, retentionCutoff } from './retention.js';
 export type { RetentionResult } from './retention.js';
 export { formatCaseId, parseCaseNumber } from './caseNumber.js';
@@ -97,7 +97,9 @@ export {
 } from './embeds.js';
 export type { TargetKind } from './embeds.js';
 export {
-  ACTION_LABELS,
+  actionEmoji,
+  actionLabel,
+  compareActions,
   DM_STATUSES,
   isDmStatus,
   MAX_NOTES_SHOWN,

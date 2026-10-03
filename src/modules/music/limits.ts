@@ -1,3 +1,4 @@
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { formatDuration } from '../../utils/duration.js';
 
 /**
@@ -96,35 +97,44 @@ export function splitByTrackLimits<T extends TrackLimitInput>(
   return split;
 }
 
-/** Alasan singkat untuk satu jenis penolakan (dipakai footer embed). */
+/**
+ * Alasan singkat untuk satu jenis penolakan (dipakai footer embed).
+ *
+ * Durasi sengaja ikut diterjemahkan dan tidak ditulis sebagai angka tetap:
+ * `"6 jam"` dan `"6 hours"` bukan sekadar beda kata, dan menyalin angka
+ * ke dalam katalog berarti batas yang salah diam-diam kalau_constant_ itu
+ * pernah diubah di kode.
+ */
 export function trackLimitReason(
   kind: 'too-long' | 'needs-control',
   options: { durationMs?: number } = {},
+  t: Translator = defaultTranslator,
 ): string {
   if (kind === 'too-long') {
-    return `melewati batas ${formatDuration(MAX_TRACK_DURATION_MS)}`;
+    return t('music.limit.reasonTooLong', {
+      duration: formatDuration(MAX_TRACK_DURATION_MS),
+    });
   }
 
   return options.durationMs === undefined
-    ? `lebih dari ${formatDuration(LONG_TRACK_THRESHOLD_MS)} (atau live stream)`
-    : `lebih dari ${formatDuration(LONG_TRACK_THRESHOLD_MS)}`;
+    ? t('music.limit.reasonNeedsControlStream', {
+        duration: formatDuration(LONG_TRACK_THRESHOLD_MS),
+      })
+    : t('music.limit.reasonNeedsControl', {
+        duration: formatDuration(LONG_TRACK_THRESHOLD_MS),
+      });
 }
 
 /** Balasan lengkap kalau **semua** lagu ditolak. */
 export function trackLimitRejectionMessage(
   kind: 'too-long' | 'needs-control',
   count: number,
+  t: Translator = defaultTranslator,
 ): string {
-  if (kind === 'too-long') {
-    return (
-      `${count} lagu ditolak: durasinya ${trackLimitReason('too-long')}. ` +
-      'Batas ini berlaku untuk semua orang, termasuk DJ — ini untuk mencegah ' +
-      'lagu radio yang memblokir player.'
-    );
-  }
+  const key =
+    kind === 'too-long'
+      ? 'music.limit.rejectedTooLong'
+      : 'music.limit.rejectedNeedsControl';
 
-  return (
-    `${count} lagu ditolak: ${trackLimitReason('needs-control')}. ` +
-    'Coba lagi dengan role DJ atau Manage Server, atau pilih lagu yang lebih pendek.'
-  );
+  return t(key, { count, reason: trackLimitReason(kind, {}, t) });
 }

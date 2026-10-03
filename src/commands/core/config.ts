@@ -12,6 +12,14 @@ import {
   type GuildConfigPatch,
   type ModulesEnabled,
 } from '../../modules/config/index.js';
+import {
+  LOCALE_LABELS,
+  LOCALES,
+  getLocaleService,
+  parseLocale,
+  toLocale,
+  translatorForLocale,
+} from '../../modules/i18n/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { canManageGuild } from '../../utils/permissions.js';
@@ -85,6 +93,17 @@ export default {
             .setDescription('Pesan perpisahan; placeholder {user} {mention} {server} {count}')
             .setMaxLength(1_500),
         )
+        .addStringOption((option) =>
+          option
+            .setName('locale')
+            .setDescription('Bahasa balasan bot (id atau en)')
+            .addChoices(
+              ...LOCALES.map((locale) => ({
+                name: LOCALE_LABELS[locale],
+                value: locale,
+              })),
+            ),
+        )
         .addBooleanOption((option) => option.setName('music').setDescription('Modul musik aktif?'))
         .addBooleanOption((option) =>
           option.setName('moderation').setDescription('Modul moderasi aktif?'),
@@ -139,11 +158,24 @@ export default {
       }
 
       const updated = await service.update(guildId, patch);
+
+      // Cache bahasa langsung dibuang supaya perintah berikutnya membaca
+      // bahasa yang baru, bukan menunggu TTL habis.
+      if (patch.locale !== undefined) {
+        getLocaleService().invalidate(guildId);
+      }
+
+      // Konfirmasi ditulis dalam bahasa yang baru dipilih: orang yang baru
+      // menyalakan bahasa Inggris harus melihat bukti bahwa itu berhasil.
+      const locale = toLocale(updated.locale);
+      const t = translatorForLocale(locale);
+      const summary =
+        patch.locale !== undefined
+          ? t('config.locale.changed', { locale: LOCALE_LABELS[locale] })
+          : 'Konfigurasi diperbarui dan langsung berlaku — tanpa restart bot.';
+
       await interaction.editReply({
-        embeds: [
-          successEmbed('Konfigurasi diperbarui dan langsung berlaku — tanpa restart bot.'),
-          renderConfigEmbed(updated),
-        ],
+        embeds: [successEmbed(summary), renderConfigEmbed(updated)],
       });
     } catch (error) {
       await interaction.editReply({ embeds: [toConfigErrorEmbed(error)] });
@@ -187,6 +219,22 @@ function buildPatch(interaction: ChatInputCommandInteraction): GuildConfigPatch 
 
   const goodbyeMessage = interaction.options.getString('goodbye-message');
   if (goodbyeMessage !== null) patch.goodbyeMessage = goodbyeMessage;
+
+  // Bahasa tidak dikenal ditolak di sini, bukan diteruskan ke validasi config:
+  // pesannya bisa menyebut daftar yang benar, sementara pesan zod hanya
+  // menyebut nama field.
+  const rawLocale = interaction.options.getString('locale');
+  if (rawLocale !== null) {
+    const locale = parseLocale(rawLocale);
+    if (!locale) {
+      throw new Error(
+        'Bahasa itu tidak dikenal. Pilihan yang tersedia: ' +
+          LOCALES.map((item) => LOCALE_LABELS[item]).join(' / '),
+      );
+    }
+
+    patch.locale = locale;
+  }
 
   const modules: Partial<ModulesEnabled> = {};
   const music = interaction.options.getBoolean('music');

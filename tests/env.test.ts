@@ -20,6 +20,26 @@ describe('parseEnv', () => {
     expect(env.DEFAULT_VOLUME).toBe(100);
     expect(env.MAX_QUEUE_SIZE).toBe(500);
     expect(env.DEV_GUILD_ID).toBeUndefined();
+    expect(env.LAVALINK_NODES).toBeUndefined();
+  });
+
+  it('membaca daftar node Lavalink sebagai teks apa adanya', () => {
+    const env = parseEnv({ ...validEnv, LAVALINK_NODES: 'lava-a:2333, lava-b:4040' });
+
+    expect(env.LAVALINK_NODES).toBe('lava-a:2333, lava-b:4040');
+  });
+
+  it('menganggap LAVALINK_NODES kosong sebagai undefined, bukan daftar kosong', () => {
+    const env = parseEnv({ ...validEnv, LAVALINK_NODES: '   ' });
+
+    expect(env.LAVALINK_NODES).toBeUndefined();
+  });
+
+  it('tidak memaksa LAVALINK_NODES ada, jadi konfigurasi lama tetap berlaku', () => {
+    const env = parseEnv(validEnv);
+
+    expect(env.LAVALINK_HOST).toBe('localhost');
+    expect(env.LAVALINK_PORT).toBe(2333);
   });
 
   it('mengubah string angka menjadi number', () => {

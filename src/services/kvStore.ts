@@ -25,6 +25,22 @@ export interface SetOptions {
   ttlMs?: number;
 }
 
+/** Opsi untuk penulisan bersyarat. */
+export interface CompareAndSetOptions extends SetOptions {
+  /**
+   * Nilai yang harus ada persis di store supaya penulisan berjalan.
+   *
+   * `null` berarti **key-nya harus belum ada**. Bagian itu bukan tambahan:
+   * tanpa itu, "buat record baru" tetap balapan — dua proses bisa sama-sama
+   * membaca key kosong lalu sama-sama menulis, dan yang kedua menimpa yang
+   * pertama.
+   *
+   * Bandingannya lewat nilai utuh, bukan nomor versi, jadi store ini tidak
+   * perlu tahu apa pun tentang isi yang disimpan.
+   */
+  expectedValue: string | null;
+}
+
 export interface KeyValueStore {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, options?: SetOptions): Promise<void>;
@@ -45,6 +61,19 @@ export interface KeyValueStore {
    * berhenti untuk pengguna yang aktif.
    */
   increment(key: string, options?: SetOptions): Promise<number>;
+  /**
+   * Tulis hanya kalau nilai saat ini persis sama dengan yang diharapkan.
+   *
+   * Mengembalikan true kalau penulisan terjadi, false kalau nilai di store
+   * sudah berubah di antara pembacaan dan penulisan. Pemanggil yang benar
+   * lalu membaca ulang dan mencoba lagi — itulah bedanya dengan penulisan
+   * biasa yang diam-diam menimpa perubahan orang lain.
+   *
+   * **Opsional karena tidak semua lapisan bisa melakukannya.** Di Redis ini
+   * satu skrip Lua; di store memori otomatis benar. Kalau tidak ada, pemanggil
+   * harus tahu bahwa itu tidak dijamin dan tidak boleh mengarang jaminan.
+   */
+  compareAndSet?(key: string, value: string, options: CompareAndSetOptions): Promise<boolean>;
   /** Tutup koneksi (dipanggil saat shutdown). Aman dipanggil berulang. */
   close(): Promise<void>;
 }
@@ -119,6 +148,18 @@ export class MemoryKeyValueStore implements KeyValueStore {
     return next;
   }
 
+  async compareAndSet(key: string, value: string, options: CompareAndSetOptions): Promise<boolean> {
+    const record = this.records.get(key);
+    const current = record && !isExpired(record) ? record.value : null;
+    const expected = options.expectedValue;
+
+    if (expected === null ? current !== null : current !== expected) return false;
+
+    this.pruneIfNeeded();
+    this.records.set(key, { value, expiresAt: ttlToExpiry(options.ttlMs) });
+    return true;
+  }
+
   async close(): Promise<void> {
     this.records.clear();
   }
@@ -165,11 +206,41 @@ export interface RedisLike {
   del(key: string): Promise<number>;
   /** GETDEL atomik; opsional karena butuh Redis 6.2+. */
   getdel?(key: string): Promise<string | null>;
+  /**
+   * `EVAL` atomik; opsional karena butuh Redis 2.6+.
+   *
+   * Bentuk argumennya sengaja sama dengan ioredis
+   * (`eval(script, jumlahKey, ...key, ...argumen)`) supaya tidak perlu
+   * diterjemahkan ulang saat akhirnya bicara dengan Redis sungguhan.
+   */
+  eval?(script: string, numberOfKeys: number, ...args: string[]): Promise<unknown>;
   incr(key: string): Promise<number>;
   pttl(key: string): Promise<number>;
   quit(): Promise<unknown>;
   on(event: string, listener: (error: Error) => void): unknown;
 }
+
+/**
+ * Skrip Lua untuk penulisan bersyarat.
+ *
+ * `GET`, bandingkan, lalu `SET` dalam satu perintah: tidak ada jeda antara
+ * membaca dan menulis, jadi tidak ada proses lain yang bisa menyisipkan di
+ * tengahnya. Untuk Redis inilah satu-satunya cara membuat baca-ubah-tulis
+ * benar-benar atomik — `WATCH`/`MULTI` butuh koneksi yang sama selama dua
+ * perintah, dan `EVAL` tidak.
+ */
+const COMPARE_AND_SET_SCRIPT = [
+  "local current = redis.call('GET', KEYS[1])",
+  "if ARGV[4] == '1' then",
+  "  if current then return 0 end",
+  "elseif current ~= ARGV[1] then",
+  "if tonumber(ARGV[3]) > 0 then",
+  "  redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])",
+  "else",
+  "  redis.call('SET', KEYS[1], ARGV[2])",
+  "end",
+  "return 1",
+].join('\n');
 
 /**
  * Store Redis.
@@ -223,6 +294,41 @@ export class RedisKeyValueStore implements KeyValueStore {
     }
 
     return value;
+  }
+
+  /**
+   * Penulisan bersyarat lewat satu skrip Lua.
+   *
+   * Tanpa `EVAL` (Redis sangat lama, atau klien yang tidak menyediakannya),
+   * jatuh ke baca-lalu-tulis biasa **dan hasilnya bukan jaminan**: nilainya
+   * dikembalikan apa adanya supaya pemanggil tidak mengira ini atomik.
+   */
+  async compareAndSet(key: string, value: string, options: CompareAndSetOptions): Promise<boolean> {
+    const ttlMs = options.ttlMs && options.ttlMs > 0 ? Math.trunc(options.ttlMs) : 0;
+
+    if (!this.client.eval) {
+      getLogger().warn(
+        { key },
+        'Client Redis tidak punya EVAL — penulisan bersyarat turun ke baca-lalu-tulis dan tidak atomik',
+      );
+
+      const current = await this.client.get(key);
+      if (current !== options.expectedValue) return false;
+      await this.set(key, value, { ttlMs: ttlMs > 0 ? ttlMs : undefined });
+      return true;
+    }
+
+    const result = await this.client.eval(
+      COMPARE_AND_SET_SCRIPT,
+      1,
+      key,
+      options.expectedValue ?? '',
+      value,
+      String(ttlMs),
+      options.expectedValue === null ? '1' : '0',
+    );
+
+    return Number(result) === 1;
   }
 
   async close(): Promise<void> {

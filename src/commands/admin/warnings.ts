@@ -32,11 +32,13 @@ export default {
         { id: user.id, tag: user.tag },
         summary.warnings.slice(0, MAX_WARNINGS_SHOWN),
         summary.total,
+        ctx.t,
       );
 
-      if (summary.total > MAX_WARNINGS_SHOWN) {
+      const hidden = summary.total - MAX_WARNINGS_SHOWN;
+      if (hidden > 0) {
         embed.setDescription(
-          `${embed.data.description ?? ''}\n\n*+${summary.total - MAX_WARNINGS_SHOWN} peringatan lain tidak ditampilkan.*`.trim(),
+          `${embed.data.description ?? ''}\n\n${ctx.t('mod.warnings.moreHidden', { count: hidden })}`.trim(),
         );
       }
 

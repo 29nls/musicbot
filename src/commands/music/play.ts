@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { canControlMusic } from '../../modules/music/index.js';
+import type { Translator } from '../../modules/i18n/index.js';
 import { getSpotifyService, resolveSpotifyPlay, toPlayInfo } from '../../modules/spotify/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { errorEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
@@ -53,7 +54,7 @@ export default {
       });
 
       if (spotify.kind !== 'unsupported') {
-        const embed = renderSpotifyResult(spotify);
+        const embed = renderSpotifyResult(spotify, gate.ctx.t);
         if (embed) {
           await interaction.editReply({ embeds: [embed] });
           return;
@@ -66,7 +67,7 @@ export default {
             spotify: toPlayInfo(spotify.meta, spotify.match),
           });
 
-          await interaction.editReply({ embeds: [renderPlayOutcome(outcome)] });
+          await interaction.editReply({ embeds: [renderPlayOutcome(outcome, gate.ctx.t)] });
           return;
         }
       }
@@ -77,7 +78,7 @@ export default {
         requesterId: interaction.user.id,
       });
 
-      await interaction.editReply({ embeds: [renderPlayOutcome(outcome)] });
+      await interaction.editReply({ embeds: [renderPlayOutcome(outcome, gate.ctx.t)] });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'play');
     }
@@ -85,32 +86,33 @@ export default {
 } satisfies BotCommand;
 
 /** Ringkasan untuk embed /play, atau null kalau hasilnya harus diputar. */
-function renderSpotifyResult(result: Awaited<ReturnType<typeof resolveSpotifyPlay>>) {
+function renderSpotifyResult(
+  result: Awaited<ReturnType<typeof resolveSpotifyPlay>>,
+  t: Translator,
+) {
   if (result.kind === 'resolved') return null;
 
   if (result.kind === 'unsupported') {
-    return errorEmbed(result.message, 'Tautan Spotify Tidak Bisa Dipakai');
+    return errorEmbed(result.message, t('music.play.spotifyUnsupported'));
   }
   if (result.kind === 'not-configured') {
     return warningEmbed(
-      'Metadata Spotify belum aktif karena `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` belum diisi di .env.',
-      'Spotify Belum Dikonfigurasi',
+      t('music.play.spotifyNotConfigured'),
+      t('music.play.spotifyNotConfiguredTitle'),
     );
   }
   if (result.kind === 'not-found') {
-    return infoEmbed('Lagu tidak ditemukan di Spotify', result.message);
+    return infoEmbed(t('music.play.spotifyNotFound'), result.message);
   }
   if (result.kind === 'search-failed') {
-    return errorEmbed(`Tidak bisa mencari audio untuk lagu itu: ${result.message}`);
+    return errorEmbed(t('music.play.spotifySearchFailed', { message: result.message }));
   }
   if (result.kind === 'no-match') {
     return errorEmbed(
-      `Tidak ada hasil pencarian yang cocok dengan **${result.meta.title}** di Spotify.\n\n` +
-        `${result.tried} kandidat diperiksa dan semuanya berbeda judul atau durasinya. ` +
-        'Coba cari lagunya dengan kata kunci biasa.',
-      '🎵 Audio Tidak Cocok',
+      t('music.play.spotifyNoMatch', { title: result.meta.title, tried: result.tried }),
+      `🎵 ${t('music.play.spotifyNoMatchTitle')}`,
     );
   }
 
-  return errorEmbed(result.message, 'Gagal Meminta Metadata Spotify');
+  return errorEmbed(result.message, t('music.play.spotifyFailed'));
 }

@@ -67,27 +67,33 @@ export default {
 
       const dmSent = await dmTarget(
         user,
-        moderationDmEmbed({
-          action: 'warn',
-          caseNumber: created.caseNumber,
-          guildName: ctx.guild.name,
-          reason,
-        }),
+        moderationDmEmbed(
+          {
+            action: 'warn',
+            caseNumber: created.caseNumber,
+            guildName: ctx.guild.name,
+            reason,
+          },
+          ctx.t,
+        ),
       );
 
       await ctx.moderation
         .recordDmStatus(ctx.guildId, created.caseNumber, dmSent ? 'sent' : 'failed')
         .catch(() => undefined);
 
-      const caseEmbed = moderationLogEmbed({
-        action: 'warn',
-        caseNumber: created.caseNumber,
-        targetId: user.id,
-        moderatorId: interaction.user.id,
-        reason,
-        createdAt: created.createdAt,
-        dmSent,
-      });
+      const caseEmbed = moderationLogEmbed(
+        {
+          action: 'warn',
+          caseNumber: created.caseNumber,
+          targetId: user.id,
+          moderatorId: interaction.user.id,
+          reason,
+          createdAt: created.createdAt,
+          dmSent,
+        },
+        ctx.t,
+      );
 
       const logged = await deliverCaseLog(ctx, 'warn', caseEmbed, {
         targetId: user.id,
@@ -99,19 +105,22 @@ export default {
       // Jumlah total hanya informasi tambahan — jangan gagalkan perintah kalau gagal dibaca.
       const summary = await ctx.moderation.listWarnings(ctx.guildId, user.id).catch(() => null);
       const extraLines = [
-        ...(summary ? [`📊 Total peringatan tercatat: **${summary.total}**`] : []),
-        ...deliveryNotes(dmSent, logged),
+        ...(summary ? [ctx.t('mod.warn.totalLine', { count: summary.total })] : []),
+        ...deliveryNotes(dmSent, logged, ctx.t),
       ];
 
       await interaction.editReply({
         embeds: [
-          moderationResultEmbed({
-            action: 'warn',
-            caseNumber: created.caseNumber,
-            targetId: user.id,
-            reason,
-            extraLines,
-          }),
+          moderationResultEmbed(
+            {
+              action: 'warn',
+              caseNumber: created.caseNumber,
+              targetId: user.id,
+              reason,
+              extraLines,
+            },
+            ctx.t,
+          ),
         ],
       });
     } catch (error) {

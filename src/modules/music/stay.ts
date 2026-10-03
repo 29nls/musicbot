@@ -1,4 +1,5 @@
 import type { GuildConfig } from '../config/index.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 
 /**
  * Mode 24/7 (Fase 2, PRD §5.2): bot menjaga satu voice channel tetap
@@ -78,9 +79,15 @@ export function planStay(input: StayPlanInput): StayPlan {
 }
 
 /** Label singkat untuk `/247 status` dan embed konfigurasi. */
-export function stayLabel(config: GuildConfig, currentChannelId: string | null): string {
-  if (!config.modules.music) return 'Modul musik mati';
-  if (config.stayChannelId === null) return 'Mati';
-  if (currentChannelId === config.stayChannelId) return `Aktif di <#${config.stayChannelId}>`;
-  return `Aktif, belum sampai <#${config.stayChannelId}>`;
+export function stayLabel(
+  config: GuildConfig,
+  currentChannelId: string | null,
+  t: Translator = defaultTranslator,
+): string {
+  if (!config.modules.music) return t('music.stay.labelModuleOff');
+  if (config.stayChannelId === null) return t('music.stay.labelOff');
+  if (currentChannelId === config.stayChannelId) {
+    return t('music.stay.labelHere', { channel: config.stayChannelId });
+  }
+  return t('music.stay.labelPending', { channel: config.stayChannelId });
 }

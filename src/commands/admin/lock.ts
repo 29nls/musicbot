@@ -32,7 +32,7 @@ export default {
       }
       const { ctx } = gate;
 
-      const plan = resolveLockPlan(interaction);
+      const plan = resolveLockPlan(interaction, ctx.t);
       if (!plan.ok) {
         await replyEphemeralError(interaction, plan.embed);
         return;
@@ -47,9 +47,9 @@ export default {
         action: 'lock',
         reason,
         execute: async () => {
-          await plan.apply(true, auditReason(interaction.user, reason));
+          await plan.apply(true, auditReason(interaction.user, reason, ctx.t));
         },
-        extraLines: [`🔒 \`${plan.label}\` ditolak untuk **@everyone** di channel ini.`],
+        extraLines: [ctx.t('mod.lock.deniedLine', { channel: plan.label })],
       });
     } catch (error) {
       await handleAdminFailure(interaction, error, 'lock');

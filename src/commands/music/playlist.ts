@@ -16,6 +16,8 @@ import {
 } from '../../modules/playlists/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../../utils/embeds.js';
+import type { Translator } from '../../modules/i18n/index.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { gateMusicCommand, handleMusicFailure, replyEphemeralError } from './_shared.js';
 
 const NAME_MAX = MAX_PLAYLIST_NAME_LENGTH;
@@ -128,9 +130,11 @@ export default {
     await interaction.deferReply();
 
     try {
+      const t = await translatorFor(interaction.guildId ?? 'unknown');
+
       if (!interaction.inCachedGuild()) {
         await interaction.editReply({
-          embeds: [errorEmbed('Perintah ini hanya bisa dipakai di dalam server.')],
+          embeds: [errorEmbed(t('playlist.guildOnly'))],
         });
         return;
       }
@@ -144,16 +148,15 @@ export default {
         case 'create': {
           const result = await playlists.create({ guildId, ownerId: userId, name: name() });
           if (!result.ok) {
-            await interaction.editReply({ embeds: [describeFailure(result.error, 'create')] });
+            await interaction.editReply({ embeds: [describeFailure(result.error, 'create', t)] });
             return;
           }
 
           await interaction.editReply({
             embeds: [
               successEmbed(
-                `Playlist **${result.value.name}** dibuat. Tambahkan lagu dengan ` +
-                  `\`/playlist add ${result.value.name} <judul atau URL>\`.`,
-                '🎼 Playlist Dibuat',
+                t('playlist.created', { name: result.value.name }),
+                `🎼 ${t('playlist.createdTitle')}`,
               ),
             ],
           });
@@ -169,12 +172,13 @@ export default {
             gate.music,
             guildId,
             interaction.options.getString('query'),
+            gate.t,
           );
           if (!tracks) return;
 
           const result = await playlists.addTracks(guildId, userId, name(), tracks);
           if (!result.ok) {
-            await interaction.editReply({ embeds: [describeFailure(result.error, 'add')] });
+            await interaction.editReply({ embeds: [describeFailure(result.error, 'add', t)] });
             return;
           }
 
@@ -199,15 +203,18 @@ export default {
           );
 
           if (!result.ok) {
-            await interaction.editReply({ embeds: [describeFailure(result.error, 'remove')] });
+            await interaction.editReply({ embeds: [describeFailure(result.error, 'remove', t)] });
             return;
           }
 
           await interaction.editReply({
             embeds: [
               successEmbed(
-                `Lagu dihapus. **${result.value.name}** kini berisi ${result.value.tracks.length} lagu.`,
-                '🎼 Playlist',
+                t('playlist.removedTrack', {
+                  name: result.value.name,
+                  count: result.value.tracks.length,
+                }),
+                `🎼 ${t('playlist.title')}`,
               ),
             ],
           });
@@ -223,7 +230,7 @@ export default {
         case 'show': {
           const found = await playlists.findPlayable(guildId, userId, name());
           if (!found.ok) {
-            await interaction.editReply({ embeds: [describeFailure(found.error, 'show')] });
+            await interaction.editReply({ embeds: [describeFailure(found.error, 'show', t)] });
             return;
           }
 
@@ -234,7 +241,7 @@ export default {
         case 'play': {
           const found = await playlists.findPlayable(guildId, userId, name());
           if (!found.ok) {
-            await interaction.editReply({ embeds: [describeFailure(found.error, 'play')] });
+            await interaction.editReply({ embeds: [describeFailure(found.error, 'play', t)] });
             return;
           }
 
@@ -253,10 +260,7 @@ export default {
           if (resolved.tracks.length === 0) {
             await interaction.editReply({
               embeds: [
-                errorEmbed(
-                  `Tidak ada satu pun dari ${found.value.tracks.length} lagu yang masih bisa ` +
-                    'diputar. Sumbernya mungkin sudah tidak tersedia.',
-                ),
+                errorEmbed(t('playlist.nonePlayable', { count: found.value.tracks.length })),
               ],
             });
             return;
@@ -270,15 +274,18 @@ export default {
             canControl: gate.canControl,
           });
 
-          const embed = renderPlayOutcome(outcome);
+          const embed = renderPlayOutcome(outcome, t);
           if (resolved.failed > 0) {
             embed.setFooter({
-              text: `${resolved.failed} dari ${found.value.tracks.length} lagu gagal dimuat dan dilewati.`,
+              text: t('playlist.partialLoad', {
+                failed: resolved.failed,
+                count: found.value.tracks.length,
+              }),
             });
           }
           if (found.value.ownerId !== userId) {
             embed.addFields({
-              name: 'Playlist',
+              name: t('playlist.fieldOwner'),
               value: `${found.value.name} — <@${found.value.ownerId}>`,
             });
           }
@@ -290,12 +297,17 @@ export default {
         case 'delete': {
           const result = await playlists.remove(guildId, userId, name());
           if (!result.ok) {
-            await interaction.editReply({ embeds: [describeFailure(result.error, 'delete')] });
+            await interaction.editReply({ embeds: [describeFailure(result.error, 'delete', t)] });
             return;
           }
 
           await interaction.editReply({
-            embeds: [successEmbed(`Playlist **${result.value.name}** dihapus.`, '🎼 Playlist')],
+            embeds: [
+              successEmbed(
+                t('playlist.deleted', { name: result.value.name }),
+                `🎼 ${t('playlist.title')}`,
+              ),
+            ],
           });
           return;
         }
@@ -303,7 +315,7 @@ export default {
         case 'public': {
           const current = await playlists.findPlayable(guildId, userId, name());
           if (!current.ok) {
-            await interaction.editReply({ embeds: [describeFailure(current.error, 'public')] });
+            await interaction.editReply({ embeds: [describeFailure(current.error, 'public', t)] });
             return;
           }
 
@@ -311,7 +323,7 @@ export default {
           const result = await playlists.setVisibility(guildId, userId, name(), shared);
 
           if (!result.ok) {
-            await interaction.editReply({ embeds: [describeFailure(result.error, 'public')] });
+            await interaction.editReply({ embeds: [describeFailure(result.error, 'public', t)] });
             return;
           }
 
@@ -329,7 +341,7 @@ export default {
 
         default:
           await interaction.editReply({
-            embeds: [errorEmbed('Subcommand itu tidak dikenal.')],
+            embeds: [errorEmbed(t('playlist.unknownSub'))],
           });
       }
     } catch (error) {
@@ -348,7 +360,12 @@ export default {
  */
 async function requireVoice(
   interaction: ChatInputCommandInteraction,
-): Promise<{ music: MusicService; voiceChannelId: string; canControl: boolean } | null> {
+): Promise<{
+  music: MusicService;
+  voiceChannelId: string;
+  canControl: boolean;
+  t: Translator;
+} | null> {
   const gate = await gateMusicCommand(interaction, { voice: true });
   if (!gate.ok) {
     await replyEphemeralError(interaction, gate.embed);
@@ -364,6 +381,7 @@ async function requireVoice(
       memberRoleIds: gate.ctx.memberRoleIds,
       canManageGuild: gate.ctx.canManageGuild,
     }),
+    t: gate.ctx.t,
   };
 }
 
@@ -379,6 +397,7 @@ async function resolveForAdd(
   music: MusicService,
   guildId: string,
   query: string | null,
+  t: Translator,
 ): Promise<TrackInfo[] | null> {
   const trimmed = query?.trim() ?? '';
 
@@ -386,11 +405,7 @@ async function resolveForAdd(
     const snapshot = await music.snapshot(guildId);
     if (!snapshot.current) {
       await interaction.editReply({
-        embeds: [
-          errorEmbed(
-            'Tidak ada lagu yang sedang diputar. Sebutkan judul/URL, atau putar lagu dulu baru simpan.',
-          ),
-        ],
+        embeds: [errorEmbed(t('playlist.needQuery'))],
       });
       return null;
     }
@@ -402,25 +417,21 @@ async function resolveForAdd(
 
   if (found.kind === 'empty') {
     await interaction.editReply({
-      embeds: [errorEmbed(`Tidak menemukan apa pun untuk \`${trimmed}\`.`)],
+      embeds: [errorEmbed(t('playlist.notFoundQuery', { query: trimmed }))],
     });
     return null;
   }
 
   if (found.kind === 'error') {
     await interaction.editReply({
-      embeds: [errorEmbed(`Lagu itu tidak bisa dimuat: ${found.message}`)],
+      embeds: [errorEmbed(t('playlist.loadFailed', { message: found.message }))],
     });
     return null;
   }
 
   if (found.kind === 'unavailable') {
     await interaction.editReply({
-      embeds: [
-        warningEmbed(
-          'Lavalink belum terhubung, jadi lagu tidak bisa dicari. Cek `docker compose logs lavalink`.',
-        ),
-      ],
+      embeds: [warningEmbed(t('playlist.lavalinkDown'))],
     });
     return null;
   }
@@ -429,37 +440,33 @@ async function resolveForAdd(
 }
 
 /** Pesan kegagalan yang menjelaskan penyebabnya, bukan kode internal. */
-function describeFailure(error: PlaylistFailure, action: string) {
+function describeFailure(error: PlaylistFailure, action: string, t: Translator) {
   switch (error.kind) {
     case 'name-invalid':
       return errorEmbed(error.message);
     case 'name-taken':
-      return errorEmbed(
-        `Kamu sudah punya playlist bernama **${error.name}**. Ganti nama, atau hapus yang lama dulu.`,
-      );
+      return errorEmbed(t('playlist.errNameTaken', { name: error.name }));
     case 'not-found':
       return errorEmbed(
         action === 'play' || action === 'show'
-          ? 'Tidak ada playlist publik dengan nama itu. Buat atau bagikan dulu lewat `/playlist`.'
-          : 'Playlist itu tidak ada. Cek `/playlist list`.',
+          ? t('playlist.errNoPublic')
+          : t('playlist.errNotFound'),
       );
     case 'empty':
-      return errorEmbed('Playlist masih kosong.');
+      return errorEmbed(t('playlist.errEmpty'));
     case 'full':
-      return errorEmbed(
-        `Playlist sudah berisi batas **${error.limit}** lagu. Hapus satu dulu sebelum menambah.`,
-      );
+      return errorEmbed(t('playlist.errFull', { limit: error.limit }));
     case 'out-of-range':
       return errorEmbed(
         error.count === 0
-          ? 'Playlist ini masih kosong, jadi tidak ada yang bisa dihapus.'
-          : `Posisi itu di luar jangkauan. Playlist ini berisi **${error.count}** lagu.`,
+          ? t('playlist.errStillEmpty')
+          : t('playlist.errOutOfRange', { count: error.count }),
       );
     case 'not-owner':
-      return errorEmbed('Playlist itu bukan milikmu, jadi tidak bisa diubah.');
+      return errorEmbed(t('playlist.errNotOwner'));
     case 'private':
-      return errorEmbed('Playlist itu privat.');
+      return errorEmbed(t('playlist.errPrivate'));
     default:
-      return errorEmbed('Permintaan itu tidak bisa diproses.');
+      return errorEmbed(t('playlist.errUnknown'));
   }
 }

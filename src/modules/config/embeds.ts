@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
+import { LOCALE_LABELS, toLocale } from '../i18n/index.js';
 import { MODULE_LABELS, type GuildConfig, type ModulesEnabled } from './types.js';
 
 const notSet = '*belum diatur*';
@@ -32,6 +33,11 @@ export function renderConfigEmbed(config: GuildConfig, title = '⚙️ Konfigura
         value: config.stayChannelId
           ? `${channel(config.stayChannelId)} (bot tidak keluar otomatis)`
           : notSet + " (nyalakan dengan /247 join)",
+        inline: true,
+      },
+      {
+        name: '🌐 Bahasa',
+        value: `${LOCALE_LABELS[toLocale(config.locale)]} (\`${toLocale(config.locale)}\`)`,
         inline: true,
       },
       { name: '🧩 Modul aktif', value: moduleLines(config.modules) },

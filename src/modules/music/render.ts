@@ -1,5 +1,6 @@
 import type { EmbedBuilder } from 'discord.js';
 import { getEnv } from '../../config/env.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { errorEmbed, warningEmbed } from '../../utils/embeds.js';
 import { addedToQueueEmbed } from './embeds.js';
 import { trackLimitRejectionMessage } from './limits.js';
@@ -11,27 +12,28 @@ import type { PlayOutcome } from './types.js';
  * Dipisah dari perintah supaya handler komponen `/search` bisa memakai render
  * yang sama setelah user memilih lagu dari select menu.
  */
-export function renderPlayOutcome(outcome: PlayOutcome): EmbedBuilder {
+export function renderPlayOutcome(
+  outcome: PlayOutcome,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   switch (outcome.kind) {
     case 'added':
-      return addedToQueueEmbed(outcome);
+      return addedToQueueEmbed(outcome, t);
     case 'empty':
-      return errorEmbed('Tidak ada hasil untuk pencarian itu. Coba kata kunci lain atau kirim URL.');
+      return errorEmbed(t('music.play.emptyResult'));
     case 'error':
-      return errorEmbed(`Lagu ini tidak bisa dimuat: ${outcome.message}`);
+      return errorEmbed(t('music.play.loadFailed', { message: outcome.message }));
     case 'queue-full':
       return warningEmbed(
-        `Antrean sudah penuh (batas ${getEnv().MAX_QUEUE_SIZE} lagu). Tunggu sampai ada lagu yang selesai.`,
+        t('music.play.queueFullMessage', { max: getEnv().MAX_QUEUE_SIZE }),
       );
     case 'rejected':
       return warningEmbed(
-        trackLimitRejectionMessage(outcome.reason, outcome.count),
-        '⏱️ Lagu Ditolak Batas Durasi',
+        trackLimitRejectionMessage(outcome.reason, outcome.count, t),
+        t('music.play.rejectedTitle'),
       );
     case 'unavailable':
     default:
-      return errorEmbed(
-        'Lavalink belum terhubung, jadi lagu tidak bisa diputar. Cek `docker compose logs lavalink`.',
-      );
+      return errorEmbed(t('music.play.lavalinkDown'));
   }
 }

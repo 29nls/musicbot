@@ -1,16 +1,24 @@
 import type { Client } from 'discord.js';
-import { Connectors, LoadType, Shoukaku, type Player, type TrackEndEvent } from 'shoukaku';
+import {
+  Constants,
+  Connectors,
+  LoadType,
+  Shoukaku,
+  type Player,
+  type TrackEndEvent,
+} from 'shoukaku';
 import { getLogger } from '../../services/logger.js';
 import type { GuildConfig } from '../config/index.js';
 import { DEFAULT_IDLE_TIMEOUT_SEC } from '../config/types.js';
 import { IdleTimer } from './idleTimer.js';
 import { cycleResetOn, planAdvance, type LoopMode } from './loop.js';
 import { filterParamsFor, isWithinSafeBounds, type FilterMode } from './filters.js';
+import { lavalinkNodeName, summarizeLavalinkNodes, type LavalinkNodeReport } from './nodes.js';
 import { splitByTrackLimits } from './limits.js';
 import { clampVolume } from './permissions.js';
 import type { FilterOptions } from 'shoukaku';
-import { MusicQueue } from './queue.js';
 import { buildSearchIdentifier } from './search.js';
+import { SharedMusicState } from './sharedState.js';
 import type { RandomSource } from './shuffle.js';
 import { toTrackInfo } from './track.js';
 import type {
@@ -31,10 +39,26 @@ export interface MusicNodeOptions {
 export interface MusicServiceOptions {
   /** Baca konfigurasi server (volume default, idle timeout, modul aktif). */
   getConfig: (guildId: string) => Promise<GuildConfig>;
-  node: MusicNodeOptions;
+  /**
+   * Semua node Lavalink; minimal satu (PRD §5.3, NFR §11).
+   *
+   * Dulu opsi ini satu node (`node`), jadi menambah node kedua berarti
+   * mengubah kode bot — persis hal yang tidak boleh terjadi. Sekarang
+   * semuanya masuk ke Shoukaku sekaligus, dan pembagian beban antar node
+   * memakai `nodeResolver` bawaan Shoukaku: player baru goes ke node paling
+   * sepi, dan `moveOnDisconnect` memindahkan player ke node lain saat satu
+   * node mati.
+   */
+  nodes: MusicNodeOptions[];
   maxQueueSize: number;
   /** Batas lagu yang diingat untuk mode loop antrean. */
   maxLoopHistory?: number;
+  /**
+   * State musik bersama (antrean + mode loop) untuk §5.3.
+   *
+   * Disuntik di tes; kalau tidak diisi, memakai store kunci-nilai proses.
+   */
+  sharedState?: SharedMusicState;
   /**
    * Dipanggil tiap lagu selesai diputar, untuk statistik (§5.3).
    *
@@ -55,6 +79,16 @@ export interface TrackFinishedEvent {
 
 /** Batas default riwayat siklus; cukup untuk satu antrean panjang. */
 const DEFAULT_MAX_LOOP_HISTORY = 100;
+
+/**
+ * Node cadangan kalau `nodes` kosong.
+ *
+ * Praktisnya tidak akan pernah dipakai — `initMusic` selalu mengisi daftar
+ * node — tapi tipenya harus selalu punya arti. Tanpa ini, konfigurasi yang salah
+ * akan muncul sebagai Shoukaku tanpa node sama sekali, yang tidak pernah
+ * bersambung dan tidak pernah mengeluh di mana pun.
+ */
+const DEFAULT_NODE: MusicNodeOptions = { host: 'localhost', port: 2333, password: 'harmony' };
 
 export interface PlayRequest {
   guildId: string;
@@ -90,11 +124,18 @@ export interface EnqueueRequest {
  */
 export class MusicService {
   private readonly manager: Shoukaku;
-  private readonly queues = new Map<string, MusicQueue>();
+  /**
+   * Antrean dan mode loop per guild, disimpan di store bersama (§9.4).
+   *
+   * Dulu dua `Map` di kelas ini: hilang saat bot restart dan tidak terlihat
+   * oleh shard lain.
+   */
+  private readonly state: SharedMusicState;
+  /** Nama node yang dikonfigurasi, urut. */
+  private readonly nodeNames: string[];
   private readonly currents = new Map<string, TrackInfo>();
   private readonly idleTimers = new Map<string, IdleTimer>();
   private readonly attachedPlayers = new Map<string, Player>();
-  private readonly loopModes = new Map<string, LoopMode>();
   /** Filter audio aktif per server; default `off`. */
   private readonly filterModes = new Map<string, FilterMode>();
   /**
@@ -108,18 +149,17 @@ export class MusicService {
   private readonly playedCycles = new Map<string, TrackInfo[]>();
 
   constructor(client: Client, private readonly options: MusicServiceOptions) {
-    const { node } = options;
+    const nodes = options.nodes.length > 0 ? options.nodes : [DEFAULT_NODE];
+    this.nodeNames = nodes.map((node) => node.name ?? lavalinkNodeName(node));
 
     this.manager = new Shoukaku(
       new Connectors.DiscordJS(client),
-      [
-        {
-          name: node.name ?? 'harmony',
-          url: `${node.host}:${node.port}`,
-          auth: node.password,
-          secure: false,
-        },
-      ],
+      nodes.map((node) => ({
+        name: node.name ?? lavalinkNodeName(node),
+        url: `${node.host}:${node.port}`,
+        auth: node.password,
+        secure: false,
+      })),
       {
         // Pindahkan player ke node lain kalau node mati, dan coba sambung ulang.
         moveOnDisconnect: true,
@@ -130,12 +170,50 @@ export class MusicService {
       },
     );
 
+    this.state = options.sharedState ?? new SharedMusicState({ capacity: options.maxQueueSize });
+
     this.attachManagerLogging();
   }
 
   /** true kalau ada node Lavalink yang siap dipakai. */
   get isConnected(): boolean {
     return this.manager.getIdealNode() !== undefined;
+  }
+
+  /**
+   * Berapa node Lavalink yang dikonfigurasi.
+   *
+   * Dihitung dari daftar yang kita kirim, bukan dari `manager.nodes`:
+   * Shoukaku baru mendaftarkan node ketika klien Discord siap, jadi sebelum
+   * login peta itu kosong dan melaporkan nol padahal operator sudah menulis
+   * lima node.
+   */
+  get nodeCount(): number {
+    return this.nodeNames.length;
+  }
+
+  /**
+   * Status tiap node untuk log dan `/health`.
+   *
+   * Jumlah player diambil dari laporan `/stats` node itu, jadi 0 sebelum
+   * laporan pertama masuk — bukan bukti node itu kosong.
+   */
+  nodeReport(): LavalinkNodeReport {
+    const live = new Map(
+      [...this.manager.nodes.values()].map((node) => [node.name, node] as const),
+    );
+
+    return summarizeLavalinkNodes(
+      this.nodeNames.map((name) => {
+        const node = live.get(name);
+
+        return {
+          name,
+          connected: node?.state === Constants.State.CONNECTED,
+          players: node?.stats?.players ?? 0,
+        };
+      }),
+    );
   }
 
   /**
@@ -250,7 +328,6 @@ export class MusicService {
       rejectedNeedsControl: split.needsControl.length,
     };
 
-    const queue = this.queueFor(guildId);
     const player = await this.ensurePlayer(guildId, voiceChannelId, shardId);
     const config = await this.options.getConfig(guildId);
 
@@ -258,32 +335,32 @@ export class MusicService {
       const [first, ...rest] = tracks;
       if (!first) return { kind: 'empty' };
 
-      const accepted = queue.add(rest);
+      const queued = await this.state.add(guildId, rest);
       await player.setGlobalVolume(clampVolume(config.defaultVolume));
       await this.applyStoredFilters(guildId, player);
       await this.startTrack(guildId, player, first);
 
       return {
         kind: 'added',
-        tracks: [first, ...rest.slice(0, accepted)],
+        tracks: [first, ...queued.accepted],
         started: true,
-        position: queue.size,
-        skipped: rest.length - accepted,
+        position: queued.size,
+        skipped: queued.skipped,
         ...rejected,
         spotify: request.spotify,
         playlistName,
       };
     }
 
-    const accepted = queue.add(tracks);
-    if (accepted === 0) return { kind: 'queue-full' };
+    const queued = await this.state.add(guildId, tracks);
+    if (queued.accepted.length === 0) return { kind: 'queue-full' };
 
     return {
       kind: 'added',
-      tracks: tracks.slice(0, accepted),
+      tracks: queued.accepted,
       started: false,
-      position: queue.size,
-      skipped: tracks.length - accepted,
+      position: queued.size,
+      skipped: queued.skipped,
       ...rejected,
       spotify: request.spotify,
       playlistName,
@@ -319,7 +396,7 @@ export class MusicService {
 
   /** Mode loop server ini; default `off`. */
   loopMode(guildId: string): LoopMode {
-    return this.loopModes.get(guildId) ?? 'off';
+    return this.state.loopMode(guildId);
   }
 
   /**
@@ -329,9 +406,8 @@ export class MusicService {
    * siklus: orang yang baru menyalakan loop antrean di tengah lagu kelima tetap
    * mendapat seluruh siklus, bukan cuma lagu yang tersisa.
    */
-  setLoopMode(guildId: string, mode: LoopMode): LoopMode {
-    const previous = this.loopMode(guildId);
-    this.loopModes.set(guildId, mode);
+  async setLoopMode(guildId: string, mode: LoopMode): Promise<LoopMode> {
+    const previous = await this.state.setLoopMode(guildId, mode);
 
     if (cycleResetOn(mode, previous) === 'clear') {
       this.playedCycles.delete(guildId);
@@ -403,18 +479,18 @@ export class MusicService {
   }
 
   /** Acak antrean; mengembalikan jumlah lagu yang diacak. */
-  shuffle(guildId: string, random: RandomSource = Math.random): number {
-    return this.queueFor(guildId).shuffle(random);
+  async shuffle(guildId: string, random: RandomSource = Math.random): Promise<number> {
+    return this.state.shuffle(guildId, random);
   }
 
   /** Hapus satu lagu dari antrean; undefined kalau posisinya di luar jangkauan. */
-  removeFromQueue(guildId: string, position: number): TrackInfo | undefined {
-    return this.queueFor(guildId).remove(position);
+  async removeFromQueue(guildId: string, position: number): Promise<TrackInfo | undefined> {
+    return this.state.remove(guildId, position);
   }
 
   /** Pindahkan satu lagu dalam antrean; null kalau salah satu posisi salah. */
-  moveInQueue(guildId: string, from: number, to: number): TrackInfo | null {
-    return this.queueFor(guildId).move(from, to);
+  async moveInQueue(guildId: string, from: number, to: number): Promise<TrackInfo | null> {
+    return this.state.move(guildId, from, to);
   }
 
   /** Hentikan pemutaran dan bersihkan antrean (bot tetap di voice channel). */
@@ -422,7 +498,7 @@ export class MusicService {
     const stopped = this.currents.get(guildId) ?? null;
     const player = this.manager.players.get(guildId);
 
-    this.queueFor(guildId).clear();
+    await this.state.clearTracks(guildId);
     this.currents.delete(guildId);
     // Siklus ikut dibuang: setelah `/stop` tidak ada lagi lagu yang diputar dalam
     // siklus ini, dan memegangnya hanya menahan referensi tanpa guna.
@@ -436,7 +512,7 @@ export class MusicService {
 
   /** Keluar dari voice channel dan bersihkan seluruh state server ini. */
   async disconnect(guildId: string): Promise<void> {
-    this.resetGuildState(guildId);
+    await this.resetGuildState(guildId);
 
     if (this.manager.players.has(guildId) || this.manager.connections.has(guildId)) {
       await this.manager.leaveVoiceChannel(guildId).catch((error: unknown) => {
@@ -489,7 +565,9 @@ export class MusicService {
   /** Ringkasan untuk `/queue` dan `/nowplaying`. */
   async snapshot(guildId: string): Promise<QueueSnapshot> {
     const player = this.manager.players.get(guildId);
-    const queue = this.queueFor(guildId);
+    // Selalu baca dari store lebih dulu: snapshot adalah tempat `/queue` melihat
+    // antrean, jadi di sinilah state bersama harus masuk.
+    await this.state.refresh(guildId);
     let volume = player?.volume ?? 100;
 
     if (!player) {
@@ -503,8 +581,8 @@ export class MusicService {
     return {
       guildId,
       current: this.currents.get(guildId) ?? null,
-      upcoming: queue.toArray(),
-      upcomingDurationMs: queue.totalDurationMs(),
+      upcoming: this.state.tracks(guildId),
+      upcomingDurationMs: this.state.upcomingDurationMs(guildId),
       paused: player?.paused ?? false,
       positionMs: player?.position ?? 0,
       volume,
@@ -518,6 +596,7 @@ export class MusicService {
   async shutdown(): Promise<void> {
     for (const timer of this.idleTimers.values()) timer.cancel();
     this.idleTimers.clear();
+    this.state.forgetAll();
 
     const guildIds = [...this.manager.connections.keys()];
     await Promise.allSettled(guildIds.map((guildId) => this.manager.leaveVoiceChannel(guildId)));
@@ -526,7 +605,12 @@ export class MusicService {
   private attachManagerLogging(): void {
     const logger = getLogger();
 
-    this.manager.on('ready', (name) => logger.info({ node: name }, 'Node Lavalink terhubung'));
+    this.manager.on('ready', (name) =>
+      logger.info(
+        { node: name, configured: this.nodeNames.length, connected: this.nodeReport().connected },
+        'Node Lavalink terhubung',
+      ),
+    );
     this.manager.on('error', (name, error) =>
       logger.error({ err: error, node: name }, 'Error pada node Lavalink'),
     );
@@ -624,13 +708,24 @@ export class MusicService {
     finished: TrackInfo | null,
     options: { respectTrackLoop?: boolean } = {},
   ): Promise<TrackInfo | null> {
-    const queue = this.queueFor(guildId);
-    const plan = planAdvance({
-      mode: this.loopMode(guildId),
-      finished,
-      queue: queue.toArray(),
-      cycle: this.playedCycles.get(guildId) ?? [],
-      respectTrackLoop: options.respectTrackLoop,
+    // Satu kali baca-ubah-tulis: `planAdvance` memutuskan dari antrean
+    // terbaru, dan hasilnya langsung ditulis di bacaan yang sama, jadi tidak
+    // ada celah di mana proses lain bisa menyisipkan lagu di antaranya.
+    const plan = await this.state.mutateQueue(guildId, (queue, record) => {
+      const decision = planAdvance({
+        mode: record.loopMode,
+        finished,
+        queue: queue.toArray(),
+        cycle: this.playedCycles.get(guildId) ?? [],
+        respectTrackLoop: options.respectTrackLoop,
+      });
+
+      if (decision.action === 'play') {
+        queue.clear();
+        queue.add(decision.queue);
+      }
+
+      return decision;
     });
 
     if (plan.action === 'stop') {
@@ -639,8 +734,6 @@ export class MusicService {
     }
 
     if (plan.action === 'play') {
-      queue.clear();
-      queue.add(plan.queue);
       this.rememberCycle(guildId, plan.cycle);
     }
 
@@ -673,7 +766,7 @@ export class MusicService {
     if (existing) {
       // Player lama tapi bot tidak lagi di channel itu (koneksi basi/kicked).
       await existing.destroy().catch(() => undefined);
-      this.resetGuildState(guildId);
+      await this.resetGuildState(guildId);
     }
 
     const player = await this.manager.joinVoiceChannel({
@@ -741,22 +834,11 @@ export class MusicService {
     await this.disconnect(guildId);
   }
 
-  private queueFor(guildId: string): MusicQueue {
-    const existing = this.queues.get(guildId);
-    if (existing) return existing;
-
-    const queue = new MusicQueue(this.options.maxQueueSize);
-    this.queues.set(guildId, queue);
-
-    return queue;
-  }
-
-  private resetGuildState(guildId: string): void {
-    this.queues.get(guildId)?.clear();
+  private async resetGuildState(guildId: string): Promise<void> {
+    await this.state.reset(guildId);
     this.currents.delete(guildId);
     this.idleTimers.get(guildId)?.cancel();
     this.attachedPlayers.delete(guildId);
-    this.loopModes.delete(guildId);
     this.filterModes.delete(guildId);
     this.playedCycles.delete(guildId);
   }

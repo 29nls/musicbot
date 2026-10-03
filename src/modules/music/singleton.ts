@@ -1,9 +1,11 @@
 import type { Client } from 'discord.js';
 import { getEnv } from '../../config/env.js';
+import { getLogger } from '../../services/logger.js';
 import { getGuildConfigService } from '../config/index.js';
 import { getMetricsRegistry } from '../metrics/index.js';
 import { getStatsService } from '../stats/index.js';
 import { MusicService } from './musicService.js';
+import { lavalinkNodeName, parseLavalinkNodes } from './nodes.js';
 import { SearchSessionStore } from './searchSession.js';
 import { StayService } from './stayService.js';
 
@@ -28,13 +30,27 @@ export function initMusic(client: Client): MusicService {
   if (service) return service;
 
   const env = getEnv();
+  const nodeList = parseLavalinkNodes(env.LAVALINK_NODES, {
+    host: env.LAVALINK_HOST,
+    port: env.LAVALINK_PORT,
+  });
+
+  // Entri yang dibuang disebut apa adanya: operator yang salah ketik harus
+  // tahu node mana yang tidak terpakai, bukan hanya melihat playback turun.
+  if (nodeList.skipped.length > 0) {
+    getLogger().warn(
+      { skipped: nodeList.skipped, nodes: nodeList.nodes.length },
+      'Entri LAVALINK_NODES tidak bisa dipakai dan dilewati',
+    );
+  }
+
   service = new MusicService(client, {
-    node: {
-      host: env.LAVALINK_HOST,
-      port: env.LAVALINK_PORT,
+    nodes: nodeList.nodes.map((node) => ({
+      host: node.host,
+      port: node.port,
       password: env.LAVALINK_PASSWORD,
-      name: 'harmony',
-    },
+      name: lavalinkNodeName(node),
+    })),
     maxQueueSize: env.MAX_QUEUE_SIZE,
     getConfig: (guildId) => getGuildConfigService().get(guildId),
     // Statistik playback (Fase 3, §5.3). Modul musik tidak tahu soal database,

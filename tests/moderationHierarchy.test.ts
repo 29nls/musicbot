@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { checkModerationHierarchy, type HierarchyInput } from '../src/modules/moderation/hierarchy.js';
+import {
+  checkModerationHierarchy,
+  hierarchyMessage,
+  type HierarchyInput,
+} from '../src/modules/moderation/hierarchy.js';
 
 const base: HierarchyInput = {
   actorId: '111111111111111111',
@@ -20,35 +24,35 @@ describe('checkModerationHierarchy', () => {
     const result = checkModerationHierarchy({ ...base, targetId: base.actorId });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toMatch(/dirimu sendiri/i);
+    if (!result.ok) expect(hierarchyMessage(result)).toMatch(/dirimu sendiri/i);
   });
 
   it('menolak memoderasi bot sendiri', () => {
     const result = checkModerationHierarchy({ ...base, targetId: base.botId });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toMatch(/diriku sendiri/i);
+    if (!result.ok) expect(hierarchyMessage(result)).toMatch(/diriku sendiri/i);
   });
 
   it('menolak memoderasi pemilik server', () => {
     const result = checkModerationHierarchy({ ...base, targetId: base.guildOwnerId });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toMatch(/pemilik server/i);
+    if (!result.ok) expect(hierarchyMessage(result)).toMatch(/pemilik server/i);
   });
 
   it('menolak saat role bot tidak lebih tinggi dari target', () => {
     const result = checkModerationHierarchy({ ...base, botHighestRolePosition: 5 });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toMatch(/role-ku/i);
+    if (!result.ok) expect(hierarchyMessage(result)).toMatch(/role-ku/i);
   });
 
   it('menolak saat role moderator tidak lebih tinggi dari target', () => {
     const result = checkModerationHierarchy({ ...base, actorHighestRolePosition: 5 });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toMatch(/role-mu/i);
+    if (!result.ok) expect(hierarchyMessage(result)).toMatch(/role-mu/i);
   });
 
   it('mengizinkan ban user yang bukan anggota server (posisi role null)', () => {

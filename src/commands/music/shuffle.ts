@@ -20,13 +20,20 @@ export default {
         return;
       }
 
-      const shuffled = gate.ctx.music.shuffle(gate.ctx.guildId);
+      const { music, guildId, t } = gate.ctx;
+      const shuffled = await music.shuffle(guildId);
       const embed =
         shuffled <= 1
           ? // Kurang dari dua lagu, "mengacak" tidak mengubah apa pun. Menyebutnya
             // berhasil akan membohongi hasil yang tidak terjadi.
-            infoEmbed('🎲 Antrean terlalu pendek untuk diacak', 'Butuh minimal dua lagu di antrean.')
-          : successEmbed(`🎲 **${shuffled}** lagu diacak urutannya.`, '🎲 Antrean Diacak');
+            infoEmbed(
+              `🎲 ${t('music.shuffle.tooShortTitle')}`,
+              t('music.shuffle.tooShortBody'),
+            )
+          : successEmbed(
+              `🎲 ${t('music.shuffle.done', { count: shuffled })}`,
+              `🎲 ${t('music.shuffle.title')}`,
+            );
 
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {

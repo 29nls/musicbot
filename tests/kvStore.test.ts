@@ -102,6 +102,23 @@ class FakeRedis implements RedisLike {
   }
 }
 
+/** Klien Redis yang sudah mendukung EVAL (Redis 2.6+). */
+class FakeRedisWithEval extends FakeRedis {
+  /** Argumen lengkap yang diterima, supaya perintah yang dikirim bisa dibuktikan. */
+  public readonly evalCalls: { script: string; numberOfKeys: number; args: string[] }[] = [];
+
+  /** Hasil yang dikembalikan klien palsunya; dipakai untuk menguji penolakan. */
+  public evalResult: unknown = 1;
+
+  async eval(script: string, numberOfKeys: number, ...args: string[]): Promise<unknown> {
+    this.guardForTest();
+    this.calls.push('eval');
+    this.evalCalls.push({ script, numberOfKeys, args });
+
+    return this.evalResult;
+  }
+}
+
 /** Klien Redis yang sudah mendukung GETDEL (Redis 6.2+). */
 class FakeRedisWithGetdel extends FakeRedis {
   async getdel(key: string): Promise<string | null> {
@@ -234,6 +251,59 @@ describe('MemoryKeyValueStore', () => {
   });
 });
 
+describe('compareAndSet di store memori', () => {
+  it('menulis kalau nilai saat ini persis sama dengan yang diharapkan', async () => {
+    const store = new MemoryKeyValueStore();
+    await store.set('k', 'lama');
+
+    const written = await store.compareAndSet('k', 'baru', { expectedValue: 'lama' });
+
+    expect(written).toBe(true);
+    expect(await store.get('k')).toBe('baru');
+  });
+
+  it('tidak menulis dan tidak mengubah apa pun kalau nilai sudah berbeda', async () => {
+    const store = new MemoryKeyValueStore();
+    await store.set('k', 'milik-orang-lain');
+
+    const written = await store.compareAndSet('k', 'punya-saya', { expectedValue: 'saya-lihat-ini' });
+
+    expect(written).toBe(false);
+    expect(await store.get('k')).toBe('milik-orang-lain');
+  });
+
+  it('membuat key baru hanya kalau key-nya memang belum ada', async () => {
+    const store = new MemoryKeyValueStore();
+
+    const first = await store.compareAndSet('k', 'pertama', { expectedValue: null });
+    const second = await store.compareAndSet('k', 'kedua', { expectedValue: null });
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    expect(await store.get('k')).toBe('pertama');
+  });
+
+  it('menolak pembuatan baru kalau key sudah ada', async () => {
+    const store = new MemoryKeyValueStore();
+    await store.set('k', 'ada');
+
+    const written = await store.compareAndSet('k', 'baru', { expectedValue: null });
+
+    expect(written).toBe(false);
+    expect(await store.get('k')).toBe('ada');
+  });
+
+  it('memasang masa berlaku saat penulisan berhasil', async () => {
+    const store = new MemoryKeyValueStore();
+    await store.set('k', 'lama');
+
+    await store.compareAndSet('k', 'baru', { expectedValue: 'lama', ttlMs: 60_000 });
+
+    const records = (store as unknown as { records: Map<string, { expiresAt?: number }> }).records;
+    expect(records.get('k')?.expiresAt).toBeGreaterThan(Date.now());
+  });
+});
+
 describe('RedisKeyValueStore', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -342,6 +412,69 @@ describe('RedisKeyValueStore', () => {
     const store = new RedisKeyValueStore(client);
 
     await expect(store.get('kunci')).rejects.toThrow('ECONNRESET');
+  });
+});
+
+describe('compareAndSet di store Redis', () => {
+  it('memakai satu skrip Lua, bukan beberapa perintah terpisah', async () => {
+    const client = new FakeRedisWithEval();
+    const store = new RedisKeyValueStore(client);
+
+    await store.compareAndSet('k', 'baru', { expectedValue: 'lama' });
+
+    expect(client.evalCalls).toHaveLength(1);
+    expect(client.evalCalls[0]?.numberOfKeys).toBe(1);
+    // GET dulu lalu SET, semuanya dalam satu perintah.
+    expect(client.evalCalls[0]?.script).toContain("redis.call('GET', KEYS[1])");
+    expect(client.evalCalls[0]?.script).toContain("redis.call('SET', KEYS[1], ARGV[2]");
+    // Tidak ada GET atau SET terpisah di luar skrip.
+    expect(client.calls).toEqual(['eval']);
+  });
+
+  it('mengirim nilai yang diharapkan, nilai baru, TTL, dan penanda key kosong', async () => {
+    const client = new FakeRedisWithEval();
+    const store = new RedisKeyValueStore(client);
+
+    await store.compareAndSet('k', 'baru', { expectedValue: 'lama', ttlMs: 60_000 });
+
+    expect(client.evalCalls[0]?.args).toEqual(['k', 'lama', 'baru', '60000', '0']);
+  });
+
+  it('menandai key yang harus belum ada, supaya pembuatan baru tidak menimpa', async () => {
+    const client = new FakeRedisWithEval();
+    const store = new RedisKeyValueStore(client);
+
+    await store.compareAndSet('k', 'baru', { expectedValue: null });
+
+    expect(client.evalCalls[0]?.args).toEqual(['k', '', 'baru', '0', '1']);
+  });
+
+  it('mengembalikan true hanya kalau Redis menjawab angka 1', async () => {
+    const client = new FakeRedisWithEval();
+    const store = new RedisKeyValueStore(client);
+
+    client.evalResult = 1;
+    expect(await store.compareAndSet('k', 'baru', { expectedValue: 'lama' })).toBe(true);
+
+    client.evalResult = 0;
+    expect(await store.compareAndSet('k', 'baru', { expectedValue: 'lama' })).toBe(false);
+
+    client.evalResult = '1';
+    expect(await store.compareAndSet('k', 'baru', { expectedValue: 'lama' })).toBe(true);
+  });
+
+  it('jatuh ke baca-lalu-tulis tanpa EVAL, dan tetap mengatakannya terus terang', async () => {
+    // Tanpa EVAL hasilnya benar untuk satu proses, tapi tidak atomik. Yang
+    // penting di sini bukan menjanjikannya, tapi tidak berbohong soal itu.
+    const client = new FakeRedis();
+    const store = new RedisKeyValueStore(client);
+    await client.set('k', 'lama');
+
+    expect(await store.compareAndSet('k', 'baru', { expectedValue: 'lama' })).toBe(true);
+    expect(await client.get('k')).toBe('baru');
+
+    expect(await store.compareAndSet('k', 'lain', { expectedValue: 'lama' })).toBe(false);
+    expect(await client.get('k')).toBe('baru');
   });
 });
 

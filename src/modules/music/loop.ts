@@ -5,6 +5,7 @@
  * sini supaya aturan loop bisa diuji tanpa Lavalink.
  */
 
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import type { TrackInfo } from './types.js';
 
 /** Mode loop, sesuai §6.1 PRD: `off` / `track` / `queue`. */
@@ -23,11 +24,22 @@ const MODE_ALIASES: Record<string, LoopMode> = {
   antrean: 'queue',
 };
 
-/** Label mode untuk embed & pesan konfirmasi. */
-const MODE_LABELS: Record<LoopMode, string> = {
-  off: 'Off',
-  track: 'Ulangi lagu',
-  queue: 'Ulangi antrean',
+/**
+ * Kunci katalog untuk tiap mode.
+ *
+ * Dipisah dari label supaya `parseLoopMode` dan aturan loop tetap murni:
+ * berkas ini tidak butuh apa pun dari i18n kecuali saat label benar-benar
+ * ditampilkan.
+ */
+const MODE_LABEL_KEYS: Record<
+  LoopMode,
+  | 'music.loop.off'
+  | 'music.loop.track'
+  | 'music.loop.queue'
+> = {
+  off: 'music.loop.off',
+  track: 'music.loop.track',
+  queue: 'music.loop.queue',
 };
 
 /** Terjemahkan input user ke mode; null kalau tidak dikenal. */
@@ -36,12 +48,12 @@ export function parseLoopMode(input: string): LoopMode | null {
 }
 
 /** Saran pilihan saat input tidak dikenali — mentioning apa yang bisa dipakai. */
-export function loopModeHint(): string {
-  return LOOP_MODES.map((mode) => `\`${MODE_LABELS[mode]}\``).join(' / ');
+export function loopModeHint(t: Translator = defaultTranslator): string {
+  return LOOP_MODES.map((mode) => `\`${loopModeLabel(mode, t)}\``).join(' / ');
 }
 
-export function loopModeLabel(mode: LoopMode): string {
-  return MODE_LABELS[mode];
+export function loopModeLabel(mode: LoopMode, t: Translator = defaultTranslator): string {
+  return t(MODE_LABEL_KEYS[mode]);
 }
 
 /** Apa yang terjadi ke siklus yang sudah selesai saat mode dimatikan/berubah. */

@@ -22,6 +22,10 @@ const envSchema = z.object({
   // Lavalink
   LAVALINK_HOST: z.string().min(1).default('localhost'),
   LAVALINK_PORT: z.coerce.number().int().min(1).max(65_535).default(2333),
+  // Daftar node untuk multi-node (PRD §5.3, NFR §11). Kosong = pakai
+  // LAVALINK_HOST/LAVALINK_PORT di atas, jadi konfigurasi lama tetap berlaku.
+  // Bentuk: "host:port,host:port". Entri rusak dibuang dan dicatat di log.
+  LAVALINK_NODES: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   LAVALINK_PASSWORD: z.string().min(1, 'wajib diisi dan harus sama dengan LAVALINK_SERVER_PASSWORD di container'),
 
   // Health check (PRD 5.1): port untuk GET /health dan /ready.

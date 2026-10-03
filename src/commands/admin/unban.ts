@@ -45,7 +45,7 @@ export default {
       if (!USER_ID_PATTERN.test(rawId)) {
         await replyEphemeralError(
           interaction,
-          errorEmbed('Masukkan **ID user** yang valid (17–20 digit), bukan nama atau mention.'),
+          errorEmbed(ctx.t('mod.parse.badUserId')),
         );
         return;
       }
@@ -56,7 +56,7 @@ export default {
       if (!ban) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(`User \`${rawId}\` tidak sedang di-ban di server ini.`),
+          errorEmbed(ctx.t('mod.ban.notBanned', { id: rawId })),
         );
         return;
       }
@@ -70,7 +70,7 @@ export default {
         action: 'unban',
         reason,
         execute: async () => {
-          await ctx.guild.members.unban(rawId, auditReason(interaction.user, reason));
+          await ctx.guild.members.unban(rawId, auditReason(interaction.user, reason, ctx.t));
         },
       });
     } catch (error) {

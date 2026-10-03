@@ -7,8 +7,11 @@
  * dari query yang mengumpulkannya.
  */
 
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import {
-  ACTION_LABELS,
+  actionEmoji,
+  actionLabel,
+  compareActions,
   isModerationAction,
   type ModerationAction,
   type ModerationCase,
@@ -106,7 +109,7 @@ export function buildModeratorProfile(input: {
   }
 
   const actions = [...byType.values()].sort(
-    (a, b) => b.total - a.total || ACTION_LABELS[a.type].label.localeCompare(ACTION_LABELS[b.type].label, 'id'),
+    (a, b) => b.total - a.total || compareActions(a.type, b.type),
   );
 
   return {
@@ -157,18 +160,24 @@ export function actionBar(stat: ModeratorActionStat, max: number, width = BAR_WI
 }
 
 /** Baris "sebaran aksi" untuk embed ringkasan. */
-export function moderatorActionLines(profile: ModeratorProfile): string {
-  if (profile.actions.length === 0) return '*Belum ada kasus tercatat.*';
+export function moderatorActionLines(
+  profile: ModeratorProfile,
+  t: Translator = defaultTranslator,
+): string {
+  if (profile.actions.length === 0) return t('mod.profile.actionsEmpty');
 
   const max = Math.max(...profile.actions.map((stat) => stat.total));
 
   return profile.actions
     .map((stat) => {
-      const meta = ACTION_LABELS[stat.type];
       const share = `${actionShare(stat, profile.totals.total)}%`;
-      const flag = stat.failed > 0 ? ` · ⚠️ ${stat.failed} gagal` : '';
+      const flag =
+        stat.failed > 0 ? t('mod.profile.actionFailed', { count: stat.failed }) : '';
 
-      return `${meta.emoji} **${meta.label}** ${actionBar(stat, max)} \`${stat.total}\` (${share})${flag}`;
+      return (
+        `${actionEmoji(stat.type)} **${actionLabel(stat.type, t)}** ` +
+        `${actionBar(stat, max)} \`${stat.total}\` (${share})${flag}`
+      );
     })
     .join('\n');
 }
@@ -180,18 +189,21 @@ export function moderatorActionLines(profile: ModeratorProfile): string {
  * tidak perlu tahu waktu sekarang — dengan begitu aturannya bisa diuji dengan
  * tanggal tetap tanpa/mock clock.
  */
-export function moderatorOverviewLines(profile: ModeratorProfile): string[] {
+export function moderatorOverviewLines(
+  profile: ModeratorProfile,
+  t: Translator = defaultTranslator,
+): string[] {
   const { totals } = profile;
-  if (totals.total === 0) return ['Belum ada kasus yang tercatat untuk moderator ini.'];
+  if (totals.total === 0) return [t('mod.profile.empty')];
 
   const lines = [
-    `Total kasus **${totals.total}**`,
-    `Target unik **${totals.uniqueTargets}** orang`,
+    t('mod.profile.totalCases', { count: totals.total }),
+    t('mod.profile.uniqueTargets', { count: totals.uniqueTargets }),
   ];
 
   const perTarget = casesPerTarget(profile);
   if (perTarget !== null && perTarget > 1.5) {
-    lines.push(`Rata-rata **${perTarget.toFixed(1)}** kasus per target`);
+    lines.push(t('mod.profile.perTarget', { count: perTarget.toFixed(1) }));
   }
 
   if (totals.firstCaseAt && totals.lastCaseAt) {
@@ -200,31 +212,41 @@ export function moderatorOverviewLines(profile: ModeratorProfile): string[] {
 
   lines.push(
     totals.recentCount > 0
-      ? `${totals.recentCount} kasus dalam ${MODERATOR_ACTIVE_WINDOW_DAYS} hari terakhir`
-      : `Tidak ada kasus dalam ${MODERATOR_ACTIVE_WINDOW_DAYS} hari terakhir`,
+      ? t('mod.profile.activeWindow', {
+          count: totals.recentCount,
+          days: MODERATOR_ACTIVE_WINDOW_DAYS,
+        })
+      : t('mod.profile.noRecent', { days: MODERATOR_ACTIVE_WINDOW_DAYS }),
   );
 
   const failed = moderatorFailedTotal(profile);
   if (failed > 0) {
-    lines.push(`⚠️ ${failed} kasus tercatat tapi aksi Discord-nya gagal dieksekusi`);
+    lines.push(t('mod.profile.failedLine', { count: failed }));
   }
 
   const revoked = moderatorRevokedTotal(profile);
   if (revoked > 0) {
-    lines.push(`♻️ ${revoked} peringatan dicabut kembali`);
+    lines.push(t('mod.profile.revokedLine', { count: revoked }));
   }
 
   return lines;
 }
 
 /** Baris ringkas satu kasus untuk daftar "terbaru". */
-export function moderatorCaseLine(record: ModerationCase, targetKind: TargetKind): string {
-  const meta = ACTION_LABELS[record.type];
+export function moderatorCaseLine(
+  record: ModerationCase,
+  targetKind: TargetKind,
+  t: Translator = defaultTranslator,
+): string {
   const target = targetKind === 'channel' ? `<#${record.targetId}>` : `<@${record.targetId}>`;
-  const state = record.active ? '' : record.type === 'warn' ? ' · *dicabut*' : ' · *gagal*';
+  const state = record.active
+    ? ''
+    : record.type === 'warn'
+      ? t('mod.profile.stateRevoked')
+      : t('mod.profile.stateFailed');
 
   return (
-    `\`${record.caseNumber}\` ${meta.emoji} ${meta.label} · ${target}` +
+    `\`${record.caseNumber}\` ${actionEmoji(record.type)} ${actionLabel(record.type, t)} · ${target}` +
     ` · <t:${toUnix(record.createdAt)}:R>${state}`
   );
 }

@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { getLyricsService, lyricsEmbed } from '../../modules/lyrics/index.js';
 import type { LyricsQuery, LyricsResult } from '../../modules/lyrics/index.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { errorEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
 import { gateMusicCommand, handleMusicFailure, replyEphemeralError } from './_shared.js';
@@ -32,6 +33,12 @@ export default {
     try {
       const requested = interaction.options.getString('judul')?.trim();
 
+      // Penerjemah diambil sekali di atas cabang. Pencarian manual melewati
+      // gate musik sepenuhnya, jadi kalau penerjemahnya hanya diambil di
+      // dalam cabang itu, embed hasil pencarian manual akan diam-diam
+      // kembali ke bahasa Indonesia.
+      const t = await translatorFor(interaction.guildId ?? 'unknown');
+
       let request: ResolvedRequest;
 
       if (requested) {
@@ -55,7 +62,7 @@ export default {
 
         if (!current) {
           await interaction.editReply({
-            embeds: [errorEmbed('Tidak ada lagu yang sedang diputar. Tambahkan dulu dengan `/play`.')],
+            embeds: [errorEmbed(t('music.lyrics.nothingPlaying'))],
           });
           return;
         }
@@ -76,14 +83,14 @@ export default {
 
       if (result.kind === 'not-found') {
         await interaction.editReply({
-          embeds: [infoEmbed('🎤 Lirik tidak ditemukan', result.message)],
+          embeds: [infoEmbed(`🎤 ${t('music.lyrics.notFound')}`, result.message)],
         });
         return;
       }
 
       if (result.kind === 'error') {
         await interaction.editReply({
-          embeds: [warningEmbed(result.message, '⚠️ Sumber Lirik Bermasalah')],
+          embeds: [warningEmbed(result.message, `⚠️ ${t('music.lyrics.sourceProblem')}`)],
         });
         return;
       }

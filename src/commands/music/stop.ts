@@ -21,13 +21,18 @@ export default {
         return;
       }
 
-      const stopped = await gate.ctx.music.stop(gate.ctx.guildId);
+      const { music, guildId, config, t } = gate.ctx;
+      const stopped = await music.stop(guildId);
       const lines = [
-        stopped ? `⏹️ Dihentikan: ${describeTrack(stopped, 80)}` : '⏹️ Pemutaran dihentikan.',
-        `Antrean dibersihkan. Bot keluar dari voice channel otomatis dalam **${gate.ctx.config.idleTimeoutSec} detik** kalau tidak ada lagu baru.`,
+        stopped
+          ? `⏹️ ${t('music.control.stoppedTrack', { track: describeTrack(stopped, 80) })}`
+          : `⏹️ ${t('music.control.stoppedTitle')}`,
+        t('music.control.queueCleared', { seconds: config.idleTimeoutSec }),
       ];
 
-      await interaction.editReply({ embeds: [successEmbed(lines.join('\n'), '⏹️ Dihentikan')] });
+      await interaction.editReply({
+        embeds: [successEmbed(lines.join('\n'), `⏹️ ${t('music.control.stoppedTitle')}`)],
+      });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'stop');
     }

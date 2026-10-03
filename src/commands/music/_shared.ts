@@ -14,6 +14,7 @@ import {
   type MusicService,
 } from '../../modules/music/index.js';
 import { getLogger } from '../../services/logger.js';
+import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import { errorEmbed } from '../../utils/embeds.js';
 
 // Dipindah ke modul musik supaya handler komponen `/search` bisa memakainya juga.
@@ -29,6 +30,14 @@ export interface MusicContext {
   canManageGuild: boolean;
   /** Role yang dimiliki pemanggil — dipakai aturan batas durasi §6.2. */
   memberRoleIds: string[];
+  /**
+   * Penerjemah bahasa server, sudah terikat ke locale guild itu.
+   *
+   * Disimpan di konteks, bukan diambil sendiri oleh tiap perintah: gate
+   * sudah membaca config untuk aturan lain, jadi satu pembacaan tambahan
+   * tidak terjadi dan setiap perintah dapat penerjemah tanpa `await` lagi.
+   */
+  t: Translator;
 }
 
 export interface GateOptions {
@@ -54,7 +63,7 @@ export async function gateMusicCommand(
 ): Promise<Gate> {
   // inCachedGuild menjamin guild & member ada di cache, sehingga tipe aman dipakai.
   if (!interaction.inCachedGuild()) {
-    return fail(errorEmbed('Perintah musik hanya bisa dipakai di dalam server.'));
+    return fail(errorEmbed(defaultTranslator('music.gate.guildOnly')));
   }
 
   const guild = interaction.guild;
@@ -66,37 +75,33 @@ export async function gateMusicCommand(
     music = getMusicService();
   } catch (error) {
     getLogger().error({ err: error }, 'MusicService belum diinisialisasi');
-    return fail(errorEmbed('Mesin musik belum aktif. Coba lagi sebentar lagi.'));
+    return fail(errorEmbed(defaultTranslator('music.gate.engineDown')));
   }
 
   const config = await getGuildConfigService().get(guild.id);
+  // Semua pesan gate lewat katalog bahasa, jadi pesan yang paling sering
+  // dilihat user (dan yang paling sering disalin) ikut berbahasa yang
+  // mereka pilih.
+  const t = await translatorFor(guild.id);
 
   if (!config.modules.music) {
-    return fail(
-      errorEmbed('Modul musik dimatikan di server ini. Nyalakan lewat `/setup` atau `/config`.'),
-    );
+    return fail(errorEmbed(`${t('music.gate.moduleDisabled')} ${t('music.gate.enableHint')}`));
   }
 
   if (options.voice && !music.isConnected) {
-    return fail(
-      errorEmbed(
-        'Lavalink belum terhubung, jadi lagu tidak bisa diputar. Cek `docker compose logs lavalink`.',
-      ),
-    );
+    return fail(errorEmbed(t('music.gate.notConnected')));
   }
 
   const memberChannelId = member.voice.channelId ?? null;
   const botChannelId = music.botVoiceChannelId(guild.id);
 
   if (options.voice && !memberChannelId) {
-    return fail(errorEmbed('Masuk ke voice channel dulu supaya saya bisa ikut memutar lagu.'));
+    return fail(errorEmbed(t('music.gate.needVoice')));
   }
 
   if (options.voice && botChannelId && botChannelId !== memberChannelId && !canManageGuild) {
     return fail(
-      errorEmbed(
-        `Saya sedang memutar lagu di <#${botChannelId}>. Masuk ke channel itu untuk ikut mengatur.`,
-      ),
+      errorEmbed(t('music.gate.botElsewhere', { channel: botChannelId })),
     );
   }
 
@@ -111,23 +116,23 @@ export async function gateMusicCommand(
       return fail(
         errorEmbed(
           config.djRoleId
-            ? `Perintah ini hanya untuk role <@&${config.djRoleId}> (atau Manage Server).`
-            : 'Perintah ini butuh izin Manage Server.',
+            ? t('music.gate.needDjRole', { role: config.djRoleId })
+            : t('music.gate.needManageGuild'),
         ),
       );
     }
 
     if (!isInSameVoiceChannel(memberChannelId, botChannelId, canManageGuild)) {
-      return fail(errorEmbed('Kamu harus berada di voice channel yang sama dengan saya.'));
+      return fail(errorEmbed(t('music.gate.needSameVoice')));
     }
   }
 
   if (options.playing && !music.isPlaying(guild.id)) {
-    return fail(errorEmbed('Tidak ada lagu yang sedang diputar.'));
+    return fail(errorEmbed(t('music.gate.nothingPlaying')));
   }
 
   if (options.voice && memberChannelId) {
-    const permissionError = await checkVoicePermissions(guild, memberChannelId);
+    const permissionError = await checkVoicePermissions(guild, memberChannelId, t);
     if (permissionError) return fail(permissionError);
   }
 
@@ -141,6 +146,7 @@ export async function gateMusicCommand(
       voiceChannelId: memberChannelId ?? '',
       canManageGuild,
       memberRoleIds: [...member.roles.cache.keys()],
+      t,
     },
   };
 }
@@ -151,21 +157,25 @@ export async function gateMusicCommand(
  * Diekspor supaya `/247 join` bisa memakai pemeriksaan yang sama persis,
  * bukan salinan yang bisa berbeda seiring waktu.
  */
-export async function checkVoicePermissions(guild: Guild, channelId: string): Promise<EmbedBuilder | null> {
+export async function checkVoicePermissions(
+  guild: Guild,
+  channelId: string,
+  t: Translator = defaultTranslator,
+): Promise<EmbedBuilder | null> {
   const channel = await guild.channels.fetch(channelId).catch(() => null);
 
   if (!channel || !channel.isVoiceBased()) {
-    return errorEmbed('Channel itu bukan voice channel yang bisa saya masuki.');
+    return errorEmbed(t('music.gate.channelNotVoice'));
   }
 
   const me: GuildMember | null = guild.members.me;
   if (!me) {
-    return errorEmbed('Saya belum termuat di server ini. Coba lagi sebentar lagi.');
+    return errorEmbed(t('music.gate.notCached'));
   }
 
   const permissions = channel.permissionsFor(me);
   if (!permissions?.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak)) {
-    return errorEmbed(`Saya tidak punya izin **Connect** dan **Speak** di <#${channelId}>.`);
+    return errorEmbed(t('music.gate.missingPermissions', { channel: channelId }));
   }
 
   return null;
@@ -195,8 +205,7 @@ export async function handleMusicFailure(
     'Perintah musik gagal',
   );
 
-  await replyEphemeralError(
-    interaction,
-    errorEmbed('Terjadi kesalahan saat memproses perintah musik. Detailnya sudah dicatat di log bot.'),
-  );
+  const t = await translatorFor(interaction.guildId ?? 'unknown');
+
+  await replyEphemeralError(interaction, errorEmbed(t('music.gate.internalError')));
 }

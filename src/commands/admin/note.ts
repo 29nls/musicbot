@@ -56,7 +56,9 @@ export default {
 
       if (subcommand === 'show') {
         const notes = await ctx.moderation.listNotes(ctx.guildId, user.id);
-        await interaction.editReply({ embeds: [notesEmbed({ id: user.id, tag: user.tag }, notes)] });
+        await interaction.editReply({
+          embeds: [notesEmbed({ id: user.id, tag: user.tag }, notes, ctx.t)],
+        });
         return;
       }
 
@@ -69,7 +71,7 @@ export default {
         ctx,
         userId: user.id,
         content,
-        extraLines: ['📝 Catatan internal — target tidak diberi tahu.'],
+        extraLines: [ctx.t('mod.note.internalLine')],
       });
     } catch (error) {
       await handleAdminFailure(interaction, error, 'note');

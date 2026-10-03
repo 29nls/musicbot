@@ -65,12 +65,14 @@ export default {
         withPriorCases: true,
         execute: async () => {
           await ctx.guild.members.ban(user.id, {
-            reason: auditReason(interaction.user, reason),
+            reason: auditReason(interaction.user, reason, ctx.t),
             deleteMessageSeconds: deleteDays * 86_400,
           });
         },
         extraLines:
-          deleteDays > 0 ? [`🧹 Pesan dari **${deleteDays}** hari terakhir ikut dihapus.`] : [],
+          deleteDays > 0
+            ? [ctx.t('mod.ban.deleteMessages', { days: deleteDays })]
+            : [],
       });
     } catch (error) {
       await handleAdminFailure(interaction, error, 'ban');

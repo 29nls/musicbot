@@ -59,7 +59,10 @@ export const guildConfigPatchSchema = z.object({
   ticketPanelMessageId: snowflakeOrNull.optional(),
   stayChannelId: snowflakeOrNull.optional(),
   modules: modulesSchema.optional(),
-  locale: z.string().min(2).max(5).optional(),
+  // Hanya dua bahasa yang benar-benar ada katalognya. Menerima string bebas
+  // di sini berarti bahasa yang tidak dikenal bisa tersimpan dan diam-diam
+  // tidak pernah dipakai — jenis konfigurasi yang paling sering dilupakan.
+  locale: z.enum(['id', 'en']).optional(),
 });
 
 /**

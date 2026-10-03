@@ -8,6 +8,8 @@
  * atau suara rusak, dan itu tidak ketahuan sampai ada yang memutar lagu.
  */
 
+import { defaultTranslator, type Translator } from '../i18n/index.js';
+
 /** Mode filter, sesuai §5.2 PRD ditambah `off` untuk mengembalikan suara normal. */
 export const FILTER_MODES = ['off', 'bassboost', 'nightcore', 'vaporwave', '8d'] as const;
 
@@ -33,13 +35,20 @@ const MODE_ALIASES: Record<string, FilterMode> = {
   '8-dimensi': '8d',
 };
 
-/** Label mode untuk embed & pesan konfirmasi. */
-const MODE_LABELS: Record<FilterMode, string> = {
-  off: 'Normal (tanpa filter)',
-  bassboost: 'Bassboost',
-  nightcore: 'Nightcore',
-  vaporwave: 'Vaporwave',
-  '8d': '8D',
+/** Kunci katalog untuk tiap mode; lihat catatan di `loop.ts`. */
+const MODE_LABEL_KEYS: Record<
+  FilterMode,
+  | 'music.filter.off'
+  | 'music.filter.bassboost'
+  | 'music.filter.nightcore'
+  | 'music.filter.vaporwave'
+  | 'music.filter.8d'
+> = {
+  off: 'music.filter.off',
+  bassboost: 'music.filter.bassboost',
+  nightcore: 'music.filter.nightcore',
+  vaporwave: 'music.filter.vaporwave',
+  '8d': 'music.filter.8d',
 };
 
 /** Terjemahkan input user ke mode; null kalau tidak dikenal. */
@@ -48,12 +57,12 @@ export function parseFilterMode(input: string): FilterMode | null {
 }
 
 /** Saran pilihan saat input tidak dikenal. */
-export function filterModeHint(): string {
-  return FILTER_MODES.map((mode) => `\`${MODE_LABELS[mode]}\``).join(' / ');
+export function filterModeHint(t: Translator = defaultTranslator): string {
+  return FILTER_MODES.map((mode) => `\`${filterModeLabel(mode, t)}\``).join(' / ');
 }
 
-export function filterModeLabel(mode: FilterMode): string {
-  return MODE_LABELS[mode];
+export function filterModeLabel(mode: FilterMode, t: Translator = defaultTranslator): string {
+  return t(MODE_LABEL_KEYS[mode]);
 }
 
 /** Satu band equalizer Lavalink. */

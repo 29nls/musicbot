@@ -29,7 +29,7 @@ export default {
         return;
       }
 
-      const { music, guildId } = gate.ctx;
+      const { music, guildId, t } = gate.ctx;
       const snapshot = await music.snapshot(guildId);
       const current = snapshot.current;
 
@@ -37,7 +37,7 @@ export default {
       // berguna daripada "tidak ada lagu yang sedang diputar".
       if (!current) {
         await interaction.editReply({
-          embeds: [errorEmbed('Tidak ada lagu yang sedang diputar.')],
+          embeds: [errorEmbed(t('music.gate.nothingPlaying'))],
         });
         return;
       }
@@ -50,7 +50,7 @@ export default {
 
       if (!parsed.ok) {
         await interaction.editReply({
-          embeds: [errorEmbed(seekErrorMessage(parsed.reason))],
+          embeds: [errorEmbed(seekErrorMessage(parsed.reason, t))],
         });
         return;
       }
@@ -60,10 +60,13 @@ export default {
         embeds: [
           moved
             ? successEmbed(
-                `⏩ Lompat ke **${formatDuration(parsed.positionMs)}** dari ${formatDuration(current.durationMs)}.`,
-                '⏩ Lompat Posisi',
+                `⏩ ${t('music.seek.jumped', {
+                  position: formatDuration(parsed.positionMs),
+                  total: formatDuration(current.durationMs),
+                })}`,
+                `⏩ ${t('music.seek.jumpedTitle')}`,
               )
-            : errorEmbed('Lagu tidak bisa dilompat sekarang. Coba lagi setelah lagu berikutnya dimulai.'),
+            : errorEmbed(t('music.seek.unavailable')),
         ],
       });
     } catch (error) {

@@ -18,11 +18,14 @@ export default {
         return;
       }
 
-      const snapshot = await gate.ctx.music.snapshot(gate.ctx.guildId);
+      const { music, guildId, t } = gate.ctx;
+      const snapshot = await music.snapshot(guildId);
 
       if (!snapshot.current && snapshot.upcoming.length === 0) {
         await interaction.editReply({
-          embeds: [infoEmbed('🎶 Antrean kosong', 'Tambahkan lagu dengan `/play <judul atau URL>`.')],
+          embeds: [
+            infoEmbed(`🎶 ${t('music.queue.emptyTitle')}`, t('music.queue.emptyHint')),
+          ],
         });
         return;
       }
@@ -30,10 +33,10 @@ export default {
       // Halaman pertama (AC §8 US-02): 10 lagu per halaman, dengan tombol
       // navigasi kalau masih ada halaman berikutnya.
       const page = buildQueuePage(snapshot.upcoming, 1);
-      const row = queueNavRow(page);
+      const row = queueNavRow(page, t);
 
       await interaction.editReply({
-        embeds: [queueEmbed(snapshot, page)],
+        embeds: [queueEmbed(snapshot, page, t)],
         components: row ? [row] : [],
       });
     } catch (error) {

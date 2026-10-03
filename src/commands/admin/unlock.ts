@@ -32,7 +32,7 @@ export default {
       }
       const { ctx } = gate;
 
-      const plan = resolveLockPlan(interaction);
+      const plan = resolveLockPlan(interaction, ctx.t);
       if (!plan.ok) {
         await replyEphemeralError(interaction, plan.embed);
         return;
@@ -48,9 +48,9 @@ export default {
         reason,
         execute: async () => {
           // null = hapus override, jadi izin kembali mengikuti default server.
-          await plan.apply(false, auditReason(interaction.user, reason));
+          await plan.apply(false, auditReason(interaction.user, reason, ctx.t));
         },
-        extraLines: [`🔑 \`${plan.label}\` kembali mengikuti izin default server.`],
+        extraLines: [ctx.t('mod.unlock.restoredLine', { channel: plan.label })],
       });
     } catch (error) {
       await handleAdminFailure(interaction, error, 'unlock');

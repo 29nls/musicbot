@@ -5,9 +5,12 @@
  * tanpa keduanya, dan supaya presentasi terpisah dari query yang mengumpulkannya.
  */
 
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { caseHistoryLine } from './caseView.js';
 import {
-  ACTION_LABELS,
+  actionEmoji,
+  actionLabel,
+  compareActions,
   isModerationAction,
   type ModerationAction,
   type ModerationCase,
@@ -86,10 +89,7 @@ export function buildPriorCaseSummary(input: {
 
   const byAction = [...counts.entries()]
     .map(([type, value]) => ({ type, count: value.count, inactive: value.inactive }))
-    .sort(
-      (a, b) =>
-        b.count - a.count || ACTION_LABELS[a.type].label.localeCompare(ACTION_LABELS[b.type].label, 'id'),
-    );
+    .sort((a, b) => b.count - a.count || compareActions(a.type, b.type));
 
   return {
     targetId: input.targetId,
@@ -114,24 +114,25 @@ export function buildPriorCaseSummary(input: {
  * Kasus yang pernah di-ban sebelumnya juga disebut: pola bolak-ban/unban
  * berulang adalah alasan untuk menunda keputusan, bukan melanjutkannya.
  */
-export function priorCaseNoteLines(summary: PriorCaseSummary): string[] {
+export function priorCaseNoteLines(
+  summary: PriorCaseSummary,
+  t: Translator = defaultTranslator,
+): string[] {
   const lines: string[] = [];
 
   if (summary.activeWarnings > 0) {
-    lines.push(
-      `⚠️ **${summary.activeWarnings} peringatan masih aktif** — target sudah diberi tahu sebelumnya.`,
-    );
+    lines.push(t('mod.prior.activeWarnings', { count: summary.activeWarnings }));
   }
 
   // Disebut karena sebarannya masih memuat peringatan yang dicabut: tanpa ini
   // angka "peringatan" di baris bawah terlihat lebih besar daripada yang
   // berlaku, dan moderator bisa salah membaca member yang sudah dibersihkan.
   if (summary.revokedWarnings > 0) {
-    lines.push(`♻️ **${summary.revokedWarnings}** peringatan sebelumnya dicabut moderator.`);
+    lines.push(t('mod.prior.revokedWarnings', { count: summary.revokedWarnings }));
   }
 
   if (summary.priorBans > 0) {
-    lines.push(`🔁 Target **pernah di-ban ${summary.priorBans}×** di server ini.`);
+    lines.push(t('mod.prior.priorBans', { count: summary.priorBans }));
   }
 
   if (summary.total > 0) {
@@ -139,15 +140,15 @@ export function priorCaseNoteLines(summary: PriorCaseSummary): string[] {
     const rest = summary.byAction.length - shown.length;
     const breakdown = [
       ...shown.map((item) => {
-        const meta = ACTION_LABELS[item.type];
-        const inactive = item.inactive > 0 ? ` _(${item.inactive} nonaktif)_` : '';
+        const inactive =
+          item.inactive > 0 ? t('mod.prior.inactive', { count: item.inactive }) : '';
 
-        return `${meta.emoji} ${meta.label} \`${item.count}\`${inactive}`;
+        return `${actionEmoji(item.type)} ${actionLabel(item.type, t)} \`${item.count}\`${inactive}`;
       }),
-      ...(rest > 0 ? [`+${rest} jenis lain`] : []),
+      ...(rest > 0 ? [t('mod.prior.moreActions', { count: rest })] : []),
     ].join(' · ');
 
-    lines.push(`📋 Total **${summary.total}** kasus sebelumnya — ${breakdown}.`);
+    lines.push(t('mod.prior.totalLine', { count: summary.total, breakdown }));
   }
 
   return lines;
@@ -163,6 +164,11 @@ const PRIOR_CASE_ACTION_BREAKDOWN = 4;
  * di `/case` maupun di balasan aksi — moderator yang membandingkan keduanya
  * tidak perlu menghafal dua format yang berbeda.
  */
-export function priorCaseRecentLines(summary: PriorCaseSummary): string[] {
-  return summary.recentCases.slice(0, PRIOR_CASE_HINT_LIMIT).map(caseHistoryLine);
+export function priorCaseRecentLines(
+  summary: PriorCaseSummary,
+  t: Translator = defaultTranslator,
+): string[] {
+  return summary.recentCases
+    .slice(0, PRIOR_CASE_HINT_LIMIT)
+    .map((record) => caseHistoryLine(record, t));
 }

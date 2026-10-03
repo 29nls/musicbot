@@ -44,7 +44,7 @@ export default {
       if (!targetMember) {
         await replyEphemeralError(
           interaction,
-          errorEmbed('User itu bukan anggota server ini, jadi tidak bisa di-kick.'),
+          errorEmbed(ctx.t('mod.notMember.kick')),
         );
         return;
       }
@@ -62,7 +62,7 @@ export default {
         action: 'kick',
         reason,
         execute: async () => {
-          await targetMember.kick(auditReason(interaction.user, reason));
+          await targetMember.kick(auditReason(interaction.user, reason, ctx.t));
         },
       });
     } catch (error) {

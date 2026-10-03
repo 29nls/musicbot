@@ -1,4 +1,5 @@
-import { ACTION_LABELS, isModerationAction } from '../moderation/types.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
+import { actionEmoji, actionLabel, isModerationAction } from '../moderation/types.js';
 import {
   DEFAULT_LOG_RETENTION_DAYS,
   LOG_CATEGORIES,
@@ -159,10 +160,15 @@ export function memberIdsOverlap(
 }
 
 /** Label ramah untuk `eventKey`; kunci tak dikenal ditampilkan apa adanya. */
-export function eventKeyLabel(eventKey: string): string {
+export function eventKeyLabel(
+  eventKey: string,
+  t: Translator = defaultTranslator,
+): string {
   if (eventKey.startsWith('moderation.')) {
     const action = eventKey.slice('moderation.'.length);
-    return isModerationAction(action) ? ACTION_LABELS[action].label : `Aksi ${action}`;
+    return isModerationAction(action)
+      ? actionLabel(action, t)
+      : t('mod.parse.unknownAction', { action });
   }
 
   return EVENT_LABELS[eventKey] ?? eventKey;
@@ -172,7 +178,7 @@ export function eventKeyLabel(eventKey: string): string {
 export function eventKeyEmoji(eventKey: string): string {
   if (eventKey.startsWith('moderation.')) {
     const action = eventKey.slice('moderation.'.length);
-    return isModerationAction(action) ? ACTION_LABELS[action].emoji : '⚙️';
+    return isModerationAction(action) ? actionEmoji(action) : '⚙️';
   }
 
   return EVENT_EMOJIS[eventKey] ?? '•';

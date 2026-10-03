@@ -19,11 +19,18 @@ export default {
         return;
       }
 
-      const paused = await gate.ctx.music.setPaused(gate.ctx.guildId, true);
-      const snapshot = await gate.ctx.music.snapshot(gate.ctx.guildId);
+      const { music, guildId, t } = gate.ctx;
+      const paused = await music.setPaused(guildId, true);
+      const snapshot = await music.snapshot(guildId);
 
       if (!paused) {
-        await replyEphemeralError(interaction, successEmbed('Tidak ada pemutaran aktif.', '⏸️ Tidak Bisa Dijeda'));
+        await replyEphemeralError(
+          interaction,
+          successEmbed(
+            t('music.control.nothingToPause'),
+            `⏸️ ${t('music.control.cannotPauseTitle')}`,
+          ),
+        );
         return;
       }
 
@@ -31,9 +38,9 @@ export default {
         embeds: [
           successEmbed(
             snapshot.current
-              ? `⏸️ ${describeTrack(snapshot.current, 80)} dijeda. Lanjutkan dengan \`/resume\`.`
-              : '⏸️ Pemutaran dijeda.',
-            '⏸️ Dijeda',
+              ? `⏸️ ${t('music.control.pausedTrack', { track: describeTrack(snapshot.current, 80) })}`
+              : `⏸️ ${t('music.control.pausedTrack', { track: t('music.control.pausedTitle') })}`,
+            `⏸️ ${t('music.control.pausedTitle')}`,
           ),
         ],
       });

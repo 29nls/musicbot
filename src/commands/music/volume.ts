@@ -37,18 +37,19 @@ export default {
         return;
       }
 
+      const { music, guildId, t } = gate.ctx;
       const requested = interaction.options.getInteger('level', true);
-      const volume = await gate.ctx.music.setVolume(gate.ctx.guildId, requested);
+      const volume = await music.setVolume(guildId, requested);
 
       // Angka yang ditampilkan adalah hasil penguncian dari service, bukan input
       // mentah: kalau service mengunci ulang nanti, embed ini sudah jadi bohong.
       const text =
         volume === 0
-          ? '🔇 Volume dimatikan. Pakai `/volume 100` untuk menyalakan lagi.'
-          : `🔊 Volume diubah ke **${volume}%**.` +
-            (volume > 100 ? ' Di atas 100% suara bisa pecah.' : '');
+          ? `🔇 ${t('music.volume.muted')}`
+          : `🔊 ${t('music.volume.changed', { volume })}` +
+            (volume > 100 ? t('music.volume.clipping') : '');
 
-      await interaction.editReply({ embeds: [successEmbed(text, '🔊 Volume')] });
+      await interaction.editReply({ embeds: [successEmbed(text, `🔊 ${t('music.volume.title')}`)] });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'volume');
     }

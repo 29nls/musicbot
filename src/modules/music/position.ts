@@ -5,6 +5,8 @@
  * pesan penolakan yang sama tidak ditulis ulang di beberapa tempat.
  */
 
+import { defaultTranslator, type Translator } from '../i18n/index.js';
+
 /** Batas atas posisi — 6 jam, cukup untuk track terpanjang. */
 export const MAX_SEEK_MS = 6 * 60 * 60 * 1_000;
 
@@ -86,16 +88,25 @@ export function resolveSeekPosition(
   return parsed;
 }
 
-/** Alasan penolakan dalam bahasa user, dengan contoh format yang diterima. */
-export function seekErrorMessage(reason: PositionFailure): string {
+/**
+ * Alasan penolakan dalam bahasa user, dengan contoh format yang diterima.
+ *
+ * Contoh format ikut diterjemahkan karena contoh itu instruksi, bukan
+ * keterangan: `1m30s` adalah sintaks yang diterima parser apa pun,
+ * sedangkan `90` bukan.
+ */
+export function seekErrorMessage(
+  reason: PositionFailure,
+  t: Translator = defaultTranslator,
+): string {
   switch (reason) {
     case 'live':
-      return 'Lagu ini siaran langsung, jadi tidak ada posisi untuk dilompat.';
+      return t('music.seek.live');
     case 'past-end':
-      return 'Posisi itu melewati akhir lagu.';
+      return t('music.seek.pastEnd');
     case 'too-large':
-      return 'Posisi terlalu jauh — maksimal 6 jam.';
+      return t('music.seek.tooLarge');
     default:
-      return 'Posisi tidak terbaca. Contoh yang diterima: `90`, `1:30`, atau `1m30s`.';
+      return t('music.seek.unreadable');
   }
 }

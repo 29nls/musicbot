@@ -36,7 +36,7 @@ export default {
         return;
       }
 
-      const { music, guildId } = gate.ctx;
+      const { music, guildId, t } = gate.ctx;
       const query = interaction.options.getString('query', true).trim();
 
       const found = await music.resolve(query);
@@ -44,10 +44,7 @@ export default {
       if (found.kind === 'unavailable') {
         await interaction.editReply({
           embeds: [
-            infoEmbed(
-              'Lavalink belum terhubung',
-              'Cari lagu tidak bisa jalan sebelum node Lavalink aktif. Cek `docker compose logs lavalink`.',
-            ),
+            infoEmbed(t('music.search.unavailableTitle'), t('music.search.unavailableBody')),
           ],
         });
         return;
@@ -55,7 +52,12 @@ export default {
 
       if (found.kind === 'error') {
         await interaction.editReply({
-          embeds: [infoEmbed('Pencarian gagal', `Lavalink menjawab: ${found.message}`)],
+          embeds: [
+            infoEmbed(
+              t('music.search.failedTitle'),
+              t('music.search.failedBody', { message: found.message }),
+            ),
+          ],
         });
         return;
       }
@@ -64,8 +66,8 @@ export default {
         await interaction.editReply({
           embeds: [
             infoEmbed(
-              'Tidak ada hasil',
-              `Tidak menemukan apa pun untuk \`${query}\`. Coba kata kunci lain atau kirim URL.`,
+              t('music.search.noResultsTitle'),
+              t('music.search.noResults', { query }),
             ),
           ],
         });
@@ -87,18 +89,15 @@ export default {
       if (!session) {
         await interaction.editReply({
           embeds: [
-            infoEmbed(
-              'Pencarian gagal',
-              'Hasil pencarian tidak bisa disimpan sebentar, jadi menunya tidak bisa dibuat. Coba lagi beberapa saat lagi.',
-            ),
+            infoEmbed(t('music.search.failedTitle'), t('music.search.sessionFailed')),
           ],
         });
         return;
       }
 
       await interaction.editReply({
-        embeds: [searchResultsEmbed({ query, tracks })],
-        components: [searchSelectRow(session)],
+        embeds: [searchResultsEmbed({ query, tracks }, t)],
+        components: [searchSelectRow(session, t)],
       });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'search');

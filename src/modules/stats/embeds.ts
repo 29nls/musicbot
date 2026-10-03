@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { formatDuration } from '../../utils/duration.js';
 import { bar, sharePercent } from './aggregate.js';
 import { dayKey } from './day.js';
@@ -17,22 +18,22 @@ import type { StatSummary } from './types.js';
  *   dihimpun dari 90 hari tapi grafik hanya 14 hari, keduanya benar tapi
  *   maknanya berbeda.
  */
-export function statsEmbed(summary: StatSummary): EmbedBuilder {
+export function statsEmbed(summary: StatSummary, t: Translator = defaultTranslator): EmbedBuilder {
   const isTrack = summary.kind === 'track';
   const maxCount = summary.top.reduce((max, item) => Math.max(max, item.count), 0);
 
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle(isTrack ? 'Statistik Musik' : 'Statistik Perintah')
+    .setTitle(isTrack ? t('stats.trackTitle') : t('stats.commandTitle'))
     .setDescription(
       summary.totalCount === 0
-        ? `Belum ada data ${isTrack ? 'pemutaran' : 'pemakaian perintah'} dalam ${summary.days} hari terakhir.`
-        : describe(summary, isTrack),
+        ? t(isTrack ? 'stats.emptyTrack' : 'stats.emptyCommand', { days: summary.days })
+        : describe(summary, isTrack, t),
     );
 
   if (summary.top.length > 0) {
     embed.addFields({
-      name: isTrack ? 'Lagu paling sering' : 'Perintah paling sering',
+      name: isTrack ? t('stats.fieldTopTrack') : t('stats.fieldTopCommand'),
       value: summary.top
         .map((item, index) => {
           const share = sharePercent(item.count, summary.totalCount);
@@ -45,28 +46,34 @@ export function statsEmbed(summary: StatSummary): EmbedBuilder {
     });
   }
 
-  embed.addFields({ name: 'Harian', value: renderDaily(summary), inline: false });
+  embed.addFields({ name: t('stats.fieldDaily'), value: renderDaily(summary, t), inline: false });
 
   embed.setFooter({
-    text: `${dayKey(summary.since)} sampai ${dayKey(summary.until)} (UTC) | ${
-      summary.activeDays
-    } dari ${summary.days} hari ada aktivitas | tanpa data pribadi`,
+    text: t('stats.footerRange', {
+      since: dayKey(summary.since),
+      until: dayKey(summary.until),
+      active: summary.activeDays,
+      days: summary.days,
+    }),
   });
 
   return embed.setTimestamp();
 }
 
 /** Ringkasan satu kalimat di atas embed. */
-function describe(summary: StatSummary, isTrack: boolean): string {
+function describe(summary: StatSummary, isTrack: boolean, t: Translator): string {
   const total = isTrack
-    ? `**${summary.totalCount}x** pemutaran, ${formatDuration(summary.totalListenedMs)} didengarkan`
-    : `**${summary.totalCount}x** perintah dipakai`;
+    ? t('stats.summaryTrack', {
+        count: summary.totalCount,
+        listened: formatDuration(summary.totalListenedMs),
+      })
+    : t('stats.summaryCommand', { count: summary.totalCount });
 
   const peak = summary.peak
-    ? ` Hari paling ramai: **${dayKey(summary.peak.day)}** (${summary.peak.count}).`
+    ? t('stats.peakDay', { day: dayKey(summary.peak.day), count: summary.peak.count })
     : '';
 
-  return `${total} dalam ${summary.days} hari terakhir.${peak}`;
+  return t('stats.summaryTail', { total, days: summary.days, peak });
 }
 
 /**
@@ -75,8 +82,8 @@ function describe(summary: StatSummary, isTrack: boolean): string {
  * Rentang lebih dari 14 hari dijumlahkan per minggu: 90 baris di dalam embed
  * jauh lebih buruk dibaca daripada 13 blok, sedangkan angkanya tetap sama.
  */
-function renderDaily(summary: StatSummary): string {
-  if (summary.daily.length === 0) return '*Tidak ada data.*';
+function renderDaily(summary: StatSummary, t: Translator): string {
+  if (summary.daily.length === 0) return t('stats.dailyEmpty');
 
   const max = summary.daily.reduce((highest, point) => Math.max(highest, point.count), 0);
 
@@ -91,7 +98,7 @@ function renderDaily(summary: StatSummary): string {
 
   return [
     ...weeks.map((week) => `${week.label} ${bar(week.count, maxWeek, 8)} ${week.count}`),
-    `_Rentang dijumlahkan per minggu: ${summary.days} hari jadi ${weeks.length} blok._`,
+    t('stats.weeklyNote', { days: summary.days, weeks: weeks.length }),
   ].join('\n');
 }
 

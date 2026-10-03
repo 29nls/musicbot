@@ -1,5 +1,11 @@
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import type { TargetKind } from './embeds.js';
-import { ACTION_LABELS, NOTIFIABLE_ACTIONS, type ModerationCase } from './types.js';
+import {
+  actionEmoji,
+  actionLabel,
+  NOTIFIABLE_ACTIONS,
+  type ModerationCase,
+} from './types.js';
 
 /** Berapa kasus lain (untuk target yang sama) yang ditampilkan di halaman kasus. */
 export const CASE_HISTORY_LIMIT = 5;
@@ -30,12 +36,15 @@ export function caseTargetKind(record: ModerationCase): TargetKind {
  * `/warn` itu berarti peringatan dicabut, untuk aksi lain itu berarti aksi
  * Discord gagal dieksekusi sehingga kasus dinonaktifkan.
  */
-export function describeCaseStatus(record: ModerationCase): string {
-  if (record.active) return '✅ Aktif';
+export function describeCaseStatus(
+  record: ModerationCase,
+  t: Translator = defaultTranslator,
+): string {
+  if (record.active) return t('mod.case.statusActive');
 
   return record.type === 'warn'
-    ? '♻️ Dicabut oleh moderator'
-    : '❌ Nonaktif — aksi Discord gagal dieksekusi';
+    ? t('mod.case.statusRevoked')
+    : t('mod.case.statusInactive');
 }
 
 /** Rentang waktu untuk mencari log yang terjadi di sekitar kasus ini. */
@@ -67,33 +76,37 @@ export interface CaseTargetState {
 export function currentStateLines(
   record: ModerationCase,
   state: CaseTargetState | null,
+  t: Translator = defaultTranslator,
 ): string[] {
   if (record.type === 'ban') {
-    if (state?.banned === true) return ['🔒 Masih diblokir dari server'];
-    if (state?.banned === false) return ['✅ Sudah tidak diblokir dari server'];
-    return ['⚪ Status blokir tidak bisa diperiksa'];
+    if (state?.banned === true) return [t('mod.case.banned')];
+    if (state?.banned === false) return [t('mod.case.unbanned')];
+    return [t('mod.case.banUnknown')];
   }
 
   if (record.type === 'timeout') {
     const until = state?.timeoutUntil ?? null;
     if (until && until.getTime() > Date.now()) {
-      return [`⏳ Masih timeout sampai <t:${Math.floor(until.getTime() / 1_000)}:R>`];
+      return [t('mod.case.timeoutActive', { when: Math.floor(until.getTime() / 1_000) })];
     }
-    if (until) return ['✅ Sudah tidak timeout'];
-    return ['⚪ Tidak sedang timeout atau tidak bisa diperiksa'];
+    if (until) return [t('mod.case.timeoutExpired')];
+    return [t('mod.case.timeoutUnknown')];
   }
 
   return [];
 }
 
 /** Baris ringkas satu kasus untuk daftar riwayat target. */
-export function caseHistoryLine(record: ModerationCase): string {
-  const meta = ACTION_LABELS[record.type];
-  const state = record.active ? '' : ' · *nonaktif*';
+export function caseHistoryLine(
+  record: ModerationCase,
+  t: Translator = defaultTranslator,
+): string {
+  const state = record.active ? '' : t('mod.case.inactiveSuffix');
 
   return (
-    `\`${record.caseNumber}\` ${meta.emoji} ${meta.label} · <t:${Math.floor(record.createdAt.getTime() / 1_000)}:R>` +
-    ` · oleh <@${record.moderatorId}>${state}`
+    `\`${record.caseNumber}\` ${actionEmoji(record.type)} ${actionLabel(record.type, t)} ` +
+    `<t:${Math.floor(record.createdAt.getTime() / 1_000)}:R>` +
+    ` · ${t('mod.case.by', { moderator: record.moderatorId })}${state}`
   );
 }
 
@@ -112,20 +125,24 @@ export function caseHistoryLine(record: ModerationCase): string {
  * menggambarkan notifikasi atas kasus itu sendiri, bukan DM tambahan yang
  * menyertainya.
  */
-export function dmDeliveryLine(record: ModerationCase): string | null {
-  if (record.dmStatus === 'sent') return '✅ DM notifikasi terkirim ke target';
-  if (record.dmStatus === 'failed') {
-    return '⚠️ DM notifikasi **tidak terkirim** — DM-nya tertutup atau bot diblokir';
-  }
+export function dmDeliveryLine(
+  record: ModerationCase,
+  t: Translator = defaultTranslator,
+): string | null {
+  if (record.dmStatus === 'sent') return t('mod.case.dmSent');
+  if (record.dmStatus === 'failed') return t('mod.case.dmFailed');
 
   if (!NOTIFIABLE_ACTIONS.includes(record.type as (typeof NOTIFIABLE_ACTIONS)[number])) return null;
 
-  return '❔ Status pengiriman DM tidak tercatat (kasus dibuat sebelum fitur ini ada)';
+  return t('mod.case.dmUnrecorded');
 }
 
 /** Alasan yang aman ditampilkan di embed: dipotong ke batas field Discord. */
-export function caseReasonText(record: ModerationCase): string {
+export function caseReasonText(
+  record: ModerationCase,
+  t: Translator = defaultTranslator,
+): string {
   const reason = record.reason?.trim();
 
-  return reason ? reason.slice(0, 1_000) : '*tidak disebutkan*';
+  return reason ? reason.slice(0, 1_000) : t('mod.reason.missing');
 }

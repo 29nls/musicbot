@@ -1,6 +1,7 @@
 import { Collection, REST, Routes } from 'discord.js';
 import { getEnv } from './config/env.js';
 import { loadCommands } from './handlers/commandHandler.js';
+import { applyCommandLocalizations } from './modules/i18n/index.js';
 import { getLogger } from './services/logger.js';
 import type { BotCommand } from './types/command.js';
 
@@ -10,7 +11,13 @@ const logger = getLogger();
 const commands = new Collection<string, BotCommand>();
 await loadCommands(commands);
 
-const body = [...commands.values()].map((command) => command.data.toJSON());
+// Terjemahan ditambahkan SEBELUM dikirim: Discord menyimpan nama dan deskripsi
+// perintah saat deploy, jadi yang tidak ikut di sini tidak akan pernah tampil
+// dalam bahasa Inggris.
+const body = applyCommandLocalizations(
+  [...commands.values()].map((command) => command.data.toJSON()),
+);
+
 const rest = new REST({ version: '10' }).setToken(env.DISCORD_TOKEN);
 
 if (env.DEV_GUILD_ID) {

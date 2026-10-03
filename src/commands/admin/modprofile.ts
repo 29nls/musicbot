@@ -60,10 +60,8 @@ export default {
         await replyEphemeralError(
           interaction,
           warningEmbed(
-            `Belum ada kasus yang tercatat atas nama ${moderator}.\n` +
-              'Yang tercatat di sini hanya aksi lewat Harmony — ban atau timeout yang ' +
-              'dilakukan manual dari Discord tidak punya kasus.',
-            '🛡️ Belum Ada Aktivitas',
+            ctx.t('mod.profile.emptyForUser', { moderator: moderator.toString() }),
+            ctx.t('mod.profile.emptyForUserTitle'),
           ),
         );
         return;
@@ -71,8 +69,8 @@ export default {
 
       await interaction.editReply({
         embeds: [
-          moderatorProfileEmbed(profile, { displayName }),
-          moderatorRecentCasesEmbed(profile),
+          moderatorProfileEmbed(profile, { displayName }, ctx.t),
+          moderatorRecentCasesEmbed(profile, ctx.t),
         ],
       });
     } catch (error) {

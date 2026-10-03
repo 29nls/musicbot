@@ -52,9 +52,7 @@ export default {
       if (durationMs === null) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(
-            `Durasi \`${rawDuration}\` tidak valid. Pakai format seperti \`30s\`, \`10m\`, \`2h\`, atau \`7d\` (maksimal 28 hari).`,
-          ),
+          errorEmbed(ctx.t('mod.timeout.badDuration', { value: rawDuration })),
         );
         return;
       }
@@ -63,7 +61,7 @@ export default {
       if (!targetMember) {
         await replyEphemeralError(
           interaction,
-          errorEmbed('User itu bukan anggota server ini, jadi tidak bisa di-timeout.'),
+          errorEmbed(ctx.t('mod.notMember.timeout')),
         );
         return;
       }
@@ -84,9 +82,9 @@ export default {
         reason,
         expiresAt,
         execute: async () => {
-          await targetMember.timeout(durationMs, auditReason(interaction.user, reason));
+          await targetMember.timeout(durationMs, auditReason(interaction.user, reason, ctx.t));
         },
-        extraLines: [`⏳ Timeout selama **${describeTimeout(durationMs)}**.`],
+        extraLines: [ctx.t('mod.timeout.appliedLine', { duration: describeTimeout(durationMs) })],
       });
     } catch (error) {
       await handleAdminFailure(interaction, error, 'timeout');

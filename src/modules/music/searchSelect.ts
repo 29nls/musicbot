@@ -11,6 +11,7 @@ import {
 import { getLogger } from '../../services/logger.js';
 import { errorEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService } from '../config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../i18n/index.js';
 import { canControlMusic } from './permissions.js';
 import { getMusicService, getSearchSessionStore } from './singleton.js';
 import {
@@ -25,12 +26,12 @@ import {
 import { renderPlayOutcome } from './render.js';
 import type { TrackInfo } from './types.js';
 
-/** Pesan untuk session yang sudah tidak berlaku (kedaluwarsa atau bot restart). */
-const EXPIRED_MESSAGE =
-  'Pilihan pencarian ini sudah tidak berlaku. Ulangi `/search` untuk mencari lagi.';
-
-/** Pesan untuk customId milik fitur lain yang tidak sengaja sampai ke sini. */
-const UNKNOWN_MESSAGE = 'Pilihan ini tidak lagi dikenali. Ulangi `/search` untuk mencari lagi.';
+/**
+ * Dua pesan di sini dipanggil sebelum guild diketahui ada atau tidak.
+ *
+ * Tanpa guild tidak ada bahasa yang bisa dicari, jadi keduanya memakai bahasa
+ * bawaan. Setelah `inCachedGuild()` lolos, sisanya memakai bahasa server.
+ */
 
 /**
  * Bangun baris select menu berisi hasil pencarian.
@@ -40,10 +41,11 @@ const UNKNOWN_MESSAGE = 'Pilihan ini tidak lagi dikenali. Ulangi `/search` untuk
  */
 export function searchSelectRow(
   session: SearchSession,
+  t: Translator,
 ): ActionRowBuilder<StringSelectMenuBuilder> {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(searchSelectCustomId(session.token))
-    .setPlaceholder('Pilih lagu untuk diputar')
+    .setPlaceholder(t('music.search.placeholder'))
     .addOptions(
       session.tracks.map((track, index) => ({
         label: searchOptionLabel(track),
@@ -67,7 +69,7 @@ export async function handleSearchSelect(
 ): Promise<void> {
   const token = parseSearchCustomId(interaction.customId);
   if (token === null || !interaction.inCachedGuild()) {
-    await replyOnce(interaction, warningEmbed(UNKNOWN_MESSAGE));
+    await replyOnce(interaction, warningEmbed(defaultTranslator('music.search.unknown')));
     return;
   }
 
@@ -76,10 +78,11 @@ export async function handleSearchSelect(
   const userId = interaction.user.id;
   const guild = interaction.guild;
   const member = interaction.member;
+  const t = await translatorFor(guildId);
 
   const index = parseSearchOptionValue(interaction.values[0]);
   if (index === null) {
-    await replyOnce(interaction, errorEmbed('Pilihan itu tidak valid. Ulangi `/search`.'));
+    await replyOnce(interaction, errorEmbed(t('music.search.invalidPick')));
     return;
   }
 
@@ -89,16 +92,13 @@ export async function handleSearchSelect(
     case 'expired':
     case 'other-guild':
     case 'bad-index':
-      await replyOnce(interaction, warningEmbed(EXPIRED_MESSAGE));
+      await replyOnce(interaction, warningEmbed(t('music.search.expired')));
       return;
     case 'not-owner':
-      await replyOnce(
-        interaction,
-        warningEmbed('Menu ini milik orang lain. Jalankan `/search` sendiri untuk memilih.'),
-      );
+      await replyOnce(interaction, warningEmbed(t('music.search.notOwner')));
       return;
     default:
-      await playSelection(interaction, guildId, guild, member, selection.track);
+      await playSelection(interaction, guildId, guild, member, selection.track, t);
   }
 }
 
@@ -114,20 +114,18 @@ async function playSelection(
   guild: Guild,
   member: GuildMember,
   track: TrackInfo,
+  t: Translator,
 ): Promise<void> {
   const config = await getGuildConfigService().get(guildId);
 
   if (!config.modules.music) {
-    await replyOnce(interaction, warningEmbed('Modul musik dimatikan di server ini.'));
+    await replyOnce(interaction, warningEmbed(t('music.gate.moduleDisabled')));
     return;
   }
 
   const voiceChannelId = member.voice.channelId;
   if (!voiceChannelId) {
-    await replyOnce(
-      interaction,
-      warningEmbed('Masuk ke voice channel dulu supaya saya bisa memutar.'),
-    );
+    await replyOnce(interaction, warningEmbed(t('music.search.needVoice')));
     return;
   }
 
@@ -144,7 +142,7 @@ async function playSelection(
     }),
   });
 
-  await replyOnce(interaction, renderPlayOutcome(outcome));
+  await replyOnce(interaction, renderPlayOutcome(outcome, t));
 }
 
 /**

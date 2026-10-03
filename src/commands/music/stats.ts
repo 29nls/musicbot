@@ -1,4 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
+import { translatorFor } from '../../modules/i18n/index.js';
 import { getStatsService, isStatKind, statsEmbed, STAT_MAX_DAYS } from '../../modules/stats/index.js';
 import type { StatKind } from '../../modules/stats/index.js';
 import type { BotCommand } from '../../types/command.js';
@@ -43,10 +44,13 @@ export default {
   async execute(interaction, _client) {
     await interaction.deferReply();
 
+    const t = await translatorFor(interaction.guildId ?? 'unknown');
+
     try {
       const guildId = interaction.guildId;
+
       if (!guildId) {
-        await interaction.editReply({ embeds: [errorEmbed('Statistik hanya tersedia di dalam server.')] });
+        await interaction.editReply({ embeds: [errorEmbed(t('stats.guildOnly'))] });
         return;
       }
 
@@ -55,7 +59,7 @@ export default {
       const days = interaction.options.getInteger('periode') ?? undefined;
 
       const summary = await getStatsService().summary({ guildId, kind, days });
-      await interaction.editReply({ embeds: [statsEmbed(summary)] });
+      await interaction.editReply({ embeds: [statsEmbed(summary, t)] });
     } catch (error) {
       // Kegagalan di sini harus terlihat: menampilkan nol saat database bermasalah
       // berarti angkanya jadi bohong, bukan sekadar kosong.
@@ -65,7 +69,7 @@ export default {
       );
 
       await interaction.editReply({
-        embeds: [errorEmbed('Statistik tidak bisa dimuat sekarang. Detailnya sudah dicatat di log bot.')],
+        embeds: [errorEmbed(t('stats.unavailable'))],
       });
     }
   },

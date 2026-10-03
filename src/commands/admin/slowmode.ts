@@ -49,7 +49,7 @@ export default {
       ) {
         await replyEphemeralError(
           interaction,
-          errorEmbed('Perintah ini hanya bisa dipakai di channel teks dalam server.'),
+          errorEmbed(ctx.t('mod.gate.textChannelOnly')),
         );
         return;
       }
@@ -60,9 +60,7 @@ export default {
       if (seconds === null) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(
-            `Durasi \`${rawDuration}\` tidak valid. Pakai \`0\`/\`off\`, \`30s\`, \`5m\`, atau \`2h\` (maksimal 6 jam).`,
-          ),
+          errorEmbed(ctx.t('mod.slowmode.badDuration', { value: rawDuration })),
         );
         return;
       }
@@ -76,12 +74,15 @@ export default {
         action: 'slowmode',
         reason,
         execute: async () => {
-          await channel.setRateLimitPerUser(seconds, auditReason(interaction.user, reason));
+          await channel.setRateLimitPerUser(
+            seconds,
+            auditReason(interaction.user, reason, ctx.t),
+          );
         },
         extraLines: [
           seconds === 0
-            ? '🐌 Slowmode **dimatikan**.'
-            : `🐌 Slowmode disetel ke **${describeSlowmode(seconds)}**.`,
+            ? ctx.t('mod.slowmode.offLine')
+            : ctx.t('mod.slowmode.setLine', { duration: describeSlowmode(seconds) }),
         ],
       });
     } catch (error) {

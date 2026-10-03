@@ -20,7 +20,7 @@ export default {
         return;
       }
 
-      const { music, guildId } = gate.ctx;
+      const { music, guildId, t } = gate.ctx;
       const hadConnection = music.botVoiceChannelId(guildId) !== null;
 
       await music.disconnect(guildId);
@@ -29,10 +29,10 @@ export default {
       // bot kebetulan sudah di luar — tapi tetap harus menyatakan bahwa tidak ada
       // yang terjadi, bukan mengklaim berhasil mengubah sesuatu.
       const text = hadConnection
-        ? '👋 Saya keluar dari voice channel. Antrean sudah dikosongkan.'
-        : 'Saya memang tidak sedang berada di voice channel mana pun.';
+        ? `👋 ${t('music.disconnect.left')}`
+        : t('music.disconnect.nowhere');
 
-      await interaction.editReply({ embeds: [successEmbed(text, '👋 Bot Keluar')] });
+      await interaction.editReply({ embeds: [successEmbed(text, `👋 ${t('music.disconnect.title')}`)] });
     } catch (error) {
       await handleMusicFailure(interaction, error, 'disconnect');
     }

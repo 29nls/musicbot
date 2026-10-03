@@ -61,6 +61,7 @@ export default {
       }
 
       const ctx = gate.ctx;
+      const { t } = ctx;
       const subcommand = interaction.options.getSubcommand(true);
 
       if (subcommand === 'status') {
@@ -79,8 +80,8 @@ export default {
           interaction,
           errorEmbed(
             ctx.config.djRoleId
-              ? `Mode 24/7 hanya bisa diubah role <@&${ctx.config.djRoleId}> (atau Manage Server).`
-              : 'Menyalakan atau mematikan mode 24/7 butuh izin Manage Server.',
+              ? t('music.stay.needDjRole', { role: ctx.config.djRoleId })
+              : t('music.stay.needManageGuild'),
           ),
         );
         return;
@@ -104,7 +105,7 @@ async function join(
   ctx: StayContext,
   memberChannelId: string,
 ): Promise<void> {
-  const { guild, guildId, music } = ctx;
+  const { guild, guildId, music, t } = ctx;
 
   const option = interaction.options.getChannel('channel');
   const channelId = option?.id ?? (memberChannelId || null);
@@ -112,15 +113,13 @@ async function join(
   if (!channelId) {
     await interaction.editReply({
       embeds: [
-        errorEmbed(
-          'Sebutkan voice channel-nya dengan `/247 join channel:#musik`, atau masuk ke voice channel dulu lalu jalankan `/247 join`.',
-        ),
+        errorEmbed(t('music.stay.needChannel')),
       ],
     });
     return;
   }
 
-  const permissionError = await checkVoicePermissions(guild, channelId);
+  const permissionError = await checkVoicePermissions(guild, channelId, t);
   if (permissionError) {
     await interaction.editReply({ embeds: [permissionError] });
     return;
@@ -138,9 +137,7 @@ async function join(
   if (outcome.error) {
     await interaction.editReply({
       embeds: [
-        errorEmbed(
-          `Mode 24/7 sudah disimpan untuk <#${channelId}>, tapi bot belum berhasil masuk: ${outcome.error}. Dicoba lagi otomatis dalam beberapa menit.`,
-        ),
+        errorEmbed(t('music.stay.joinFailed', { channel: channelId, error: outcome.error })),
       ],
     });
     return;
@@ -150,8 +147,8 @@ async function join(
     await interaction.editReply({
       embeds: [
         successEmbed(
-          `Bot akan menjaga <#${channelId}> 24/7 dan tidak keluar otomatis meski tidak ada lagu. Matikan dengan \`/247 leave\`.`,
-          '🎧 Mode 24/7 Aktif',
+          t('music.stay.joined', { channel: channelId }),
+          `🎧 ${t('music.stay.activeTitle')}`,
         ),
       ],
     });
@@ -164,10 +161,13 @@ async function join(
   await interaction.editReply({
     embeds: [
       alreadyThere
-        ? successEmbed(`Bot sudah menjaga <#${channelId}> 24/7.`, '🎧 Mode 24/7 Aktif')
+        ? successEmbed(
+            t('music.stay.alreadyThere', { channel: channelId }),
+            `🎧 ${t('music.stay.activeTitle')}`,
+          )
         : warningEmbed(
-            `Mode 24/7 aktif untuk <#${channelId}>. Bot pindah ke sana setelah lagu yang sedang diputar selesai.`,
-            '🎧 Mode 24/7 Menyimpan',
+            t('music.stay.pending', { channel: channelId }),
+            `🎧 ${t('music.stay.savingTitle')}`,
           ),
     ],
   });
@@ -175,11 +175,11 @@ async function join(
 
 /** `/247 leave` - matikan mode; bot keluar hanya kalau sedang tidak memutar. */
 async function leave(interaction: ChatInputCommandInteraction, ctx: StayContext): Promise<void> {
-  const { guildId, music, config } = ctx;
+  const { guildId, music, config, t } = ctx;
 
   if (config.stayChannelId === null) {
     await interaction.editReply({
-      embeds: [infoEmbed('🎧 Mode 24/7', 'Mode ini belum pernah diaktifkan di server ini.')],
+      embeds: [infoEmbed(`🎧 ${t('music.stay.offTitle')}`, t('music.stay.neverStarted'))],
     });
     return;
   }
@@ -190,8 +190,8 @@ async function leave(interaction: ChatInputCommandInteraction, ctx: StayContext)
     await interaction.editReply({
       embeds: [
         warningEmbed(
-          'Mode 24/7 dimatikan. Bot menyelesaikan lagu yang sedang diputar, lalu keluar mengikuti pengaturan waktu idle.',
-          '🎧 Mode 24/7 Mati',
+          t('music.stay.offWhilePlaying'),
+          `🎧 ${t('music.stay.offTitle')}`,
         ),
       ],
     });
@@ -204,10 +204,8 @@ async function leave(interaction: ChatInputCommandInteraction, ctx: StayContext)
   await interaction.editReply({
     embeds: [
       successEmbed(
-        wasConnected
-          ? 'Mode 24/7 dimatikan dan bot keluar dari voice channel.'
-          : 'Mode 24/7 dimatikan. Bot memang tidak sedang berada di voice channel mana pun.',
-        '🎧 Mode 24/7 Mati',
+        wasConnected ? t('music.stay.offAndLeft') : t('music.stay.offNotConnected'),
+        `🎧 ${t('music.stay.offTitle')}`,
       ),
     ],
   });
@@ -215,7 +213,7 @@ async function leave(interaction: ChatInputCommandInteraction, ctx: StayContext)
 
 /** `/247 status` - kondisi nyata plus keputusan apa yang akan terjadi berikutnya. */
 function statusEmbed(ctx: StayContext): ReturnType<typeof infoEmbed> {
-  const { music, config, guildId } = ctx;
+  const { music, config, guildId, t } = ctx;
   const current = music.botVoiceChannelId(guildId);
 
   const plan = planStay({
@@ -228,31 +226,34 @@ function statusEmbed(ctx: StayContext): ReturnType<typeof infoEmbed> {
 
   const description =
     config.stayChannelId === null
-      ? 'Mode ini belum aktif. Nyalakan dengan `/247 join`.'
+      ? t('music.stay.statusOff')
       : plan.action === 'stay'
-        ? `Bot sedang menjaga <#${config.stayChannelId}> dan tidak akan keluar otomatis.`
-        : `Mode aktif untuk <#${config.stayChannelId}>, tapi bot belum ada di sana (${plan.reason.toLowerCase()}).`;
+        ? t('music.stay.statusStaying', { channel: config.stayChannelId })
+        : t('music.stay.statusElsewhere', {
+            channel: config.stayChannelId,
+            reason: plan.reason.toLowerCase(),
+          });
 
-  return infoEmbed('🎧 Status Mode 24/7', description)
+  return infoEmbed(`🎧 ${t('music.stay.statusTitle')}`, description)
     .addFields(
       {
-        name: 'Channel 24/7',
-        value: config.stayChannelId ? `<#${config.stayChannelId}>` : 'Tidak diaktifkan',
+        name: t('music.stay.fieldChannel'),
+        value: config.stayChannelId ? `<#${config.stayChannelId}>` : t('music.stay.notEnabled'),
         inline: true,
       },
       {
-        name: 'Posisi bot',
-        value: current ? `<#${current}>` : 'Di luar voice channel',
+        name: t('music.stay.fieldPosition'),
+        value: current ? `<#${current}>` : t('music.stay.outsideVoice'),
         inline: true,
       },
       {
-        name: 'Keluar otomatis',
+        name: t('music.stay.fieldIdle'),
         value: config.stayChannelId
-          ? 'Tidak, selama mode 24/7 aktif'
-          : `Ya, setelah ${config.idleTimeoutSec} detik tanpa lagu`,
+          ? t('music.stay.idleNo')
+          : t('music.stay.idleYes', { seconds: config.idleTimeoutSec }),
         inline: true,
       },
-      { name: 'Status ringkas', value: stayLabel(config, current), inline: true },
-      { name: 'Tindakan berikutnya', value: plan.reason, inline: false },
+      { name: t('music.stay.fieldSummary'), value: stayLabel(config, current, t), inline: true },
+      { name: t('music.stay.fieldNextAction'), value: plan.reason, inline: false },
     );
 }

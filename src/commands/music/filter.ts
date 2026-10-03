@@ -48,20 +48,23 @@ export default {
         return;
       }
 
-      const { previous, applied } = await gate.ctx.music.setFilterMode(gate.ctx.guildId, mode);
+      const { music, guildId, t } = gate.ctx;
+      const { previous, applied } = await music.setFilterMode(guildId, mode);
       const emoji = MODE_EMOJI[mode] ?? '🎛️';
+      const from = filterModeLabel(previous, t);
+      const to = filterModeLabel(mode, t);
       const text =
         mode === 'off'
-          ? `${emoji} Filter dimatikan (sebelumnya ${filterModeLabel(previous)}).`
-          : `${emoji} Filter diubah dari ${filterModeLabel(previous)} ke **${filterModeLabel(mode)}**.`;
+          ? t('music.filter.disabledText', { emoji, from })
+          : t('music.filter.changedText', { emoji, from, to });
 
       // Player Lavalink belum ada berarti belum ada yang diputar: mode tersimpan
       // dan diterapkan saat pemutaran pertama dimulai — bukan gagal.
       await interaction.editReply({
         embeds: [
           successEmbed(
-            applied ? text : `${text}\nAkan berlaku saat pemutaran dimulai.`,
-            '🎛️ Filter Audio',
+            applied ? text : `${text}\n${t('music.filter.pending')}`,
+            `🎛️ ${t('music.filter.title')}`,
           ),
         ],
       });

@@ -28,17 +28,18 @@ export default {
         return;
       }
 
+      const { music, guildId, t } = gate.ctx;
       const position = interaction.options.getInteger('position', true);
-      const snapshot = await gate.ctx.music.snapshot(gate.ctx.guildId);
-      const removed = await gate.ctx.music.removeFromQueue(gate.ctx.guildId, position);
+      const snapshot = await music.snapshot(guildId);
+      const removed = await music.removeFromQueue(guildId, position);
 
       if (!removed) {
         await interaction.editReply({
           embeds: [
             errorEmbed(
               snapshot.upcoming.length === 0
-                ? 'Antrean sedang kosong, jadi tidak ada yang bisa dihapus.'
-                : `Antrean hanya berisi ${snapshot.upcoming.length} lagu. Periksa nomornya dengan \`/queue\`.`,
+                ? t('music.queue.removeEmpty')
+                : t('music.queue.wrongNumber', { count: snapshot.upcoming.length }),
             ),
           ],
         });
@@ -48,9 +49,12 @@ export default {
       await interaction.editReply({
         embeds: [
           successEmbed(
-            `🗑️ ${describeTrack(removed, 90)} dihapus dari posisi **${position}**.\n` +
-              `Sisa antrean: **${snapshot.upcoming.length - 1}** lagu.`,
-            '🗑️ Lagu Dihapus',
+            `🗑️ ${t('music.queue.removed', {
+              track: describeTrack(removed, 90),
+              position,
+              remaining: snapshot.upcoming.length - 1,
+            })}`,
+            `🗑️ ${t('music.queue.removedTitle')}`,
           ),
         ],
       });
