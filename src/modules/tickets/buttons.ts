@@ -14,7 +14,7 @@ import { closeAndArchive } from './lifecycle.js';
 import { showTicketSubjectModal } from './modal.js';
 import { getTicketService } from './singleton.js';
 import { toTicketErrorEmbed } from './errors.js';
-import { parseTicketButtonId } from './types.js';
+import { parseTicketButtonId, type Ticket } from './types.js';
 
 /**
  * Tangani tombol tiket: buat (lewat modal), klaim, dan tutup.
@@ -22,7 +22,38 @@ import { parseTicketButtonId } from './types.js';
  * Semua jalur mengecek konfigurasi server lebih dulu, jadi tombol yang tertinggal
  * di channel lama tetap memberi pesan yang jelas ketika modulnya dimatikan.
  */
-export async function handleTicketButton(interaction: ButtonInteraction): Promise<void> {
+/**
+ * Dependency handler tombol tiket; lihat `ReactionRoleSelectDeps` untuk
+ * alasan kenapa dependency-nya disuntikkan, bukan diambil dari singleton
+ * di dalam fungsi.
+ */
+export interface TicketButtonDeps {
+  /** Ambil konfigurasi server. */
+  getConfig: (guildId: string) => Promise<GuildConfig>;
+  /** Service tiket: cari tiket terbuka di channel itu. */
+  findOpenByChannel: (guildId: string, channelId: string) => Promise<Ticket | null>;
+  /** Klaim tiket; null kalau sudah diklaim atau ditutup. */
+  claim: (guildId: string, channelId: string, userId: string) => Promise<Ticket | null>;
+  /** Tutup tiket lalu arsipkan; lihat `closeAndArchive`. */
+  closeAndArchive: typeof closeAndArchive;
+  /** Buka modal topik untuk tombol "Buat Tiket". */
+  showSubjectModal: typeof showTicketSubjectModal;
+}
+
+function defaultButtonDeps(): TicketButtonDeps {
+  return {
+    getConfig: (guildId) => getGuildConfigService().get(guildId),
+    findOpenByChannel: (guildId, channelId) => getTicketService().findOpenByChannel(guildId, channelId),
+    claim: (guildId, channelId, userId) => getTicketService().claim(guildId, channelId, userId),
+    closeAndArchive,
+    showSubjectModal: showTicketSubjectModal,
+  };
+}
+
+export async function handleTicketButton(
+  interaction: ButtonInteraction,
+  deps: TicketButtonDeps = defaultButtonDeps(),
+): Promise<void> {
   const action = parseTicketButtonId(interaction.customId);
   if (action === null) return;
   if (!interaction.inCachedGuild()) return;
@@ -34,7 +65,7 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
   const t = await translatorFor(guildId);
 
   try {
-    const config = await getGuildConfigService().get(guildId);
+    const config = await deps.getConfig(guildId);
 
     if (!config.modules.tickets) {
       await reply(interaction, warningEmbed(t('ticket.err.moduleOff'), t('embed.title.warning')));
@@ -42,9 +73,9 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
     }
 
     // Pembuatan tiket butuh topik lebih dulu, jadi tombolnya membuka modal.
-    if (action === 'create') await showTicketSubjectModal(interaction, config, t);
-    else if (action === 'claim') await claimTicket(interaction, guildId, member, config, t);
-    else await closeTicket(interaction, guild, member, config, t);
+    if (action === 'create') await deps.showSubjectModal(interaction, config, t);
+    else if (action === 'claim') await claimTicket(interaction, guildId, member, config, t, deps);
+    else await closeTicket(interaction, guild, member, config, t, deps);
   } catch (error) {
     getLogger().error(
       { err: error, action, guild: guildId, user: interaction.user.id },
@@ -60,19 +91,20 @@ async function claimTicket(
   member: GuildMember,
   config: GuildConfig,
   t: Translator,
+  deps: TicketButtonDeps,
 ): Promise<void> {
   if (!isStaff(member, config)) {
     await reply(interaction, warningEmbed(t('ticket.btn.claimNotStaff'), t('embed.title.warning')));
     return;
   }
 
-  const ticket = await getTicketService().findOpenByChannel(guildId, interaction.channelId);
+  const ticket = await deps.findOpenByChannel(guildId, interaction.channelId);
   if (!ticket) {
     await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed'), t('embed.title.warning')));
     return;
   }
 
-  const claimed = await getTicketService().claim(guildId, interaction.channelId, interaction.user.id);
+  const claimed = await deps.claim(guildId, interaction.channelId, interaction.user.id);
   if (!claimed) {
     await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed'), t('embed.title.warning')));
     return;
@@ -93,8 +125,9 @@ async function closeTicket(
   member: GuildMember,
   config: GuildConfig,
   t: Translator,
+  deps: TicketButtonDeps,
 ): Promise<void> {
-  const ticket = await getTicketService().findOpenByChannel(guild.id, interaction.channelId);
+  const ticket = await deps.findOpenByChannel(guild.id, interaction.channelId);
   if (!ticket) {
     await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed'), t('embed.title.warning')));
     return;
@@ -107,8 +140,11 @@ async function closeTicket(
     return;
   }
 
-  const result = await closeAndArchive(
-    getTicketService(),
+  const result = await deps.closeAndArchive(
+    {
+      findOpenByChannel: deps.findOpenByChannel,
+      claim: deps.claim,
+    } as unknown as Parameters<typeof closeAndArchive>[0],
     guild,
     interaction.channelId,
     interaction.user.id,

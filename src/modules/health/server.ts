@@ -1,6 +1,11 @@
 import { createServer, type ServerResponse } from 'node:http';
 import { getLogger } from '../../services/logger.js';
-import { renderMetrics, type MetricsSnapshot } from '../metrics/index.js';
+import {
+  renderFleetMetrics,
+  renderMetrics,
+  type FleetMetrics,
+  type MetricsSnapshot,
+} from '../metrics/index.js';
 import { buildHealthReport, healthPayload, livenessPayload, type DependencyState } from './report.js';
 
 /**
@@ -15,6 +20,8 @@ import { buildHealthReport, healthPayload, livenessPayload, type DependencyState
  *   database mati atau gateway belum siap — gunanya untuk "tunggu, jangan restart".
  * - `GET /metrics` (metrik §11): angka proses dalam format teks Prometheus —
  *   jumlah guild, lagu diputar, error rate perintah, dan latensi Lavalink.
+ *   Kalau agregat lintas shard tersedia, seri `harmony_fleet_*` ikut ditulis:
+ *   itu angka satu bot, bukan angka satu shard.
  *
  * Endpoint lain menjawab 404 supaya port ini tidak jadi tempat mencari
  * endpoint yang tidak pernah ada.
@@ -37,6 +44,17 @@ export interface HealthServerOptions {
   pingDatabase: () => Promise<DependencyState>;
   /** Snapshot metrik proses; kalau tidak diisi, /metrics menjawab 503. */
   metrics?: () => MetricsSnapshot;
+  /**
+   * Agregat metrik seluruh shard (PRD §13).
+   *
+   * Opsional dan **hanya tambahan**: kalau tidak diisi, atau kalau pembacaan
+   * agregat gagal, /metrics tetap menjawab seri proses apa adanya. Seri proses
+   * selalu benar untuk shard itu; agregat melengkapi satu angka bot, jadi
+   * kegagalan gather tidak boleh menghapus angka yang sudah bisa dipercaya.
+   * Yang hilang berarti pembaca tahu agregat tidak ada, bukan angka proses ikut
+   * hilang bersamanya.
+   */
+  fleetMetrics?: () => Promise<FleetMetrics>;
   /** Timeout pemeriksaan database (ms) supaya /ready tidak menggantung. */
   databaseTimeoutMs?: number;
 }
@@ -82,7 +100,7 @@ export function startHealthServer(options: HealthServerOptions): HealthServerHan
     }
 
     if (path === '/metrics') {
-      respondMetrics(options, response);
+      void respondMetrics(options, response);
       return;
     }
 
@@ -130,20 +148,46 @@ export function startHealthServer(options: HealthServerOptions): HealthServerHan
  * Endpoint ini untuk scraper, jadi tidak boleh diam-diam menjawab 200 dengan
  * isi kosong: kalau metrik tidak tersedia, ia menjawab 503 supaya kondisi
  * "metrik hilang" terlihat, bukan grafik yang terlihat datar lalu dianggap sehat.
+ *
+ * Seri proses dan seri fleet digabung dalam satu balasan, bukan dua endpoint.
+ * Pemantau cukup menarik satu URL, dan memisahkan endpoint berarti ada yang bisa
+ * terlupa diisi — jadi KPI §13 bisa kembali jadi angka satu shard tanpa ada yang
+ * menyadarinya. Kegagalan pengumpulan agregat tidak menggagalkan balasan: yang
+ * hilang hanya seri `harmony_fleet_*`, dan itu dicatat di log.
  */
-function respondMetrics(options: HealthServerOptions, response: ServerResponse): void {
+async function respondMetrics(options: HealthServerOptions, response: ServerResponse): Promise<void> {
   if (!options.metrics) {
     sendJson(response, 503, { error: 'metrik tidak tersedia' });
     return;
   }
 
   try {
-    const body = renderMetrics(options.metrics(), { guildCount: options.guildCount() });
+    let body = renderMetrics(options.metrics(), { guildCount: options.guildCount() });
+    const fleet = await collectFleet(options.fleetMetrics);
+
+    if (fleet) {
+      body += renderFleetMetrics(fleet);
+    }
+
     response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
     response.end(body);
   } catch (error) {
     getLogger().warn({ err: error }, 'Metrik gagal disusun');
     sendJson(response, 503, { error: 'metrik gagal disusun' });
+  }
+}
+
+/** Agregat fleet, atau `null` kalau tidak ada atau gagal dibaca. */
+async function collectFleet(
+  fleetMetrics: (() => Promise<FleetMetrics>) | undefined,
+): Promise<FleetMetrics | null> {
+  if (!fleetMetrics) return null;
+
+  try {
+    return await fleetMetrics();
+  } catch (error) {
+    getLogger().warn({ err: error }, 'Agregat metrik lintas shard gagal dikumpulkan');
+    return null;
   }
 }
 

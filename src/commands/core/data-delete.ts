@@ -15,6 +15,7 @@ import {
 import { getLogger } from '../../services/logger.js';
 import type { BotCommand } from '../../types/command.js';
 import { errorEmbed } from '../../utils/embeds.js';
+import { hasGuildPermission } from '../../utils/permissions.js';
 
 /**
  * Izin menjalankan permintaan atas nama user lain.
@@ -72,7 +73,7 @@ export default {
       const targetId = requested?.id ?? interaction.user.id;
       const isSelf = targetId === interaction.user.id;
 
-      if (!isSelf && !interaction.memberPermissions?.has(DELETE_FOR_OTHERS)) {
+      if (!isSelf && !hasGuildPermission(interaction, DELETE_FOR_OTHERS)) {
         await interaction.editReply({
           embeds: [
             errorEmbed(t('privacy.gate.needsManageGuild'), t('embed.title.error')),

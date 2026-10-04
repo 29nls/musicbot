@@ -1,34 +1,34 @@
 import { getEnv } from '../config/env.js';
 import { getLoggingService } from '../modules/logging/index.js';
-import type { LogRetentionResult } from '../modules/logging/retention.js';
 import { getModerationService } from '../modules/moderation/index.js';
 import type { RetentionResult } from '../modules/moderation/retention.js';
+import { getStatsService } from '../modules/stats/index.js';
 import { getTicketService } from '../modules/tickets/index.js';
-import type { TicketRetentionResult } from '../modules/tickets/retention.js';
-import type { StatRetentionResult } from '../modules/stats/index.js';
 import { getLogger } from './logger.js';
+import {
+  runRetentionSweeps,
+  type LogSweepRunner,
+  type ModerationSweepRunner,
+  type StatsSweepRunner,
+  type TicketSweepRunner,
+} from './retentionSweeps.js';
 import type { SweepLease } from './sweepLease.js';
 
 /** Yang dibutuhkan job ini dari service moderasi (dipisah supaya bisa diuji). */
-export interface RetentionRunner {
-  purgeExpired(now?: Date): Promise<RetentionResult>;
-}
+export type RetentionRunner = ModerationSweepRunner;
 
 /** Sapuan retensi tiket — dijalankan setelah kasus, bukan menggantikannya. */
-export interface TicketRetentionRunner {
-  purgeExpired(now?: Date): Promise<TicketRetentionResult>;
-}
+export type TicketRetentionRunner = TicketSweepRunner;
 
 /**
  * Sapuan retensi statistik playback (Fase 3).
  *
- * Opsional lewat opsi, bukan default: kalau tidak diberikan, sapuan statistik
- * dilewati. Itu membuat job ini tetap bisa diuji tanpa repository sungguhan,
- * dan `src/index.ts` yang memutuskan apakah bot ikut menyapu statistik.
+ * Sama seperti tiket dan log, ini punya default berupa service sungguhan.
+ * Dulu ia opsional sehingga bisa diam-diam dilewati; sekarang lewat
+ * `runRetentionSweeps` keempat sapuan wajib ada, dan menguji job tinggal
+ * menyuntik runner palsu untuk keempatnya.
  */
-export interface StatsRetentionRunner {
-  purgeExpired(now?: Date): Promise<StatRetentionResult>;
-}
+export type StatsRetentionRunner = StatsSweepRunner;
 
 /**
  * Sapuan retensi riwayat log — dijalankan terakhir.
@@ -37,9 +37,7 @@ export interface StatsRetentionRunner {
  * dan volumenya jauh lebih besar, jadi mengalahkannya di jalur yang sama
  * berarti satu query lambat menahan penghapusan yang lain.
  */
-export interface LogRetentionRunner {
-  purgeExpired(now?: Date): Promise<LogRetentionResult>;
-}
+export type LogRetentionRunner = LogSweepRunner;
 
 export interface RetentionJobOptions {
   /** Jeda antar sapuan; default dari env `RETENTION_SWEEP_HOURS` (6 jam). */
@@ -84,13 +82,18 @@ export function startRetentionJob(
   options: RetentionJobOptions & {
     ticketRunner?: TicketRetentionRunner;
     logRunner?: LogRetentionRunner;
-    /** Kalau diisi, statistik playback ikut disapu pada siklus yang sama. */
+    /**
+     * Sapuan statistik playback. Ada default berupa service sungguhan, jadi
+     * jalur ini tidak bisa diam-diam melewatkannya; opsinya hanya supaya tes
+     * menyuntik runner palsu.
+     */
     statsRunner?: StatsRetentionRunner;
   } = {},
 ): RetentionJob {
   const logger = getLogger();
   const ticketRunner = options.ticketRunner ?? getTicketService();
   const logRunner = options.logRunner ?? getLoggingService();
+  const statsRunner = options.statsRunner ?? getStatsService();
   const intervalMs = options.intervalMs ?? defaultIntervalMs();
   let running = false;
 
@@ -113,57 +116,20 @@ export function startRetentionJob(
 
     running = true;
     try {
-      const result = await runner.purgeExpired(now);
-      if (result.cases > 0 || result.warnings > 0) {
-        logger.info(
-          { cutoff: result.cutoff.toISOString(), cases: result.cases, warnings: result.warnings },
-          'Retensi: kasus & peringatan kedaluwarsa dihapus',
-        );
-      } else {
-        logger.debug({ cutoff: result.cutoff.toISOString() }, 'Retensi: tidak ada data kedaluwarsa');
-      }
+      // Keempat sapuan ada di satu tempat supaya jalur ini dan skrip cron
+      // tidak bisa berbeda isi. Urutan dan aturan isolasinya di sana.
+      const summary = await runRetentionSweeps(
+        {
+          moderation: runner,
+          tickets: ticketRunner,
+          stats: statsRunner,
+          logs: logRunner,
+          logger,
+        },
+        now,
+      );
 
-      // Tiket punya basis waktu sendiri (retensi dihitung sejak ditutup), jadi
-      // sapuannya terpisah — tapi tetap di jadwal yang sama supaya tidak ada
-      // cron kedua yang harus dipasang di host.
-      try {
-        const tickets = await ticketRunner.purgeExpired(now);
-        if (tickets.ticketsDeleted > 0) {
-          logger.info(
-            { cutoff: tickets.cutoff.toISOString(), tickets: tickets.ticketsDeleted },
-            'Retensi: tiket kedaluwarsa dihapus',
-          );
-        }
-      } catch (error) {
-        logger.warn({ err: error }, 'Retensi tiket gagal — kasus & peringatan tetap aman');
-      }
-
-      if (options.statsRunner) {
-        try {
-          const stats = await options.statsRunner.purgeExpired(now);
-          if (stats.deleted > 0) {
-            logger.info(
-              { cutoff: stats.cutoff.toISOString(), deleted: stats.deleted },
-              'Retensi: statistik playback lama dihapus',
-            );
-          }
-        } catch (error) {
-          logger.warn({ err: error }, 'Retensi statistik gagal — data lain tetap aman');
-        }
-      }
-      try {
-        const logs = await logRunner.purgeExpired(now);
-        if (logs.logs > 0) {
-          logger.info(
-            { cutoff: logs.cutoff.toISOString(), logs: logs.logs },
-            'Retensi: riwayat log kedaluwarsa dihapus',
-          );
-        }
-      } catch (error) {
-        logger.warn({ err: error }, 'Retensi log gagal — kasus & peringatan tetap aman');
-      }
-
-      return result;
+      return summary.moderation;
     } catch (error) {
       logger.warn({ err: error }, 'Retensi gagal dijalankan — akan dicoba lagi nanti');
       return null;

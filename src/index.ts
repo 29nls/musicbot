@@ -16,9 +16,12 @@ import { startPanelExpiryJob, type PanelExpiryJob } from './services/panelExpiry
 import { startRetentionJob, type RetentionJob } from './services/retentionJob.js';
 import { startStayJob, type StayJob } from './services/stayJob.js';
 import {
+  collectFleetMetrics,
   getMetricsRegistry,
   initMetrics,
+  startFleetReporter,
   startMetricsProbe,
+  type FleetReporter,
   type MetricsProbe,
 } from './modules/metrics/index.js';
 import { getStatsService } from './modules/stats/index.js';
@@ -30,6 +33,7 @@ let retentionJob: RetentionJob | undefined;
 let panelExpiryJob: PanelExpiryJob | undefined;
 let stayJob: StayJob | undefined;
 let metricsProbe: MetricsProbe | undefined;
+let fleetReporter: FleetReporter | undefined;
 let healthServer: HealthServerHandle | null = null;
 let keyValueStore: KeyValueStoreHandle | undefined;
 
@@ -122,6 +126,10 @@ async function main(): Promise<void> {
     guildCount: () => client?.guilds.cache.size ?? 0,
     pingDatabase: () => pingDatabase(),
     metrics: () => getMetricsRegistry().snapshot(),
+    // Agregat lintas shard (PRD §13): satu angka bot, bukan satu angka
+    // shard. Store dibaca saat scrape, bukan saat start, supaya kalau Redis
+    // belum siap endpoint tetap menjawab dengan seri prosesnya.
+    fleetMetrics: () => collectFleetMetrics(getKeyValueStore()),
   });
 
   logger.info(
@@ -155,6 +163,22 @@ async function main(): Promise<void> {
       else metrics.recordLavalinkLatency(latencyMs);
     },
   });
+
+  // Pelapor metrik lintas shard: setiap proses menulis registry-nya ke store
+  // bersama, dan /metrics menjumlahkan seluruh laporan jadi satu angka (PRD §13).
+  //
+  // Dijalankan sebelum login supaya laporan pertama sudah ada saat monitoring
+  // mulai menarik angka; tidak butuh Discord maupun Lavalink yang sudah siap.
+  fleetReporter = startFleetReporter({
+    // Getter, bukan store yang diambil saat ini: store bersama baru siap
+    // setelah createKeyValueStore() di atas, dan menangkapnya di sini
+    // membuat laporan ditulis ke store memori lokal yang tidak pernah dibaca
+    // shard lain.
+    store: () => getKeyValueStore(),
+    instanceId: processInstanceId(),
+    snapshot: () => getMetricsRegistry().snapshot(),
+    guildCount: () => client?.guilds.cache.size ?? 0,
+  });
 }
 
 function registerProcessHandlers(bot: BotClient): void {
@@ -173,6 +197,7 @@ function registerProcessHandlers(bot: BotClient): void {
     panelExpiryJob?.stop();
     stayJob?.stop();
     metricsProbe?.stop();
+    fleetReporter?.stop();
 
     // Jaring pengaman kalau destroy() menggantung (mis. socket tidak menutup).
     const forceExit = setTimeout(() => process.exit(1), 10_000);

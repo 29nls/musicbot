@@ -1,12 +1,23 @@
-import { MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { defaultTranslator, translatorFor } from '../../modules/i18n/index.js';
 import { getPrivacyService, privacyEmbed } from '../../modules/privacy/index.js';
 import { getLogger } from '../../services/logger.js';
 import type { BotCommand } from '../../types/command.js';
 import { errorEmbed } from '../../utils/embeds.js';
+import { hasGuildPermission } from '../../utils/permissions.js';
 
-/** Izin untuk melihat data orang lain; sama dengan `/case`. */
-const VIEW_OTHERS = 'ModerateMembers';
+/**
+ * Izin untuk melihat data orang lain; sama dengan `/case`.
+ *
+ * Bit-nya ikut ditulis, bukan hanya nama yang ditampilkan: pemeriksaan izin
+ * harus menerima bit, sedangkan nama itu hanya untuk kalimat embed. Dua
+ * hal dicampur dalam satu konstanta berarti nama dapat dipakai untuk
+ * pemeriksaan — dan itulah yang terjadi di sini sebelum dipisah.
+ */
+const VIEW_OTHERS = PermissionFlagsBits.ModerateMembers;
+
+/** Nama izin untuk ditampilkan; ikut dari katalog, bukan dari bit. */
+const VIEW_OTHERS_LABEL = 'Moderate Members';
 
 export default {
   data: new SlashCommandBuilder()
@@ -45,11 +56,11 @@ export default {
       // Melihat inventaris orang lain sama saja dengan membaca kasusnya: jadi
       // gate-nya persis gate `/case`. Melonggarkan hanya karena embed-nya
       // terasa lebih ringan tidak mengubah kenyataan bahwa isinya sama sensitifnya.
-      if (!isSelf && !(interaction.memberPermissions?.has(VIEW_OTHERS) ?? false)) {
+      if (!isSelf && !hasGuildPermission(interaction, VIEW_OTHERS)) {
         await interaction.editReply({
           embeds: [
             errorEmbed(
-              t('privacy.gate.needsModerateMembers', { permission: VIEW_OTHERS }),
+              t('privacy.gate.needsModerateMembers', { permission: VIEW_OTHERS_LABEL }),
               t('embed.title.error'),
             ),
           ],

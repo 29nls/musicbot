@@ -17,6 +17,7 @@ import {
 import { getLogger } from '../../services/logger.js';
 import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import { errorEmbed } from '../../utils/embeds.js';
+import { canManageGuild as hasManageGuild } from '../../utils/permissions.js';
 
 // Dipindah ke modul musik supaya handler komponen `/search` bisa memakainya juga.
 export { renderPlayOutcome } from '../../modules/music/render.js';
@@ -69,7 +70,10 @@ export async function gateMusicCommand(
 
   const guild = interaction.guild;
   const member = interaction.member;
-  const canManageGuild = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false;
+  // Nama variabel lokalnya dulu sama persis dengan helper aslinya
+  // (`canManageGuild`), jadi ada dua definisi untuk satu aturan dengan nama
+  // yang sama. Sekarang aturan itu hanya ada di `utils/permissions.ts`.
+  const canManageGuild = hasManageGuild(interaction);
 
   let music: MusicService;
   try {

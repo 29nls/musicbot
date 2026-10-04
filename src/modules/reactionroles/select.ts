@@ -10,6 +10,7 @@ import { getGuildConfigService } from '../config/index.js';
 import { defaultTranslator, translatorFor, type Translator } from '../i18n/index.js';
 import { toReactionRoleErrorEmbed } from './errors.js';
 import { getReactionRoleService } from './singleton.js';
+import type { PanelOptionLookup } from './types.js';
 import { isPanelActive, parseRoleOptionCustomId } from './types.js';
 
 
@@ -20,11 +21,35 @@ import { isPanelActive, parseRoleOptionCustomId } from './types.js';
  * role yang sudah dimiliki akan melepaskannya. Konvensi ini dijelaskan di embed
  * panel supaya member tidak mengira tidak terjadi apa-apa.
  */
+/**
+ * Dependency handler. Bawaannya memakai service & konfigurasi sungguhan;
+ * tes menyuntikkan yang palsu supaya seluruh jalurnya bisa diperiksa tanpa
+ * database.
+ *
+ * Pola ini mengikuti `QueueNavDeps` di modul musik: handler komponen yang
+ * menyentuh service tidak bisa diuji kalau ia mengambil singleton-nya
+ * sendiri, dan Alternative-nya (memock modul) menguji mock-nya sendiri.
+ */
+export interface ReactionRoleSelectDeps {
+  /** Cari opsi panel beserta panelnya; null kalau sudah hilang. */
+  findOption: (optionId: number) => Promise<PanelOptionLookup | null>;
+  /** Apakah modul reaction role masih dinyalakan di server itu. */
+  isModuleEnabled: (guildId: string) => Promise<boolean>;
+}
+
+function defaultSelectDeps(): ReactionRoleSelectDeps {
+  return {
+    findOption: (optionId) => getReactionRoleService().findOption(optionId),
+    isModuleEnabled: async (guildId) => (await getGuildConfigService().get(guildId)).modules.reactions,
+  };
+}
+
 export async function handleReactionRoleSelect(
   interaction: StringSelectMenuInteraction,
+  deps: ReactionRoleSelectDeps = defaultSelectDeps(),
 ): Promise<void> {
   try {
-    await applySelection(interaction);
+    await applySelection(interaction, deps);
   } catch (error) {
     getLogger().warn({ err: error }, 'Pemilihan reaction role gagal');
     await reply(
@@ -43,7 +68,10 @@ function translatorForInteraction(
     : Promise.resolve(defaultTranslator);
 }
 
-async function applySelection(interaction: StringSelectMenuInteraction): Promise<void> {
+async function applySelection(
+  interaction: StringSelectMenuInteraction,
+  deps: ReactionRoleSelectDeps,
+): Promise<void> {
   if (!interaction.inCachedGuild()) return;
 
   const optionId = parseRoleOptionCustomId(interaction.customId);
@@ -51,7 +79,7 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
 
   const t = await translatorForInteraction(interaction);
 
-  const lookup = await getReactionRoleService().findOption(optionId);
+  const lookup = await deps.findOption(optionId);
   if (!lookup || lookup.panel.guildId !== interaction.guildId) {
     await reply(interaction, warningEmbed(t('rr.select.panelGone'), t('embed.title.warning')));
     return;
@@ -68,8 +96,7 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
     return;
   }
 
-  const config = await getGuildConfigService().get(panel.guildId);
-  if (!config.modules.reactions) {
+  if (!(await deps.isModuleEnabled(panel.guildId))) {
     await reply(interaction, warningEmbed(t('rr.select.moduleOff'), t('embed.title.warning')));
     return;
   }

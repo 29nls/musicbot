@@ -438,6 +438,75 @@ permintaan sudah cukup untuk diagnosis. Kalau metrik belum siap, `/metrics`
 menjawab **503** dan bukan 200 kosong: kondisi "metrik hilang" harus terlihat,
 bukan terlihat sebagai grafik yang datar tapi sehat.
 
+#### Metrik lintas shard (`harmony_fleet_*`)
+
+Seri di atas menjawab "seberapa sehat shard ini". Begitu bot berjalan di lebih
+dari satu proses (§5.3 sharding), KPI §13 tidak lagi bisa dibaca dari situ:
+empat shard bisa melaporkan 0,1% di satu endpoint dan 3% di tiga lainnya, dan
+tidak ada yang bisa melihat bahwa itu satu angka yang salah.
+
+Jadi setiap proses menulis registry-nya ke store bersama
+(`harmony:metrics:fleet`, tiap 15 detik), lalu `/metrics` menjumlahkan seluruh
+laporan jadi satu angka bot:
+
+```
+harmony_fleet_instances 3
+harmony_fleet_uptime_seconds 5400
+harmony_fleet_guilds 41
+harmony_fleet_tracks_played_total 954
+harmony_fleet_interactions_total{kind="command"} 1206
+harmony_fleet_interaction_errors_total{kind="command"} 6
+harmony_fleet_interaction_error_rate{kind="command"} 0.004975124378109453
+harmony_fleet_command_error_rate 0.004975124378109453
+harmony_fleet_lavalink_reachable 3
+harmony_fleet_lavalink_unreachable 0
+harmony_fleet_lavalink_worst_latency_ms 41
+```
+
+Yang perlu diketahui sebelum angka ini dipakai:
+
+- **Error rate dijumlahkan dari penghitungnya, bukan dirata-rata dari rate tiap
+  shard.** Rata-rata menyalahkar shard yang sepi: 1% dari 1 interaksi dihargai
+  sama dengan 1% dari 10.000. Contoh di atas berarti 6 kegagalan dari 1.206
+  perintah lintas shard.
+- **Uptime memakai proses tertua, bukan jumlah uptime.** Uptime 5.400 detik
+  berarti ada proses yang hidup 5.400 detik tanpa restart total — bukan
+  "total waktu hidup semua shard".
+- **Latensi yang ditulis adalah yang terburuk antar proses**, karena itulah
+  yang dirasakan user. Jumlahnya tidak berarti apa-apa.
+- **`harmony_fleet_instances` selalu ditulis, termasuk saat 0.** Pembaca butuh
+  tahu kalau agregat ini sedang tidak mencakup shard yang seharusnya ada.
+- **Seri proses tidak dihapus.** Keduanya hidup berdampingan: `harmony_guilds`
+  tetap angka shard itu, `harmony_fleet_guilds` angka seluruh bot. Kalau seri
+  proses ditimpa, orang berhenti mengira satu shard sebagai satu bot.
+
+#### Batas yang belum tertutup
+
+Bagian ini belum pernah dibuktikan dengan dua proses sungguhan, dan itu perlu
+dikatakan:
+
+- **Sharding sendiri belum pernah dijalankan di lingkungan ini.** Yang teruji
+  adalah dua "shard" yang menulis ke satu store dan satu endpoint HTTP sungguhan
+  — bukan dua proses Discord sungguhan dengan Redis sungguhan.
+- **Dengan store memori, agregasi lintas proses tidak mungkin terjadi.** Store
+  memori tidak punya pub/sub dan tidak dibagi antar proses, jadi tiap proses
+  hanya melihat laporannya sendiri lalu menulis `harmony_fleet_instances 1`.
+  Angka itu terlihat meyakinkan dan salah. `assertShardingReady()` sudah menolak
+  start sharding tanpa store bersama; batas aggregasi ini adalah alasan
+  tambahan, bukan pengganti.
+- **Tanpa `compareAndSet`, agregat bisa kehilangan satu proses.** Dua shard yang
+  melapor bersamaan bisa saling menimpa; laporan yang kalah retry dilaporkan
+  sebagai `contended` di log, tidak ditimpa paksa.
+- **Proses yang mati mendadak nomorinya hilang dari agregat** setelah dokumennya
+  kedaluwarsa (default 90 detik). Data yang tidak pernah terkirim memang tidak
+  bisa dijumlahkan; yang bisa dilakukan adalah menyatakannya lewat
+  `harmony_fleet_instances`.
+- **Setelah restart, dua masa hidup bisa terhitung sebagai satu.** Penghitung
+  kumulatif kembali ke nol sementara laporan lama belum kedaluwarsa, jadi
+  selama jendela itu agregat menghitung keduanya. Dampaknya hanya pada
+  `tracks_played` dan total interaksi, bukan pada error rate — dan menghilang
+  sendiri dalam 90 detik.
+
 ---
 
 ## 3. Konfigurasi per server (M1)
@@ -1328,6 +1397,22 @@ Semua rule bisa diatur dengan `/automod` — dasar-dasarnya adalah default PRD:
   `/warnings` dengan ID `#CASE-…` dan moderator dicatat sebagai bot.
 - Setiap tindakan dikirim ke `logChannelId` (rule, alasan, aksi, cuplikan
   pesan). Kalau channel log belum diatur, automod tetap jalan.
+- **Pengiriman ulang diabaikan** (PRD §9.4). Gateway Discord mengirim ulang
+  `MessageCreate` untuk pesan yang sudah pernah sampai ketika sesi pulih
+  setelah koneksi putus. Tanpa penjaga, satu pesan berarti dua penghapusan,
+  dua kasus moderasi, dan dua timeout, dan tidak ada yang gagal — semuanya
+  hanya terjadi dua kali, sehingga moderator melihat dua peringatan untuk
+  satu chat. `SeenMessageGuard` menahan `message.id` selama 10 menit
+  (batas 10.000 entri, dibersihkan berkala) dan penempatannya setelah
+  pemeriksaan modul, jadi server dengan automod mati tidak menambah isi
+  penjaga sama sekali. Penjaganya in-memory: restart bot mengosongkannya,
+  sama seperti antrean musik dan state anti-spam.
+
+  **Batasnya ditulis terang: di server yang sangat ramai, 10.000 entri bisa
+  habis sebelum 10 menit.** Entri yang paling tua lalu dibuang, jadi pengiriman
+  ulang pesan yang sangat lama bisa lolos. Itu bukan masalah besar:
+  redelivery gateway terjadi di detik-detik setelah sesi pulih, bukan menit-menit
+  kemudian, jadi jendela yang hilang bukan jendela yang dipakai.
 - Anti-spam & anti-duplicate memakai state in-memory per user — restart bot
   mengosongkan hitungan (sama seperti antrean musik).
 - Anti-link hanya mengenali URL dengan protokol/`www.`; domain telanjang
@@ -1830,6 +1915,7 @@ PRD Bab 12 menyatakan data tidak disimpan selamanya. Yang sudah berjalan:
 | Tiket tertutup (`ticket`) | 12 bulan sejak ditutup | Job retensi (dalam sapuan yang sama) |
 | Transkrip percakapan tiket | ikut tiketnya (12 bulan) | Job retensi, **di operasi yang sama** |
 | Riwayat log (`log_entry`) | 30 hari (`expiresAt` per baris) | Job retensi (sapuan terakhir) |
+| Statistik playback (`playback_stat`) | 90 hari | Job retensi (setelah tiket, sebelum log) |
 
 Cara kerjanya:
 
@@ -1855,14 +1941,33 @@ Untuk server yang lebih suka membersihkan dari cron luar, setel
 
 ```bash
 npm run db:prune
-# {"cutoff":"2025-10-02T12:00:00.000Z","casesDeleted":12,"warningsDeleted":7,"logsDeleted":340}
+# {"cutoff":"2025-10-02T12:00:00.000Z","casesDeleted":12,"warningsDeleted":7,
+#  "ticketsDeleted":3,"statsDeleted":96,"logsDeleted":340}
 ```
+
+**Kedua jalur menjalankan keempat sapuan yang sama, dari satu definisi.**
+Job di dalam proses dan skrip cron sama-sama memanggil
+[`runRetentionSweeps`](src/services/retentionSweeps.ts). Ini bukan detail
+kosmetik: dulunya daftarnya ditulis dua kali dan keduanya berbeda — skrip cron
+hanya menyapu kasus, peringatan, dan log, sehingga **tiket beserta transkripnya
+(retensi 12 bulan) dan statistik playback (90 hari) tidak pernah terhapus**
+padahal PRD §12 justru mengarahkan operator ke jalur cron itu. Tidak ada yang
+gagal dan tidak ada angka yang terlihat hilang, karena laporan JSON-nya tidak
+punya kunci untuk keduanya. Sekarang `src/prune-retention.ts` tidak boleh
+memiliki daftar sapuan sendiri sama sekali; penjaga tes menolak begitu ada
+pemanggilan `purgeExpired` langsung di skrip itu.
+
+Keempat runner di `RetentionSweepDeps` **wajib ada, tidak opsional.** Opsi
+"lewati kalau tidak diisi" itulah yang membuat satu jalur bisa kehilangan sapuan
+tanpa ada yang mengeluh, jadi penjaga tes memeriksa langsung pada deklarasi
+tipenya.
 
 Riwayat log disapu paling akhir, di try/catch sendiri: retensinya jauh lebih
 pendek (30 hari) dan volumenya jauh lebih besar, jadi menggagalkan penghapusan
 kasus karena satu query log lambat akan membuat bot menyimpan data yang sudah
 dijanjikan dihapus. `logsDeleted` bernilai `null` kalau sapuan log gagal — lebih
 baik menyatakan tidak diketahui daripada melaporkan angka nol yang terlalu optimistis.
+Aturan yang sama berlaku untuk `ticketsDeleted` dan `statsDeleted`.
 
 Ada dua job terpisah. `panelExpiryJob.ts` menonaktifkan panel reaction
 role yang lewat masa hidup setiap `PANEL_EXPIRY_SWEEP_MINUTES` (default 15 menit).
@@ -2198,11 +2303,13 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~59,4% statements** dari **1.583 tes di 92
+yang tidak di-commit). Angka saat ini: **~61,5% statements** dari **1.694 tes di 98
 file** (naik dari ~43% waktu playlist, filter, lirik, health check, statistik,
 store bersama, metrik, state musik bersama, multi-node Lavalink, penulisan
 atomik, multi-bahasa, gerbang sharding beserta lease-nya, pesan error
-kepemilikan player, dan penyapuan panel lintas shard).
+kepemilikan player, penyapuan panel lintas shard, orkestrasi keempat
+sapuan retensi di kedua jalurnya, handler `interactionCreate` serta
+`messageCreate`, dan agregasi metrik lintas shard).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
 fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang
@@ -2211,9 +2318,9 @@ Logika inti justru tercover tinggi: mesin automod, mapping & hierarki
 moderasi, agregasi log, loop/posisi/shuffle/filter musik, parser lirik, privasi,
 dan validasi tiket semuanya di atas 90%, begitu juga perhitungan statistik
 per server, perhitungan halaman antrean, session `/search` (97% termasuk jalur
-gagal store), modul metrik (98%), modul health (94%), modul i18n (98%), modul
-moderasi (84%), modul logging (72%), modul privasi (95%), dan kedua
-implementasi store. Menaikkan angka global dengan mem-bypass lapisan lem
+gagal store), modul metrik (98%, dan renderer agregat shard 100%), modul health
+(94%), modul i18n (98%), modul moderasi (84%), modul logging (72%), modul
+privasi (95%), dan kedua implementasi store. Menaikkan angka global dengan mem-bypass lapisan lem
 lewat mock besar akan menguji mock itu sendiri, bukan bot.
 ---
 
@@ -2233,7 +2340,7 @@ lewat mock besar akan menguji mock itu sendiri, bukan bot.
 | `npm run db:deploy` | Terapkan migrasi yang sudah ada (produksi/CI) |
 | `npm run db:generate` | Generate Prisma Client dari schema |
 | `npm run db:studio` | Buka Prisma Studio untuk melihat isi database |
-| `npm run db:prune` | Sekali jalan: hapus kasus, peringatan & riwayat log yang lewat retensi (cron) |
+| `npm run db:prune` | Sekali jalan: hapus kasus, peringatan, tiket, statistik playback & riwayat log yang lewat retensi (cron) |
 | `npm run typecheck` | TypeScript strict tanpa emit — mencakup `src/` dan `tests/` |
 | `npm run lint` / `lint:fix` | ESLint |
 | `npm test` / `test:watch` | Vitest |

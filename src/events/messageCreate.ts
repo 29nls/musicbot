@@ -6,6 +6,7 @@ import {
   automodLogEmbed,
   getAutomodService,
   getAutomodTracker,
+  getSeenMessageGuard,
   isExempt,
   ruleLabel,
   type AutomodMessageInput,
@@ -39,6 +40,20 @@ export default {
     }
 
     if (!config.modules.automod) return;
+
+    // PRD §9.4: gateway bisa mengirim ulang `MessageCreate` untuk pesan yang
+    // sudah pernah sampai, dan tanpa penjaga satu pesan berarti dua
+    // penghapusan, dua kasus moderasi, dan dua timeout. Tidak ada yang gagal
+    // di sana — semuanya hanya terjadi dua kali, dan moderator melihat dua
+    // peringatan untuk satu chat.
+    //
+    // Penempatannya setelah pemeriksaan modul dan sebelum pembacaan policy:
+    // server yang automodnya mati tidak pernah menambah isi penjaga, dan
+    // pengiriman ulang tidak membaca database dua kali.
+    if (!getSeenMessageGuard().accept(message.id)) {
+      logger.debug({ message: message.id, guild: guildId }, 'Pesan sudah diproses automod');
+      return;
+    }
 
     let policy;
     try {

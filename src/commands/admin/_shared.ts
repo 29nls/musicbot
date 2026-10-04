@@ -29,6 +29,7 @@ import {
 import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import { getLogger } from '../../services/logger.js';
 import { errorEmbed } from '../../utils/embeds.js';
+import { hasGuildPermission } from '../../utils/permissions.js';
 
 export interface AdminPermission {
   bit: bigint;
@@ -93,7 +94,7 @@ export async function gateAdminCommand(
 
   // Lapis kedua: Discord sudah menyembunyikan perintah, tapi server bisa
   // menimpa default permission-nya.
-  if (!(interaction.memberPermissions?.has(permission.bit) ?? false)) {
+  if (!hasGuildPermission(interaction, permission.bit)) {
     return fail(errorEmbed(t('mod.gate.needsPermission', { permission: permission.label }), t('embed.title.error')));
   }
 

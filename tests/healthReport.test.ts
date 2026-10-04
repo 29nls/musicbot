@@ -7,9 +7,34 @@ import {
   type DependencyState,
   type HealthServerHandle,
 } from '../src/modules/health/index.js';
-import { MetricsRegistry, type MetricsSnapshot } from '../src/modules/metrics/index.js';
+import {
+  mergeInstances,
+  MetricsRegistry,
+  type FleetMetrics,
+  type InstanceMetrics,
+  type MetricsSnapshot,
+} from '../src/modules/metrics/index.js';
 
 const STARTED_AT = 1_700_000_000_000;
+
+/** Laporan satu shard untuk tes endpoint. */
+function fleetReport(
+  instanceId: string,
+  command: { total: number; errors: number } = { total: 10, errors: 0 },
+): InstanceMetrics {
+  return {
+    instanceId,
+    uptimeSeconds: 60,
+    guildCount: 5,
+    tracksPlayed: 1,
+    interactions: {
+      command,
+      component: { total: 0, errors: 0 },
+      message: { total: 0, errors: 0 },
+    },
+    lavalink: { connected: true, latencyMs: 20, sampledAt: STARTED_AT },
+  };
+}
 
 function input(overrides: Partial<Parameters<typeof buildHealthReport>[0]> = {}) {
   return {
@@ -213,7 +238,12 @@ describe('endpoint /metrics', () => {
     await handle?.close();
   });
 
-  async function start(overrides: { metrics?: () => MetricsSnapshot } = {}) {
+  async function start(
+    overrides: {
+      metrics?: () => MetricsSnapshot;
+      fleetMetrics?: () => Promise<FleetMetrics>;
+    } = {},
+  ) {
     handle = startHealthServer({
       port: 0,
       startedAt: STARTED_AT,
@@ -279,5 +309,47 @@ describe('endpoint /metrics', () => {
     const response = await fetch(`http://127.0.0.1:${handle?.port ?? 0}/metrics`);
 
     expect(response.status).toBe(503);
+  });
+
+  it('menempelkan agregat fleet ke seri proses dalam satu balasan', async () => {
+    // Satu URL untuk scraper: kalau fleet jadi endpoint sendiri, ada yang bisa
+    // terlupa diisi dan KPI §13 kembali jadi angka satu shard.
+    const registry = new MetricsRegistry({ startedAt: STARTED_AT });
+    registry.record('command');
+
+    await start({
+      metrics: () => registry.snapshot(),
+      fleetMetrics: async () =>
+        mergeInstances([
+          fleetReport('shard-a', { total: 90, errors: 0 }),
+          fleetReport('shard-b', { total: 10, errors: 5 }),
+        ]),
+    });
+
+    const body = await (await fetch(`http://127.0.0.1:${handle?.port ?? 0}/metrics`)).text();
+
+    expect(body).toContain('harmony_guilds 7');
+    expect(body).toContain('harmony_fleet_instances 2');
+    expect(body).toContain('harmony_fleet_command_error_rate 0.05');
+  });
+
+  it('kegagalan gather tidak menghapus seri proses', async () => {
+    const registry = new MetricsRegistry({ startedAt: STARTED_AT });
+    registry.recordTrackPlayed();
+
+    await start({
+      metrics: () => registry.snapshot(),
+      fleetMetrics: async () => {
+        throw new Error('store bersama mati');
+      },
+    });
+
+    const response = await fetch(`http://127.0.0.1:${handle?.port ?? 0}/metrics`);
+    const body = await response.text();
+
+    // Seri proses selalu benar untuk shard ini; agregat cuma melengkapinya.
+    expect(response.status).toBe(200);
+    expect(body).toContain('harmony_tracks_played_total 1');
+    expect(body).not.toContain('harmony_fleet_instances');
   });
 });

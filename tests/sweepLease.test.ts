@@ -64,11 +64,18 @@ describe('SweepLease', () => {
 
     // Lease proses yang mati dicicil lewat store yang sama supaya ambang
     // waktunya benar-benar lewat tanpa menunggu waktu nyata.
-    const shortLived = new SweepLease(shared, NAME, 'proses-mati', 1);
+    //
+    // TTL-nya 60 ms, bukan 1 ms. Dengan 1 ms, satu `await` saja sudah cukup
+    // untuk membuat ambang lewat di mesin yang sedang sibuk, jadi tesnya
+    // gagal tanpa ada yang salah. Kegagalan seperti itu paling mahal karena
+    // tidak ada yang menyuruh mencari penyebabnya di tes ini. Yang diuji
+    // tetap sama: lease masih dipegang pada saat pertama, lalu diambil
+    // proses lain setelah umurnya lewat.
+    const shortLived = new SweepLease(shared, NAME, 'proses-mati', 60);
     await shortLived.claim();
 
     expect(await survivor.claim()).toBe('foreign');
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 120));
     expect(await survivor.claim()).toBe('acquired');
   });
 
