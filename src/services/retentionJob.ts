@@ -7,6 +7,7 @@ import { getTicketService } from '../modules/tickets/index.js';
 import type { TicketRetentionResult } from '../modules/tickets/retention.js';
 import type { StatRetentionResult } from '../modules/stats/index.js';
 import { getLogger } from './logger.js';
+import type { SweepLease } from './sweepLease.js';
 
 /** Yang dibutuhkan job ini dari service moderasi (dipisah supaya bisa diuji). */
 export interface RetentionRunner {
@@ -45,10 +46,19 @@ export interface RetentionJobOptions {
   intervalMs?: number;
   /** Jalankan sekali saat start (default true). */
   runOnStart?: boolean;
+  /**
+   * Lease yang membuat sapuan ini jalan di satu proses saja.
+   *
+   * Penghapusan retensi bersifat global, jadi tanpa lease tiap proses akan
+   * menjalankannya bersamaan: database dipanggil N kali untuk pekerjaan yang
+   * sama, dan tiap proses melaporkan angka yang berbeda sehingga tidak ada
+   * yang bisa dipercaya. Kosongkan kalau hanya ada satu proses.
+   */
+  lease?: SweepLease;
 }
 
 export interface RetentionJob {
-  /** Jalankan satu sapuan; null kalau gagal atau masih berjalan. */
+  /** Jalankan satu sapuan; null kalau gagal, masih jalan, atau dilewati proses lain. */
   runOnce(now?: Date): Promise<RetentionResult | null>;
   /** Berhenti menjadwalkan (dipanggil saat shutdown). */
   stop(): void;
@@ -88,6 +98,17 @@ export function startRetentionJob(
     if (running) {
       logger.debug('Sapuan retensi dilewati — sapuan sebelumnya masih jalan');
       return null;
+    }
+
+    // Sapuan retensi bersifat global, jadi hanya satu proses yang boleh
+    // menjalankannya. Yang dilewati dicatat di debug, bukan diam: proses yang
+    // melompat tetap harus bisa menjelaskan kenapa angkanya nol.
+    if (options.lease?.available) {
+      const claim = await options.lease.claim();
+      if (claim === 'foreign') {
+        logger.debug('Sapuan retensi dilewati — proses lain sedang memegangnya');
+        return null;
+      }
     }
 
     running = true;

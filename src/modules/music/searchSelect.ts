@@ -13,6 +13,7 @@ import { errorEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService } from '../config/index.js';
 import { defaultTranslator, translatorFor, type Translator } from '../i18n/index.js';
 import { canControlMusic } from './permissions.js';
+import { PlayerOwnedElsewhereError } from './ownership.js';
 import { getMusicService, getSearchSessionStore } from './singleton.js';
 import {
   parseSearchCustomId,
@@ -24,7 +25,7 @@ import {
   type SearchSession,
 } from './searchSession.js';
 import { renderPlayOutcome } from './render.js';
-import type { TrackInfo } from './types.js';
+import type { PlayOutcome, TrackInfo } from './types.js';
 
 /**
  * Dua pesan di sini dipanggil sebelum guild diketahui ada atau tidak.
@@ -129,18 +130,33 @@ async function playSelection(
     return;
   }
 
-  const outcome = await getMusicService().enqueue({
-    guildId,
-    tracks: [track],
-    voiceChannelId,
-    shardId: guild.shardId,
-    // Batas §6.2: lagu > 30 menit (atau live stream) hanya boleh diputar DJ.
-    canControl: canControlMusic({
-      djRoleId: config.djRoleId,
-      memberRoleIds: [...member.roles.cache.keys()],
-      canManageGuild: member.permissions.has(PermissionFlagsBits.ManageGuild),
-    }),
-  });
+  let outcome: PlayOutcome;
+  try {
+    outcome = await getMusicService().enqueue({
+      guildId,
+      tracks: [track],
+      voiceChannelId,
+      shardId: guild.shardId,
+      // Batas §6.2: lagu > 30 menit (atau live stream) hanya boleh diputar DJ.
+      canControl: canControlMusic({
+        djRoleId: config.djRoleId,
+        memberRoleIds: [...member.roles.cache.keys()],
+        canManageGuild: member.permissions.has(PermissionFlagsBits.ManageGuild),
+      }),
+    });
+  } catch (error) {
+    // Guild yang sedang dipegang proses lain bukan kegagalan acak: member
+    // perlu tahu masalahnya ada di sisi bot, bukan pilihannya yang ditolak
+    // tanpa alasan yang jelas. Tanpa penanganan seperti ini, errornya naik ke
+    // router komponen yang hanya menampilkan "komponen gagal" — pesan yang
+    // berbeda dari yang dilihat member kalau /play yang sama gagal.
+    if (error instanceof PlayerOwnedElsewhereError) {
+      await replyOnce(interaction, errorEmbed(t('music.gate.ownedElsewhere'), t('embed.title.error')));
+      return;
+    }
+
+    throw error;
+  }
 
   await replyOnce(interaction, renderPlayOutcome(outcome, t));
 }

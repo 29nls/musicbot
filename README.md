@@ -2160,6 +2160,26 @@ saat `DISCORD_MAX_SHARDS > 1`. Entri shard yang rusak **dilempar, bukan
 dibuang** — shard yang hilang diam-diam dari daftar tidak akan pernah
 tersambung, jadi server-servernya gelap tanpa satu pun pesan error.
 
+**Job retensi dikunci lease, jadi tidak jalan di semua proses.** Penghapusan
+retensi bersifat global — `DELETE ... WHERE createdAt < cutoff` tanpa memilih
+guild — jadi tanpa penguncian, tiap proses menjalankannya bersamaan: database
+dipanggil N kali untuk pekerjaan yang sama, dan tiap proses melaporkan angka
+yang berbeda, sehingga log menampilkan "120 kasus dihapus" di satu proses dan
+"0" di yang lain padahal tidak ada yang hilang di antaranya. `SweepLease`
+([sweepLease.ts](src/services/sweepLease.ts)) membuat hanya satu proses yang
+memegangnya; yang kalah melompat **tanpa memanggil penghapusan sama sekali**.
+Dipilih lease, bukan pembagian guild per shard: penghapusan hanya memfilter
+lewat tanggal, jadi membatasi per guild berarti daftar `guildId` yang harus
+dikirim ke tiap DELETE. TTL lease 15 menit, jauh lebih pendek dari jeda sapuan
+6 jam, jadi proses yang mati di tengah sapuan tidak menahan jadwal berikutnya.
+
+**Semua jalur punya pesan yang sama untuk kondisi itu.** `/play` dan `/247`
+lewat `handleMusicFailure`, dan select menu `/search` sekarang punya penanganan
+yang sama persis. Sebelumnya `/search` melempar error-nya apa adanya ke router
+komponen, jadi member yang guild-nya dipegang proses lain melihat "komponen
+gagal" kalau memilih dari `/search`, tapi melihat penjelasan yang benar kalau
+mengetik `/play` — dua kalimat berbeda untuk satu masalah yang sama.
+
 Yang tersisa dan ditulis terang: player Lavalink tetap milik satu proses, jadi
 yang menjaganya adalah **lease kepemilikan** per guild
 ([ownership.ts](src/modules/music/ownership.ts)) — proses lain ditolak
@@ -2170,10 +2190,11 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~58,9% statements** dari **1.555 tes di 89
+yang tidak di-commit). Angka saat ini: **~59,2% statements** dari **1.571 tes di 91
 file** (naik dari ~43% waktu playlist, filter, lirik, health check, statistik,
 store bersama, metrik, state musik bersama, multi-node Lavalink, penulisan
-atomik, multi-bahasa, dan gerbang sharding).
+atomik, multi-bahasa, gerbang sharding beserta lease-nya, dan pesan error
+kepemilikan player).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
 fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang

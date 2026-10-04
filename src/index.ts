@@ -8,7 +8,9 @@ import { getMusicService, initMusic, isMusicConnected } from './modules/music/in
 import { clearCaseLinks } from './modules/moderation/index.js';
 import { connectDatabase, disconnectDatabase, pingDatabase } from './services/database.js';
 import { getLogger } from './services/logger.js';
-import { createKeyValueStore, setKeyValueStore, type KeyValueStoreHandle } from './services/kvStore.js';
+import { createKeyValueStore, getKeyValueStore, setKeyValueStore, type KeyValueStoreHandle } from './services/kvStore.js';
+import { processInstanceId } from './services/instanceId.js';
+import { SweepLease } from './services/sweepLease.js';
 import { setCooldownStore } from './utils/cooldown.js';
 import { startPanelExpiryJob, type PanelExpiryJob } from './services/panelExpiryJob.js';
 import { startRetentionJob, type RetentionJob } from './services/retentionJob.js';
@@ -33,6 +35,17 @@ let keyValueStore: KeyValueStoreHandle | undefined;
 
 /** Kapan proses ini start — dipakai health check untuk menghitung uptime. */
 const startedAt = Date.now();
+
+/**
+ * Umur lease job retensi.
+ *
+ * Sengaja jauh lebih pendek dari jeda sapuan (default 6 jam): lease ini bukan
+ * cara membagi jadwal, melainkan cara mencegah dua proses mengerjakan
+ * pekerjaan yang sama bersamaan. Kalau proses yang memegang lease mati di
+ * tengah sapuan, proses lain mengambil alih dalam seperempat jam, bukan
+ * menunggu jadwal berikutnya enam jam lagi.
+ */
+const RETENTION_LEASE_TTL_MS = 15 * 60_000;
 
 async function main(): Promise<void> {
   // Validasi config lebih dulu: gagal cepat kalau .env belum lengkap.
@@ -82,7 +95,19 @@ async function main(): Promise<void> {
 
   // Retensi data (kasus & peringatan > 12 bulan) berjalan di dalam proses:
   // ikut berhenti saat bot berhenti, tanpa cron di host.
-  retentionJob = startRetentionJob(undefined, { statsRunner: getStatsService() });
+  //
+  // Penghapusannya bersifat global, jadi harus dikunci: tanpa lease, tiap
+  // proses menjalankan sapuan yang sama bersamaan dan angkanya saling
+  // bertentangan di log (PRD §5.3 dan §11).
+  retentionJob = startRetentionJob(undefined, {
+    statsRunner: getStatsService(),
+    lease: new SweepLease(
+      () => getKeyValueStore(),
+      'retention',
+      processInstanceId(),
+      RETENTION_LEASE_TTL_MS,
+    ),
+  });
 
   // Endpoint health check (PRD §5.1). Dijalankan sebelum login supaya
   // monitoring bisa melihat "proses hidup, gateway belum siap" selama bot

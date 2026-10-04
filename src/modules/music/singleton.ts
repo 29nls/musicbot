@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import type { Client } from 'discord.js';
 import { getEnv } from '../../config/env.js';
+import { processInstanceId } from '../../services/instanceId.js';
 import { getLogger } from '../../services/logger.js';
 import { getGuildConfigService } from '../config/index.js';
 import { getMetricsRegistry } from '../metrics/index.js';
@@ -24,20 +24,6 @@ const MIN_LISTENED_MS = 10_000;
 let service: MusicService | undefined;
 let searchSessions: SearchSessionStore | undefined;
 let stayService: StayService | undefined;
-/**
- * ID proses untuk lease kepemilikan player (§5.3).
- *
- * Dibuat sekali per proses dan tidak pernah dipublikasikan: nilainya hanya
- * dipakai sebagai pemilik lease di store bersama, jadi kestabilannya antar
- * perintah yang penting, bukan nilai acak yang berubah-ubah tiap panggilan.
- */
-let instanceId: string | undefined;
-
-/** ID proses ini, dibuat saat pertama kali dibutuhkan. */
-function processInstanceId(): string {
-  instanceId ??= randomUUID();
-  return instanceId;
-}
 
 /**
  * Siapkan mesin musik. **Harus dipanggil sebelum `client.login()`** karena
@@ -144,7 +130,6 @@ export function getStayService(): StayService {
 export function resetMusicSingletons(): void {
   service = undefined;
   stayService = undefined;
-  instanceId = undefined;
   // Di-lewat supaya shutdown tidak menunggu satu putaran Redis per session.
   void searchSessions?.clear();
   searchSessions = undefined;
