@@ -113,7 +113,10 @@ services:
       # missing a value", jalankan dulu:
       #   node deploy/casaos/preflight.mjs
       # Nilai kosong dihitung sama dengan tidak ada.
-      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env - jalankan: node /DATA/AppData/harmony-bot/preflight.mjs}
+      # Scalar diapit tanda kutip: pesan errornya memuat ': ' (kolom + spasi),
+      # yang tanpa tanda kutip akan dibaca YAML sebagai pemisah mapping dan
+      # menggagalkan SELURUH berkas, bukan cuma baris ini.
+      LAVALINK_SERVER_PASSWORD: '${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env - jalankan: node /DATA/AppData/harmony-bot/preflight.mjs}'
       # Heap JVM. Turunkan ke -Xmx512M kalau NAS hanya punya RAM terbatas;
       # naikkan ke -Xmx2G kalau sering memutar lagu panjang.
       JAVA_TOOL_OPTIONS: -Xmx1G
