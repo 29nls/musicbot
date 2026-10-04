@@ -25,5 +25,5 @@ export function toAutomodErrorEmbed(
 
   getLogger().error({ err: error }, 'Operasi automod gagal');
 
-  return errorEmbed(t('automod.err.generic'));
+  return errorEmbed(t('automod.err.generic'), t('embed.title.error'));
 }

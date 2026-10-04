@@ -20,9 +20,9 @@ export function renderPlayOutcome(
     case 'added':
       return addedToQueueEmbed(outcome, t);
     case 'empty':
-      return errorEmbed(t('music.play.emptyResult'));
+      return errorEmbed(t('music.play.emptyResult'), t('embed.title.error'));
     case 'error':
-      return errorEmbed(t('music.play.loadFailed', { message: outcome.message }));
+      return errorEmbed(t('music.play.loadFailed', { message: outcome.message }), t('embed.title.error'));
     case 'queue-full':
       return warningEmbed(
         t('music.play.queueFullMessage', { max: getEnv().MAX_QUEUE_SIZE }),
@@ -34,6 +34,6 @@ export function renderPlayOutcome(
       );
     case 'unavailable':
     default:
-      return errorEmbed(t('music.play.lavalinkDown'));
+      return errorEmbed(t('music.play.lavalinkDown'), t('embed.title.error'));
   }
 }

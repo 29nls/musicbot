@@ -548,7 +548,7 @@ Dua keputusan yang mencegah sapuan ini jadi "ubah kalimat":
   `"to"` yang diketik user akan menghasilkan pesan bahasa Indonesia di server
   English.
 - **Label `CATEGORY_META.label` sengaja tetap bahasa Indonesia.** Label itu
-  ikut registering sebagai nama pilihan (`choice`) di `/logs` dan `/logging`,
+  ikut terdaftar sebagai nama pilihan (`choice`) di `/logs` dan `/logging`,
   dan Discord membaca nama pilihan dari payload saat deploy — sama seperti
   nama perintah. Embed memakai `categoryLabel(category, t)` yang baru, jadi
   teks yang tampil ikut bahasa server tanpa merusak nama pilihan.
@@ -669,11 +669,51 @@ yang ditulis ke audit log Discord.
    `duaconcerns`, `atznya`, `kurasakan`, dan indentasi blok JSDoc di repository
    tiket).
 
-**Yang belum:** `/config`, `/setup`, `/help`, `/ping` — teks runtime-nya masih
-ditulis langsung dalam bahasa Indonesia. Katalog runtime tetap jatuh ke bahasa
-Indonesia secara sadar untuk kunci yang belum ada, bukan diam-diam jadi bahasa
-acak: katalog setengah terisi lebih buruk daripada kosong, karena orang akan
-melihat dua bahasa dalam satu layar tanpa punya cara tahu mana yang belum.
+**Sapuan perintah inti `/config`, `/setup`, `/help`, dan `/ping` sudah
+tuntas.** Yang ikut katalog: ringkasan konfigurasi (17 nama field, nilai
+turunannya, daftar modul), nama dan deskripsi modul di select menu `/setup`,
+judul serta tombol wizard, embed error konfigurasi (pesan validasi, database
+mati, error umum), daftar perintah beserta label kategorinya, dan `/ping`
+beserta satuan uptime-nya. `ConfigValidationError` sekarang membawa
+`(key, params)` seperti error di modul lain, dan `MODULE_LABELS` diubah dari
+objek berisi kalimat menjadi peta kunci katalog, karena label select menu
+dirender saat runtime — bukan dibaca Discord dari payload saat deploy seperti
+`choices`. `translatorForGuild(guildId)` baru dipakai `/help` dan `/ping`, yang
+boleh dipanggil di DM: tanpa server tidak ada bahasa yang bisa diketahui, jadi
+bahasa bawaan yang dipakai, bukan error.
+
+**Bug yang lebih luas ketemu di tengah sapuan ini.** 141 pemanggilan embed
+satu-argumen di 32 berkas masih memakai **judul bawaan** berbahasa Indonesia
+(`'❌ Terjadi Kesalahan`, `'⚠️ Perhatian'`, `'✅ Berhasil'`) — deskripsinya
+sudah diterjemahkan, judulnya tidak. Kunci `embed.title.*` sudah ada di
+katalog, jadi setiap pemanggilan itu sekarang mengirim judul terjemahannya,
+dan penjaga baru memindai seluruh `src/` dengan pencocokan kedalaman kurung
+(bukan regex, karena argumennya boleh berisi kurung sendiri) sehingga
+pemanggilan satu argumen tidak bisa lolos diam-diam. Sapuan yang sama menutup
+empat berkas yang sama sekali belum pernah ikut katalog: pesan cooldown
+perintah dan komponen di `interactionCreate.ts` dan `componentRouter.ts`,
+pesan perintah belum terdaftar, guild-only, dan gagal dijalankan, serta "mode
+tidak dikenal" di `/filter` dan `/loop` yang menyalin kalimat sendiri padahal
+`music.filter.unknownMode` dan `music.loop.unknownMode` sudah ada di katalog.
+
+**Siklus impor muncul dan ditutup.** `config/types.ts` dan
+`config/validation.ts` mengimpor modul i18n, sementara modul i18n membaca
+config — akibatnya `MAX_VOLUME` (dan konstanta lain di `types.ts`) terbaca
+`undefined` saat skema zod dibangun, dan pesan validasinya menjadi "maksimal
+undefined". Sekarang `types.ts` hanya mengimpor tipe, helper yang butuh
+penerjemah pindah ke [labels.ts](src/modules/config/labels.ts), dan
+`validation.ts` mengimpor `../i18n/catalog.js` langsung, bukan barrel
+`i18n/index.js`.
+
+**Yang belum:** kalimat zod di `guildConfigPatchSchema` ("harus berupa ID
+Discord", "maksimal … karakter") tetap Bahasa Indonesia, karena skema dibangun
+sekali saat modul dimuat dan tidak punya penerjemah. Batasnya kecil dan
+ditulis terang: `/config` tidak bisa mengirim nilai di luar batas yang sudah
+dibatasi option-nya, jadi kalimat itu hanya muncul kalau ada yang menulis
+patch langsung. Katalog runtime tetap jatuh ke bahasa Indonesia secara sadar
+untuk kunci yang belum ada, bukan diam-diam jadi bahasa acak: katalog
+setengah terisi lebih buruk daripada kosong, karena orang akan melihat dua
+bahasa dalam satu layar tanpa punya cara tahu mana yang belum.
 
 Teks command tidak ikut diperiksa penjaga yang sama, karena memang tidak
 perlu: nama dan deskripsinya dibaca Discord dari payload saat deploy, bukan

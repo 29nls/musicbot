@@ -84,7 +84,7 @@ export async function gateAdminCommand(
   permission: AdminPermission,
 ): Promise<AdminGate> {
   if (!interaction.inCachedGuild()) {
-    return fail(errorEmbed(defaultTranslator('mod.gate.guildOnly')));
+    return fail(errorEmbed(defaultTranslator('mod.gate.guildOnly'), defaultTranslator('embed.title.error')));
   }
 
   const guild = interaction.guild;
@@ -94,7 +94,7 @@ export async function gateAdminCommand(
   // Lapis kedua: Discord sudah menyembunyikan perintah, tapi server bisa
   // menimpa default permission-nya.
   if (!(interaction.memberPermissions?.has(permission.bit) ?? false)) {
-    return fail(errorEmbed(t('mod.gate.needsPermission', { permission: permission.label })));
+    return fail(errorEmbed(t('mod.gate.needsPermission', { permission: permission.label }), t('embed.title.error')));
   }
 
   let config: GuildConfig;
@@ -105,16 +105,16 @@ export async function gateAdminCommand(
   }
 
   if (!config.modules.moderation) {
-    return fail(errorEmbed(t('mod.gate.moduleDisabled')));
+    return fail(errorEmbed(t('mod.gate.moduleDisabled'), t('embed.title.error')));
   }
 
   const me = guild.members.me ?? (await guild.members.fetchMe().catch(() => null));
   if (!me) {
-    return fail(errorEmbed(t('mod.gate.botNotLoaded')));
+    return fail(errorEmbed(t('mod.gate.botNotLoaded'), t('embed.title.error')));
   }
 
   if (!me.permissions.has(permission.bit)) {
-    return fail(errorEmbed(t('mod.gate.botLacksPermission', { permission: permission.label })));
+    return fail(errorEmbed(t('mod.gate.botLacksPermission', { permission: permission.label }), t('embed.title.error')));
   }
 
   return {
@@ -155,7 +155,7 @@ export function hierarchyFailure(
     targetHighestRolePosition: targetMember?.roles.highest.position ?? null,
   });
 
-  return result.ok ? null : errorEmbed(hierarchyMessage(result, ctx.t));
+  return result.ok ? null : errorEmbed(hierarchyMessage(result, ctx.t), ctx.t('embed.title.error'));
 }
 
 /**
@@ -489,12 +489,12 @@ export function resolveLockPlan(
   t: Translator = defaultTranslator,
 ): LockPlan {
   if (!interaction.inCachedGuild()) {
-    return { ok: false, embed: errorEmbed(t('mod.gate.guildOnly')) };
+    return { ok: false, embed: errorEmbed(t('mod.gate.guildOnly'), t('embed.title.error')) };
   }
 
   const channel = interaction.channel;
   if (!channel || channel.isDMBased()) {
-    return { ok: false, embed: errorEmbed(t('mod.gate.channelOnly')) };
+    return { ok: false, embed: errorEmbed(t('mod.gate.channelOnly'), t('embed.title.error')) };
   }
 
   if (channel.isVoiceBased()) {
@@ -533,7 +533,7 @@ export function resolveLockPlan(
 
   return {
     ok: false,
-    embed: errorEmbed(t('mod.gate.textVoiceOnly')),
+    embed: errorEmbed(t('mod.gate.textVoiceOnly'), t('embed.title.error')),
   };
 }
 

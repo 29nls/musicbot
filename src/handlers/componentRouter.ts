@@ -6,6 +6,7 @@ import {
 } from 'discord.js';
 import { checkCooldown } from '../utils/cooldown.js';
 import { errorEmbed, warningEmbed } from '../utils/embeds.js';
+import { translatorForGuild } from '../modules/i18n/index.js';
 import { getMetricsRegistry } from '../modules/metrics/index.js';
 import { getLogger } from '../services/logger.js';
 import { handleSearchSelect, SEARCH_SELECT_PREFIX } from '../modules/music/index.js';
@@ -156,7 +157,8 @@ export async function routeComponent(interaction: RoutedInteraction): Promise<bo
 
 /** Balas klik yang terlalu cepat dengan sisa waktu tunggu (pesannya privat). */
 async function replyWithCooldown(interaction: RoutedInteraction, waitSeconds: number): Promise<void> {
-  const embed = warningEmbed(`Tunggu **${waitSeconds} detik** sebelum memakai ini lagi.`);
+  const t = await translatorForGuild(interaction.guildId);
+  const embed = warningEmbed(t('core.cooldown.component', { seconds: waitSeconds }), t('embed.title.warning'));
 
   try {
     if (interaction.deferred || interaction.replied) {
@@ -170,9 +172,8 @@ async function replyWithCooldown(interaction: RoutedInteraction, waitSeconds: nu
 }
 
 async function replyWithFailure(interaction: RoutedInteraction): Promise<void> {
-  const embed = errorEmbed(
-    'Terjadi kesalahan saat memproses pilihanmu. Detailnya sudah dicatat di log bot.',
-  );
+  const t = await translatorForGuild(interaction.guildId);
+  const embed = errorEmbed(t('core.err.componentFailed'), t('embed.title.error'));
 
   try {
     if (interaction.deferred || interaction.replied) {

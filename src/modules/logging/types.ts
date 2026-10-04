@@ -23,7 +23,7 @@ export const CATEGORY_META: Record<LogCategory, { label: string; emoji: string; 
  * Kunci katalog untuk label tiap kategori.
  *
  * `CATEGORY_META.label` sengaja tetap bahasa Indonesia: label itu ikut
- * registering sebagai nama pilihan (`choice`) di `/logs` dan `/logging`, dan
+ * terdaftar sebagai nama pilihan (`choice`) di `/logs` dan `/logging`, dan
  * nama pilihan Discord dibaca dari payload saat deploy — bukan saat runtime.
  * Embed memakai `categoryLabel()` supaya ikut bahasa server.
  */

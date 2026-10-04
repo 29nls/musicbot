@@ -52,7 +52,7 @@ export default {
       if (durationMs === null) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.timeout.badDuration', { value: rawDuration })),
+          errorEmbed(ctx.t('mod.timeout.badDuration', { value: rawDuration }), ctx.t('embed.title.error')),
         );
         return;
       }
@@ -61,7 +61,7 @@ export default {
       if (!targetMember) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.notMember.timeout')),
+          errorEmbed(ctx.t('mod.notMember.timeout'), ctx.t('embed.title.error')),
         );
         return;
       }

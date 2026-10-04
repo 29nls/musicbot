@@ -19,6 +19,7 @@ export function getGuildConfigService(): GuildConfigService {
 export { GuildConfigService } from './guildConfigService.js';
 export type { GuildConfig, GuildConfigPatch, ModulesEnabled } from './types.js';
 export { MODULE_LABELS } from './types.js';
+export { moduleDescription, moduleLabel } from './labels.js';
 export { renderConfigEmbed } from './embeds.js';
 export { toConfigErrorEmbed } from './errors.js';
 export { ConfigValidationError } from './validation.js';

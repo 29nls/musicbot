@@ -91,7 +91,7 @@ export default {
   async execute(interaction) {
     if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'), defaultTranslator('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -106,7 +106,7 @@ export default {
     // dipasang di sini, member bahkan tidak akan melihat perintahnya.
     if (sub !== 'transcript' && !canManageGuild(interaction)) {
       await interaction.reply({
-        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }), t('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -114,7 +114,7 @@ export default {
 
     if (!interaction.inCachedGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed(t('ticket.err.notCached'))],
+        embeds: [warningEmbed(t('ticket.err.notCached'), t('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -173,7 +173,7 @@ async function postPanel(
 ): Promise<void> {
   const incomplete = missingTicketConfig(config, t);
   if (incomplete) {
-    await interaction.editReply({ embeds: [warningEmbed(incomplete)] });
+    await interaction.editReply({ embeds: [warningEmbed(incomplete, t('embed.title.warning'))] });
     return;
   }
 
@@ -187,7 +187,7 @@ async function postPanel(
 
   if (!panelChannel) {
     await interaction.editReply({
-      embeds: [warningEmbed(t('ticket.cmd.noPanelChannel'))],
+      embeds: [warningEmbed(t('ticket.cmd.noPanelChannel'), t('embed.title.warning'))],
     });
     return;
   }
@@ -254,7 +254,7 @@ async function showTranscript(
   const ticket = await resolveTicket(interaction, guildId);
   if (!ticket) {
     await interaction.editReply({
-      embeds: [warningEmbed(t('ticket.cmd.noTicket'))],
+      embeds: [warningEmbed(t('ticket.cmd.noTicket'), t('embed.title.warning'))],
     });
     return;
   }
@@ -262,7 +262,7 @@ async function showTranscript(
   const isOwner = ticket.openerId === interaction.user.id;
   if (!isOwner && !isStaff(interaction.member as GuildMember | null, config)) {
     await interaction.editReply({
-      embeds: [warningEmbed(t('ticket.cmd.transcriptDenied'))],
+      embeds: [warningEmbed(t('ticket.cmd.transcriptDenied'), t('embed.title.warning'))],
     });
     return;
   }
@@ -314,7 +314,7 @@ async function closeFromCommand(
   const ticket = await getTicketService().findOpenByChannel(guild.id, interaction.channelId);
   if (!ticket) {
     await interaction.editReply({
-      embeds: [warningEmbed(t('ticket.cmd.noOpenHere'))],
+      embeds: [warningEmbed(t('ticket.cmd.noOpenHere'), t('embed.title.warning'))],
     });
     return;
   }
@@ -328,19 +328,19 @@ async function closeFromCommand(
     t,
   );
   if (!result) {
-    await interaction.editReply({ embeds: [warningEmbed(t('ticket.err.alreadyClosed'))] });
+    await interaction.editReply({ embeds: [warningEmbed(t('ticket.err.alreadyClosed'), t('embed.title.warning'))] });
     return;
   }
 
   if (!result.channel) {
     await interaction.editReply({
-      embeds: [warningEmbed(t('ticket.cmd.closedChannelGone', { number: result.ticket.ticketNumber }))],
+      embeds: [warningEmbed(t('ticket.cmd.closedChannelGone', { number: result.ticket.ticketNumber }), t('embed.title.warning'))],
     });
     return;
   }
 
   await interaction.editReply({
-    embeds: [successEmbed(t('ticket.cmd.closed', { number: result.ticket.ticketNumber }))],
+    embeds: [successEmbed(t('ticket.cmd.closed', { number: result.ticket.ticketNumber }), t('embed.title.success'))],
   });
 }
 

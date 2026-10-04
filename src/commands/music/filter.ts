@@ -34,14 +34,10 @@ export default {
     await interaction.deferReply();
 
     try {
-      const mode = parseFilterMode(interaction.options.getString('mode', true));
-      if (!mode) {
-        await interaction.editReply({
-          embeds: [errorEmbed(`Mode tidak dikenal. Pilihan yang tersedia: ${filterModeHint()}.`)],
-        });
-        return;
-      }
-
+      // Gerbang lebih dulu daripada parse mode: penerjemah `t` berasal dari
+      // gerbang itu, dan member yang memang tidak boleh mengubah filter atau
+      // loop lebih butuh tahu izin atau modulnya mati daripada tahu mode-nya
+      // salah ketik.
       const gate = await gateMusicCommand(interaction, { voice: true, control: true });
       if (!gate.ok) {
         await replyEphemeralError(interaction, gate.embed);
@@ -49,6 +45,16 @@ export default {
       }
 
       const { music, guildId, t } = gate.ctx;
+
+      const mode = parseFilterMode(interaction.options.getString('mode', true));
+      if (!mode) {
+        await interaction.editReply({
+          embeds: [
+            errorEmbed(t('music.filter.unknownMode', { options: filterModeHint() }), t('embed.title.error')),
+          ],
+        });
+        return;
+      }
       const { previous, applied } = await music.setFilterMode(guildId, mode);
       const emoji = MODE_EMOJI[mode] ?? '🎛️';
       const from = filterModeLabel(previous, t);

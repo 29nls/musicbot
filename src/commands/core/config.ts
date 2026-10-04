@@ -6,6 +6,7 @@ import {
   type ChatInputCommandInteraction,
 } from 'discord.js';
 import {
+  ConfigValidationError,
   getGuildConfigService,
   renderConfigEmbed,
   toConfigErrorEmbed,
@@ -15,9 +16,11 @@ import {
 import {
   LOCALE_LABELS,
   LOCALES,
+  defaultTranslator,
   getLocaleService,
   parseLocale,
   toLocale,
+  translatorFor,
   translatorForLocale,
 } from '../../modules/i18n/index.js';
 import type { BotCommand } from '../../types/command.js';
@@ -120,15 +123,32 @@ export default {
   category: 'core',
   guildOnly: true,
   async execute(interaction, _client) {
-    if (!interaction.inGuild() || !canManageGuild(interaction)) {
+    if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        embeds: [
+          warningEmbed(defaultTranslator('mod.gate.guildOnly'), defaultTranslator('embed.title.warning')),
+        ],
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const guildId = interaction.guildId;
+    const t = await translatorFor(guildId);
+
+    if (!canManageGuild(interaction)) {
+      await interaction.reply({
+        embeds: [
+          warningEmbed(
+            t('mod.gate.needsPermission', { permission: 'Manage Server' }),
+            t('embed.title.warning'),
+          ),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     const subcommand = interaction.options.getSubcommand(true);
     const service = getGuildConfigService();
 
@@ -137,14 +157,17 @@ export default {
     try {
       if (subcommand === 'show') {
         const config = await service.get(guildId);
-        await interaction.editReply({ embeds: [renderConfigEmbed(config)] });
+        await interaction.editReply({ embeds: [renderConfigEmbed(config, t('config.embed.title'), t)] });
         return;
       }
 
       if (subcommand === 'reset') {
         const config = await service.reset(guildId);
         await interaction.editReply({
-          embeds: [successEmbed('Konfigurasi dihapus dan kembali ke default.'), renderConfigEmbed(config)],
+          embeds: [
+            successEmbed(t('config.cmd.resetDone'), t('embed.title.success')),
+            renderConfigEmbed(config, t('config.embed.title'), t),
+          ],
         });
         return;
       }
@@ -152,7 +175,7 @@ export default {
       const patch = buildPatch(interaction);
       if (Object.keys(patch).length === 0) {
         await interaction.editReply({
-          embeds: [warningEmbed('Tidak ada opsi yang diisi, jadi tidak ada yang diubah.')],
+          embeds: [warningEmbed(t('config.cmd.noOptions'), t('embed.title.warning'))],
         });
         return;
       }
@@ -167,18 +190,24 @@ export default {
 
       // Konfirmasi ditulis dalam bahasa yang baru dipilih: orang yang baru
       // menyalakan bahasa Inggris harus melihat bukti bahwa itu berhasil.
-      const locale = toLocale(updated.locale);
-      const t = translatorForLocale(locale);
+      // Jadi penerjemah diambil ulang di sini, bukan memakai `t` yang diikat
+      // ke bahasa server sebelum perubahan.
       const summary =
         patch.locale !== undefined
-          ? t('config.locale.changed', { locale: LOCALE_LABELS[locale] })
-          : 'Konfigurasi diperbarui dan langsung berlaku — tanpa restart bot.';
+          ? translatorForLocale(toLocale(updated.locale))(
+              'config.locale.changed',
+              { locale: LOCALE_LABELS[toLocale(updated.locale)] },
+            )
+          : t('config.cmd.updated');
 
       await interaction.editReply({
-        embeds: [successEmbed(summary), renderConfigEmbed(updated)],
+        embeds: [
+          successEmbed(summary, t('embed.title.success')),
+          renderConfigEmbed(updated, t('config.embed.title'), t),
+        ],
       });
     } catch (error) {
-      await interaction.editReply({ embeds: [toConfigErrorEmbed(error)] });
+      await interaction.editReply({ embeds: [toConfigErrorEmbed(error, t)] });
     }
   },
 } satisfies BotCommand;
@@ -227,10 +256,9 @@ function buildPatch(interaction: ChatInputCommandInteraction): GuildConfigPatch 
   if (rawLocale !== null) {
     const locale = parseLocale(rawLocale);
     if (!locale) {
-      throw new Error(
-        'Bahasa itu tidak dikenal. Pilihan yang tersedia: ' +
-          LOCALES.map((item) => LOCALE_LABELS[item]).join(' / '),
-      );
+      throw new ConfigValidationError('config.locale.unknown', {
+        available: LOCALES.map((item) => LOCALE_LABELS[item]).join(' / '),
+      });
     }
 
     patch.locale = locale;

@@ -62,7 +62,7 @@ export async function showTicketSubjectModal(
 ): Promise<void> {
   const incomplete = missingTicketConfig(config, t);
   if (incomplete) {
-    await reply(interaction, warningEmbed(incomplete));
+    await reply(interaction, warningEmbed(incomplete, t('embed.title.warning')));
     return;
   }
 
@@ -72,7 +72,7 @@ export async function showTicketSubjectModal(
     getLogger().warn({ err: error, guild: interaction.guildId }, 'Gagal membuka modal tiket');
     await reply(
       interaction,
-      warningEmbed(t('ticket.modal.openFailed')),
+      warningEmbed(t('ticket.modal.openFailed'), t('embed.title.warning')),
     );
   }
 }
@@ -105,13 +105,13 @@ export async function handleTicketSubjectSubmit(
   try {
     const config = await getGuildConfigService().get(guild.id);
     if (!config.modules.tickets) {
-      await reply(interaction, warningEmbed(t('ticket.err.moduleOff')));
+      await reply(interaction, warningEmbed(t('ticket.err.moduleOff'), t('embed.title.warning')));
       return;
     }
 
     const incomplete = missingTicketConfig(config, t);
     if (incomplete) {
-      await reply(interaction, warningEmbed(incomplete));
+      await reply(interaction, warningEmbed(incomplete, t('embed.title.warning')));
       return;
     }
 
@@ -137,7 +137,7 @@ export async function handleTicketSubjectSubmit(
       successEmbed(t('ticket.modal.created', {
         channel: outcome.channel.id,
         subject: outcome.ticket.subject ?? '',
-      })),
+      }), t('embed.title.success')),
     );
   } catch (error) {
     getLogger().error(
@@ -161,7 +161,7 @@ function failureEmbed(
     );
   }
 
-  return warningEmbed(t('ticket.err.channelFailed'));
+  return warningEmbed(t('ticket.err.channelFailed'), t('embed.title.warning'));
 }
 
 async function reply(

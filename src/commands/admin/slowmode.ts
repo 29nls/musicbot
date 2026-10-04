@@ -49,7 +49,7 @@ export default {
       ) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.gate.textChannelOnly')),
+          errorEmbed(ctx.t('mod.gate.textChannelOnly'), ctx.t('embed.title.error')),
         );
         return;
       }
@@ -60,7 +60,7 @@ export default {
       if (seconds === null) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.slowmode.badDuration', { value: rawDuration })),
+          errorEmbed(ctx.t('mod.slowmode.badDuration', { value: rawDuration }), ctx.t('embed.title.error')),
         );
         return;
       }

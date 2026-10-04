@@ -53,7 +53,7 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
 
   const lookup = await getReactionRoleService().findOption(optionId);
   if (!lookup || lookup.panel.guildId !== interaction.guildId) {
-    await reply(interaction, warningEmbed(t('rr.select.panelGone')));
+    await reply(interaction, warningEmbed(t('rr.select.panelGone'), t('embed.title.warning')));
     return;
   }
 
@@ -64,20 +64,20 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
   // padahal panelnya sudah closed. Member yang masih menyimpan pesan lama tidak
   // boleh bisa mengambil role dari panel yang sudah berakhir.
   if (!isPanelActive(panel)) {
-    await reply(interaction, warningEmbed(t('rr.select.closedPanel')));
+    await reply(interaction, warningEmbed(t('rr.select.closedPanel'), t('embed.title.warning')));
     return;
   }
 
   const config = await getGuildConfigService().get(panel.guildId);
   if (!config.modules.reactions) {
-    await reply(interaction, warningEmbed(t('rr.select.moduleOff')));
+    await reply(interaction, warningEmbed(t('rr.select.moduleOff'), t('embed.title.warning')));
     return;
   }
 
   const guild = interaction.guild;
   const role = guild.roles.cache.get(option.roleId);
   if (!role) {
-    await reply(interaction, warningEmbed(t('rr.select.roleGone')));
+    await reply(interaction, warningEmbed(t('rr.select.roleGone'), t('embed.title.warning')));
     return;
   }
 
@@ -95,15 +95,15 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
     await reply(
       interaction,
       ok
-        ? successEmbed(t('rr.select.removed', { role: option.roleId }))
-        : warningEmbed(t('rr.select.removeFailed')),
+        ? successEmbed(t('rr.select.removed', { role: option.roleId }), t('embed.title.success'))
+        : warningEmbed(t('rr.select.removeFailed'), t('embed.title.warning')),
     );
     return;
   }
 
   const botMember = guild.members.me;
   if (!botMember) {
-    await reply(interaction, warningEmbed(t('rr.select.botMissing')));
+    await reply(interaction, warningEmbed(t('rr.select.botMissing'), t('embed.title.warning')));
     return;
   }
 
@@ -114,7 +114,7 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
   if (!canManageRole) {
     await reply(
       interaction,
-      warningEmbed(t('rr.select.cannotAssign', { role: option.roleId })),
+      warningEmbed(t('rr.select.cannotAssign', { role: option.roleId }), t('embed.title.warning')),
     );
     return;
   }
@@ -130,8 +130,8 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
   await reply(
     interaction,
     ok
-      ? successEmbed(t('rr.select.added', { role: option.roleId }))
-      : warningEmbed(t('rr.select.addFailed')),
+      ? successEmbed(t('rr.select.added', { role: option.roleId }), t('embed.title.success'))
+      : warningEmbed(t('rr.select.addFailed'), t('embed.title.warning')),
   );
 }
 

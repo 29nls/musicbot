@@ -105,7 +105,7 @@ function renderSpotifyResult(
     return infoEmbed(t('music.play.spotifyNotFound'), result.message);
   }
   if (result.kind === 'search-failed') {
-    return errorEmbed(t('music.play.spotifySearchFailed', { message: result.message }));
+    return errorEmbed(t('music.play.spotifySearchFailed', { message: result.message }), t('embed.title.error'));
   }
   if (result.kind === 'no-match') {
     return errorEmbed(

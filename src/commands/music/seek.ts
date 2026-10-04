@@ -37,7 +37,7 @@ export default {
       // berguna daripada "tidak ada lagu yang sedang diputar".
       if (!current) {
         await interaction.editReply({
-          embeds: [errorEmbed(t('music.gate.nothingPlaying'))],
+          embeds: [errorEmbed(t('music.gate.nothingPlaying'), t('embed.title.error'))],
         });
         return;
       }
@@ -50,7 +50,7 @@ export default {
 
       if (!parsed.ok) {
         await interaction.editReply({
-          embeds: [errorEmbed(seekErrorMessage(parsed.reason, t))],
+          embeds: [errorEmbed(seekErrorMessage(parsed.reason, t), t('embed.title.error'))],
         });
         return;
       }
@@ -66,7 +66,7 @@ export default {
                 })}`,
                 `⏩ ${t('music.seek.jumpedTitle')}`,
               )
-            : errorEmbed(t('music.seek.unavailable')),
+            : errorEmbed(t('music.seek.unavailable'), t('embed.title.error')),
         ],
       });
     } catch (error) {

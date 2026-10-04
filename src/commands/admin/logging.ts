@@ -62,7 +62,7 @@ export default {
   async execute(interaction, _client) {
     if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'), defaultTranslator('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -75,7 +75,7 @@ export default {
     // ini, tapi moderator pun bisa membukanya secara manual.
     if (!canManageGuild(interaction)) {
       await interaction.reply({
-        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }), t('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;

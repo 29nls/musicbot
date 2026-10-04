@@ -45,13 +45,13 @@ export default {
       // internal yang harus disembunyikan.
       const size = snapshot.upcoming.length;
       if (size === 0) {
-        await interaction.editReply({ embeds: [errorEmbed(t('music.queue.moveEmpty'))] });
+        await interaction.editReply({ embeds: [errorEmbed(t('music.queue.moveEmpty'), t('embed.title.error'))] });
         return;
       }
 
       if (from > size || to > size) {
         await interaction.editReply({
-          embeds: [errorEmbed(t('music.queue.wrongNumber', { count: size }))],
+          embeds: [errorEmbed(t('music.queue.wrongNumber', { count: size }), t('embed.title.error'))],
         });
         return;
       }

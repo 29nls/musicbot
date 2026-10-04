@@ -22,12 +22,12 @@ export function toTicketErrorEmbed(
   }
 
   if (error instanceof TicketChannelError || error instanceof TicketValidationError) {
-    return errorEmbed(t(error.key, error.params));
+    return errorEmbed(t(error.key, error.params), t('embed.title.error'));
   }
 
   getLogger().error({ err: error }, 'Sistem tiket gagal diproses');
 
-  return errorEmbed(t('ticket.err.generic'));
+  return errorEmbed(t('ticket.err.generic'), t('embed.title.error'));
 }
 
 /** Kesalahan yang diketahui penyebabnya dan bisa dijelaskan ke member. */

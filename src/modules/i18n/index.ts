@@ -31,6 +31,7 @@ export {
   getLocaleService,
   resetI18nSingletons,
   translatorFor,
+  translatorForGuild,
   translatorForLocale,
 } from './singleton.js';
 export type { Translator } from './singleton.js';

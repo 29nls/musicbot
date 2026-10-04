@@ -49,7 +49,7 @@ export default {
       if (caseNumber === null) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.case.parseError')),
+          errorEmbed(ctx.t('mod.case.parseError'), ctx.t('embed.title.error')),
         );
         return;
       }

@@ -22,7 +22,7 @@ export default {
       const { music, guildId, t } = gate.ctx;
       const resumed = await music.setPaused(guildId, false);
       if (!resumed) {
-        await replyEphemeralError(interaction, warningEmbed(t('music.control.nothingToResume')));
+        await replyEphemeralError(interaction, warningEmbed(t('music.control.nothingToResume'), t('embed.title.warning')));
         return;
       }
 

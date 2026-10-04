@@ -103,7 +103,7 @@ export default {
   async execute(interaction, client) {
     if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'), defaultTranslator('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -114,7 +114,7 @@ export default {
 
     if (!canManageGuild(interaction)) {
       await interaction.reply({
-        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }), t('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -171,7 +171,7 @@ export default {
 
         if (result.kind === 'not-found') {
           await interaction.editReply({
-            embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }))],
+            embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }), t('embed.title.warning'))],
           });
           return;
         }
@@ -193,7 +193,7 @@ export default {
 
         if (result.kind === 'not-found') {
           await interaction.editReply({
-            embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }))],
+            embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }), t('embed.title.warning'))],
           });
           return;
         }
@@ -206,7 +206,7 @@ export default {
 
       if (!command) {
         await interaction.editReply({
-          embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }))],
+          embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }), t('embed.title.warning'))],
         });
         return;
       }
@@ -218,7 +218,7 @@ export default {
       // Validasi nama/isi balasan adalah kesalahan admin yang harus dibacakan
       // apa adanya; sisanya dicatat sebagai kegagalan bot.
       if (error instanceof CustomCommandValidationError) {
-        await interaction.editReply({ embeds: [errorEmbed(t(error.key, error.params))] });
+        await interaction.editReply({ embeds: [errorEmbed(t(error.key, error.params), t('embed.title.error'))] });
         return;
       }
 
@@ -228,7 +228,7 @@ export default {
       );
 
       await interaction.editReply({
-        embeds: [errorEmbed(t('cc.err.generic'))],
+        embeds: [errorEmbed(t('cc.err.generic'), t('embed.title.error'))],
       });
     }
   },

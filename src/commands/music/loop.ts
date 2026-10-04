@@ -22,14 +22,10 @@ export default {
     await interaction.deferReply();
 
     try {
-      const mode = parseLoopMode(interaction.options.getString('mode', true));
-      if (!mode) {
-        await interaction.editReply({
-          embeds: [errorEmbed(`Mode tidak dikenal. Pilihan yang tersedia: ${loopModeHint()}.`)],
-        });
-        return;
-      }
-
+      // Gerbang lebih dulu daripada parse mode: penerjemah `t` berasal dari
+      // gerbang itu, dan member yang memang tidak boleh mengubah filter atau
+      // loop lebih butuh tahu izin atau modulnya mati daripada tahu mode-nya
+      // salah ketik.
       const gate = await gateMusicCommand(interaction, { voice: true, control: true });
       if (!gate.ok) {
         await replyEphemeralError(interaction, gate.embed);
@@ -37,6 +33,16 @@ export default {
       }
 
       const { music, guildId, t } = gate.ctx;
+
+      const mode = parseLoopMode(interaction.options.getString('mode', true));
+      if (!mode) {
+        await interaction.editReply({
+          embeds: [
+            errorEmbed(t('music.loop.unknownMode', { options: loopModeHint() }), t('embed.title.error')),
+          ],
+        });
+        return;
+      }
       const previous = await music.setLoopMode(guildId, mode);
       const from = loopModeLabel(previous, t);
       const to = loopModeLabel(mode, t);

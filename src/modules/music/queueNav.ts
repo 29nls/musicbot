@@ -99,7 +99,7 @@ export async function handleQueuePage(
 ): Promise<void> {
   const page = parseQueuePageCustomId(interaction.customId);
   if (page === null || !interaction.inCachedGuild()) {
-    await replyOnce(interaction, warningEmbed(defaultTranslator('music.nav.unknown')));
+    await replyOnce(interaction, warningEmbed(defaultTranslator('music.nav.unknown'), defaultTranslator('embed.title.warning')));
     return;
   }
 
@@ -109,7 +109,7 @@ export async function handleQueuePage(
   const t = await (deps.translate ?? translatorFor)(guildId);
 
   if (!(await deps.isMusicEnabled(guildId))) {
-    await replyOnce(interaction, warningEmbed(t('music.gate.moduleDisabled')));
+    await replyOnce(interaction, warningEmbed(t('music.gate.moduleDisabled'), t('embed.title.warning')));
     return;
   }
 
@@ -149,7 +149,7 @@ async function updateQuietly(
     await interaction.update(payload);
   } catch (error) {
     getLogger().debug({ err: error, guild: interaction.guildId }, 'Tombol antrean terlalu lama untuk diperbarui');
-    await replyOnce(interaction, warningEmbed(t('music.nav.tooOld')));
+    await replyOnce(interaction, warningEmbed(t('music.nav.tooOld'), t('embed.title.warning')));
   }
 }
 

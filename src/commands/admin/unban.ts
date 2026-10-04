@@ -45,7 +45,7 @@ export default {
       if (!USER_ID_PATTERN.test(rawId)) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.parse.badUserId')),
+          errorEmbed(ctx.t('mod.parse.badUserId'), ctx.t('embed.title.error')),
         );
         return;
       }
@@ -56,7 +56,7 @@ export default {
       if (!ban) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.ban.notBanned', { id: rawId })),
+          errorEmbed(ctx.t('mod.ban.notBanned', { id: rawId }), ctx.t('embed.title.error')),
         );
         return;
       }

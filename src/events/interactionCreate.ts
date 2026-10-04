@@ -1,6 +1,7 @@
 import { Events, MessageFlags, type ChatInputCommandInteraction, type Interaction } from 'discord.js';
 import type { BotClient } from '../client.js';
 import { routeComponent } from '../handlers/componentRouter.js';
+import { translatorForGuild, type Translator } from '../modules/i18n/index.js';
 import { getMetricsRegistry } from '../modules/metrics/index.js';
 import { getStatsService } from '../modules/stats/index.js';
 import { getLogger } from '../services/logger.js';
@@ -19,13 +20,18 @@ export default {
 
     if (!interaction.isChatInputCommand()) return;
 
+    // Balasan di berkas ini adalah lapis terakhir yang dilihat member, jadi
+    // kalimatnya ikut katalog: command yang gagal, cooldown, dan error
+    // terakhir semuanya pernah tampil di server English.
+    const t = await translatorForGuild(interaction.guildId);
+
     const logger = getLogger();
     const command = client.commands.get(interaction.commandName);
 
     if (!command) {
       logger.warn({ command: interaction.commandName, user: interaction.user.id }, 'Perintah tidak dikenal');
       await interaction.reply({
-        embeds: [errorEmbed('Perintah ini belum terdaftar. Coba deploy ulang perintah lalu tunggu beberapa saat.')],
+        embeds: [errorEmbed(t('core.err.unknownCommand'), t('embed.title.error'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -33,7 +39,7 @@ export default {
 
     if (command.guildOnly && !interaction.inGuild()) {
       await interaction.reply({
-        embeds: [errorEmbed('Perintah ini hanya bisa dipakai di dalam server.')],
+        embeds: [errorEmbed(t('mod.gate.guildOnly'), t('embed.title.error'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -46,7 +52,15 @@ export default {
 
     if (waitSeconds > 0) {
       await interaction.reply({
-        embeds: [warningEmbed(`Tunggu **${waitSeconds} detik** sebelum memakai \`/${interaction.commandName}\` lagi.`)],
+        embeds: [
+          warningEmbed(
+            t('core.cooldown.command', {
+              seconds: waitSeconds,
+              command: interaction.commandName,
+            }),
+            t('embed.title.warning'),
+          ),
+        ],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -71,7 +85,7 @@ export default {
         },
         'Eksekusi perintah gagal',
       );
-      await replyWithFailure(interaction);
+      await replyWithFailure(interaction, t);
     }
   },
 };
@@ -93,9 +107,12 @@ function recordCommandUsage(interaction: ChatInputCommandInteraction): void {
 }
 
 /** Balas dengan pesan error sesuai kondisi interaksi (belum dibalas / sudah di-defer). */
-async function replyWithFailure(interaction: ChatInputCommandInteraction): Promise<void> {
+async function replyWithFailure(
+  interaction: ChatInputCommandInteraction,
+  t: Translator,
+): Promise<void> {
   try {
-    const embed = errorEmbed('Terjadi kesalahan saat menjalankan perintah. Detailnya sudah dicatat di log bot.');
+    const embed = errorEmbed(t('core.err.commandFailed'), t('embed.title.error'));
 
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply({ embeds: [embed] });

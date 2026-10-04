@@ -1,3 +1,7 @@
+// Tipe saja: `types.ts` tidak boleh mengimpor nilai runtime dari i18n.
+// Alasannya ada di `labels.ts`.
+import type { MessageKey } from '../i18n/catalog.js';
+
 /** Modul yang bisa dinyalakan/dimatikan per server. */
 export interface ModulesEnabled {
   music: boolean;
@@ -84,15 +88,46 @@ export const MAX_VOLUME = 200;
 /** Berlaku untuk pesan welcome maupun goodbye. */
 export const MAX_WELCOME_MESSAGE_LENGTH = 1_500;
 
-export const MODULE_LABELS: Record<keyof ModulesEnabled, { label: string; description: string }> = {
-  music: { label: 'Musik', description: 'Pemutaran lagu, antrean, dan kontrol DJ' },
-  moderation: { label: 'Moderasi', description: 'Ban, kick, timeout, warn, dan purge' },
-  automod: { label: 'Automod', description: 'Anti-spam, anti-link, dan filter kata' },
-  logging: { label: 'Logging', description: 'Catat event member, pesan, dan channel ke channel log' },
-  reactions: { label: 'Reaction Roles', description: 'Ambil role sendiri lewat select menu' },
-  tickets: { label: 'Tiket', description: 'Channel privat untuk permintaan support' },
+/**
+ * Kunci katalog untuk nama dan deskripsi tiap modul.
+ *
+ * Dulu objek ini menyimpan kalimat Bahasa Indonesia langsung, padahal nama dan
+ * deskripsi modul tampil di select menu `/setup`. Discord membaca label dari
+ * komponen yang dikirim, jadi labelnya ikut bahasa server; menyimpan kalimat
+ * berarti `/setup` selalu bahasa Indonesia di server English. Kuncinya disimpan
+ * di sini supaya select menu dan ringkasan konfigurasi tidak bisa jatuh ke dua
+ * daftar yang berbeda.
+ */
+export const MODULE_LABELS: Record<
+  keyof ModulesEnabled,
+  { labelKey: MessageKey; descriptionKey: MessageKey }
+> = {
+  music: {
+    labelKey: 'config.module.music.label',
+    descriptionKey: 'config.module.music.description',
+  },
+  moderation: {
+    labelKey: 'config.module.moderation.label',
+    descriptionKey: 'config.module.moderation.description',
+  },
+  automod: {
+    labelKey: 'config.module.automod.label',
+    descriptionKey: 'config.module.automod.description',
+  },
+  logging: {
+    labelKey: 'config.module.logging.label',
+    descriptionKey: 'config.module.logging.description',
+  },
+  reactions: {
+    labelKey: 'config.module.reactions.label',
+    descriptionKey: 'config.module.reactions.description',
+  },
+  tickets: {
+    labelKey: 'config.module.tickets.label',
+    descriptionKey: 'config.module.tickets.description',
+  },
   customCommands: {
-    label: 'Perintah Custom',
-    description: 'Balasan admin yang dipanggil member dengan !nama',
+    labelKey: 'config.module.customCommands.label',
+    descriptionKey: 'config.module.customCommands.description',
   },
 };

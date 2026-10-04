@@ -134,7 +134,7 @@ export default {
 
       if (!interaction.inCachedGuild()) {
         await interaction.editReply({
-          embeds: [errorEmbed(t('playlist.guildOnly'))],
+          embeds: [errorEmbed(t('playlist.guildOnly'), t('embed.title.error'))],
         });
         return;
       }
@@ -260,7 +260,7 @@ export default {
           if (resolved.tracks.length === 0) {
             await interaction.editReply({
               embeds: [
-                errorEmbed(t('playlist.nonePlayable', { count: found.value.tracks.length })),
+                errorEmbed(t('playlist.nonePlayable', { count: found.value.tracks.length }), t('embed.title.error')),
               ],
             });
             return;
@@ -341,7 +341,7 @@ export default {
 
         default:
           await interaction.editReply({
-            embeds: [errorEmbed(t('playlist.unknownSub'))],
+            embeds: [errorEmbed(t('playlist.unknownSub'), t('embed.title.error'))],
           });
       }
     } catch (error) {
@@ -405,7 +405,7 @@ async function resolveForAdd(
     const snapshot = await music.snapshot(guildId);
     if (!snapshot.current) {
       await interaction.editReply({
-        embeds: [errorEmbed(t('playlist.needQuery'))],
+        embeds: [errorEmbed(t('playlist.needQuery'), t('embed.title.error'))],
       });
       return null;
     }
@@ -417,21 +417,21 @@ async function resolveForAdd(
 
   if (found.kind === 'empty') {
     await interaction.editReply({
-      embeds: [errorEmbed(t('playlist.notFoundQuery', { query: trimmed }))],
+      embeds: [errorEmbed(t('playlist.notFoundQuery', { query: trimmed }), t('embed.title.error'))],
     });
     return null;
   }
 
   if (found.kind === 'error') {
     await interaction.editReply({
-      embeds: [errorEmbed(t('playlist.loadFailed', { message: found.message }))],
+      embeds: [errorEmbed(t('playlist.loadFailed', { message: found.message }), t('embed.title.error'))],
     });
     return null;
   }
 
   if (found.kind === 'unavailable') {
     await interaction.editReply({
-      embeds: [warningEmbed(t('playlist.lavalinkDown'))],
+      embeds: [warningEmbed(t('playlist.lavalinkDown'), t('embed.title.warning'))],
     });
     return null;
   }
@@ -443,9 +443,9 @@ async function resolveForAdd(
 function describeFailure(error: PlaylistFailure, action: string, t: Translator) {
   switch (error.kind) {
     case 'name-invalid':
-      return errorEmbed(error.message);
+      return errorEmbed(error.message, t('embed.title.error'));
     case 'name-taken':
-      return errorEmbed(t('playlist.errNameTaken', { name: error.name }));
+      return errorEmbed(t('playlist.errNameTaken', { name: error.name }), t('embed.title.error'));
     case 'not-found':
       return errorEmbed(
         action === 'play' || action === 'show'
@@ -453,9 +453,9 @@ function describeFailure(error: PlaylistFailure, action: string, t: Translator) 
           : t('playlist.errNotFound'),
       );
     case 'empty':
-      return errorEmbed(t('playlist.errEmpty'));
+      return errorEmbed(t('playlist.errEmpty'), t('embed.title.error'));
     case 'full':
-      return errorEmbed(t('playlist.errFull', { limit: error.limit }));
+      return errorEmbed(t('playlist.errFull', { limit: error.limit }), t('embed.title.error'));
     case 'out-of-range':
       return errorEmbed(
         error.count === 0
@@ -463,10 +463,10 @@ function describeFailure(error: PlaylistFailure, action: string, t: Translator) 
           : t('playlist.errOutOfRange', { count: error.count }),
       );
     case 'not-owner':
-      return errorEmbed(t('playlist.errNotOwner'));
+      return errorEmbed(t('playlist.errNotOwner'), t('embed.title.error'));
     case 'private':
-      return errorEmbed(t('playlist.errPrivate'));
+      return errorEmbed(t('playlist.errPrivate'), t('embed.title.error'));
     default:
-      return errorEmbed(t('playlist.errUnknown'));
+      return errorEmbed(t('playlist.errUnknown'), t('embed.title.error'));
   }
 }

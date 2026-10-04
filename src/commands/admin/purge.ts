@@ -54,7 +54,7 @@ export default {
       if (!channel || !channel.isTextBased() || channel.isDMBased() || !('bulkDelete' in channel)) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.gate.textChannelOnly')),
+          errorEmbed(ctx.t('mod.gate.textChannelOnly'), ctx.t('embed.title.error')),
         );
         return;
       }
@@ -74,7 +74,7 @@ export default {
 
       if (selected.length === 0) {
         await interaction.editReply({
-          embeds: [warningEmbed(ctx.t('mod.purge.noMatch'))],
+          embeds: [warningEmbed(ctx.t('mod.purge.noMatch'), ctx.t('embed.title.warning'))],
         });
         return;
       }

@@ -22,5 +22,5 @@ export function toLoggingErrorEmbed(
 
   getLogger().error({ err: error }, 'Operasi logging gagal');
 
-  return errorEmbed(t('log.error.generic'));
+  return errorEmbed(t('log.error.generic'), t('embed.title.error'));
 }

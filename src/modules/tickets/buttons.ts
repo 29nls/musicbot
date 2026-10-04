@@ -37,7 +37,7 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
     const config = await getGuildConfigService().get(guildId);
 
     if (!config.modules.tickets) {
-      await reply(interaction, warningEmbed(t('ticket.err.moduleOff')));
+      await reply(interaction, warningEmbed(t('ticket.err.moduleOff'), t('embed.title.warning')));
       return;
     }
 
@@ -62,19 +62,19 @@ async function claimTicket(
   t: Translator,
 ): Promise<void> {
   if (!isStaff(member, config)) {
-    await reply(interaction, warningEmbed(t('ticket.btn.claimNotStaff')));
+    await reply(interaction, warningEmbed(t('ticket.btn.claimNotStaff'), t('embed.title.warning')));
     return;
   }
 
   const ticket = await getTicketService().findOpenByChannel(guildId, interaction.channelId);
   if (!ticket) {
-    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed')));
+    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed'), t('embed.title.warning')));
     return;
   }
 
   const claimed = await getTicketService().claim(guildId, interaction.channelId, interaction.user.id);
   if (!claimed) {
-    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed')));
+    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed'), t('embed.title.warning')));
     return;
   }
 
@@ -83,7 +83,7 @@ async function claimTicket(
     successEmbed(t('ticket.btn.claimed', {
       number: claimed.ticketNumber,
       user: interaction.user.id,
-    })),
+    }), t('embed.title.success')),
   );
 }
 
@@ -96,14 +96,14 @@ async function closeTicket(
 ): Promise<void> {
   const ticket = await getTicketService().findOpenByChannel(guild.id, interaction.channelId);
   if (!ticket) {
-    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed')));
+    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed'), t('embed.title.warning')));
     return;
   }
 
   // Yang boleh menutup: staff tiket, atau member yang membuka tiketnya sendiri.
   const isOwner = ticket.openerId === interaction.user.id;
   if (!isOwner && !isStaff(member, config)) {
-    await reply(interaction, warningEmbed(t('ticket.btn.closeNotAllowed')));
+    await reply(interaction, warningEmbed(t('ticket.btn.closeNotAllowed'), t('embed.title.warning')));
     return;
   }
 
@@ -116,21 +116,21 @@ async function closeTicket(
     t,
   );
   if (!result) {
-    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed')));
+    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed'), t('embed.title.warning')));
     return;
   }
 
   if (!result.channel) {
     await reply(
       interaction,
-      warningEmbed(t('ticket.btn.closedChannelGone', { number: result.ticket.ticketNumber })),
+      warningEmbed(t('ticket.btn.closedChannelGone', { number: result.ticket.ticketNumber }), t('embed.title.warning')),
     );
     return;
   }
 
   await reply(
     interaction,
-    successEmbed(t('ticket.btn.closed', { number: result.ticket.ticketNumber })),
+    successEmbed(t('ticket.btn.closed', { number: result.ticket.ticketNumber }), t('embed.title.success')),
   );
 }
 

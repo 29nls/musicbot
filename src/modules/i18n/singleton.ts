@@ -1,6 +1,6 @@
 import { getGuildConfigService } from '../config/index.js';
 import { LocaleService } from './service.js';
-import { translator, type MessageKey } from './catalog.js';
+import { defaultTranslator, translator, type MessageKey } from './catalog.js';
 import { type Locale } from './types.js';
 
 let service: LocaleService | undefined;
@@ -28,11 +28,26 @@ export function resetI18nSingletons(): void {
  *
  * Ini yang dipakai perintah:
  * `const t = await translatorFor(guildId);`
- * `errorEmbed(t('music.gate.needVoice'))`
+ * `errorEmbed(t('music.gate.needVoice'), t('embed.title.error'))`
  */
 export async function translatorFor(guildId: string): Promise<Translator> {
   const locale = await getLocaleService().localeFor(guildId);
   return translatorForLocale(locale);
+}
+
+/**
+ * Sama seperti `translatorFor`, tapi aman untuk interaksi tanpa server.
+ *
+ * `/help` dan `/ping` boleh dipakai di DM, jadi `guildId` bisa `null`.
+ * Tanpa server tidak ada bahasa yang bisa diketahui, jadi bahasa bawaan
+ * dipakai.
+ */
+export async function translatorForGuild(
+  guildId: string | null | undefined,
+): Promise<Translator> {
+  if (!guildId) return defaultTranslator;
+
+  return translatorFor(guildId);
 }
 
 /** Penerjemah untuk locale tertentu — tanpa menyentuh database. */

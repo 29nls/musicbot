@@ -113,7 +113,7 @@ async function join(
   if (!channelId) {
     await interaction.editReply({
       embeds: [
-        errorEmbed(t('music.stay.needChannel')),
+        errorEmbed(t('music.stay.needChannel'), t('embed.title.error')),
       ],
     });
     return;
@@ -137,7 +137,7 @@ async function join(
   if (outcome.error) {
     await interaction.editReply({
       embeds: [
-        errorEmbed(t('music.stay.joinFailed', { channel: channelId, error: outcome.error })),
+        errorEmbed(t('music.stay.joinFailed', { channel: channelId, error: outcome.error }), t('embed.title.error')),
       ],
     });
     return;

@@ -63,7 +63,7 @@ export async function gateMusicCommand(
 ): Promise<Gate> {
   // inCachedGuild menjamin guild & member ada di cache, sehingga tipe aman dipakai.
   if (!interaction.inCachedGuild()) {
-    return fail(errorEmbed(defaultTranslator('music.gate.guildOnly')));
+    return fail(errorEmbed(defaultTranslator('music.gate.guildOnly'), defaultTranslator('embed.title.error')));
   }
 
   const guild = interaction.guild;
@@ -75,7 +75,7 @@ export async function gateMusicCommand(
     music = getMusicService();
   } catch (error) {
     getLogger().error({ err: error }, 'MusicService belum diinisialisasi');
-    return fail(errorEmbed(defaultTranslator('music.gate.engineDown')));
+    return fail(errorEmbed(defaultTranslator('music.gate.engineDown'), defaultTranslator('embed.title.error')));
   }
 
   const config = await getGuildConfigService().get(guild.id);
@@ -85,23 +85,23 @@ export async function gateMusicCommand(
   const t = await translatorFor(guild.id);
 
   if (!config.modules.music) {
-    return fail(errorEmbed(`${t('music.gate.moduleDisabled')} ${t('music.gate.enableHint')}`));
+    return fail(errorEmbed(`${t('music.gate.moduleDisabled')} ${t('music.gate.enableHint')}`, t('embed.title.error')));
   }
 
   if (options.voice && !music.isConnected) {
-    return fail(errorEmbed(t('music.gate.notConnected')));
+    return fail(errorEmbed(t('music.gate.notConnected'), t('embed.title.error')));
   }
 
   const memberChannelId = member.voice.channelId ?? null;
   const botChannelId = music.botVoiceChannelId(guild.id);
 
   if (options.voice && !memberChannelId) {
-    return fail(errorEmbed(t('music.gate.needVoice')));
+    return fail(errorEmbed(t('music.gate.needVoice'), t('embed.title.error')));
   }
 
   if (options.voice && botChannelId && botChannelId !== memberChannelId && !canManageGuild) {
     return fail(
-      errorEmbed(t('music.gate.botElsewhere', { channel: botChannelId })),
+      errorEmbed(t('music.gate.botElsewhere', { channel: botChannelId }), t('embed.title.error')),
     );
   }
 
@@ -123,12 +123,12 @@ export async function gateMusicCommand(
     }
 
     if (!isInSameVoiceChannel(memberChannelId, botChannelId, canManageGuild)) {
-      return fail(errorEmbed(t('music.gate.needSameVoice')));
+      return fail(errorEmbed(t('music.gate.needSameVoice'), t('embed.title.error')));
     }
   }
 
   if (options.playing && !music.isPlaying(guild.id)) {
-    return fail(errorEmbed(t('music.gate.nothingPlaying')));
+    return fail(errorEmbed(t('music.gate.nothingPlaying'), t('embed.title.error')));
   }
 
   if (options.voice && memberChannelId) {
@@ -165,17 +165,17 @@ export async function checkVoicePermissions(
   const channel = await guild.channels.fetch(channelId).catch(() => null);
 
   if (!channel || !channel.isVoiceBased()) {
-    return errorEmbed(t('music.gate.channelNotVoice'));
+    return errorEmbed(t('music.gate.channelNotVoice'), t('embed.title.error'));
   }
 
   const me: GuildMember | null = guild.members.me;
   if (!me) {
-    return errorEmbed(t('music.gate.notCached'));
+    return errorEmbed(t('music.gate.notCached'), t('embed.title.error'));
   }
 
   const permissions = channel.permissionsFor(me);
   if (!permissions?.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak)) {
-    return errorEmbed(t('music.gate.missingPermissions', { channel: channelId }));
+    return errorEmbed(t('music.gate.missingPermissions', { channel: channelId }), t('embed.title.error'));
   }
 
   return null;
@@ -207,5 +207,5 @@ export async function handleMusicFailure(
 
   const t = await translatorFor(interaction.guildId ?? 'unknown');
 
-  await replyEphemeralError(interaction, errorEmbed(t('music.gate.internalError')));
+  await replyEphemeralError(interaction, errorEmbed(t('music.gate.internalError'), t('embed.title.error')));
 }

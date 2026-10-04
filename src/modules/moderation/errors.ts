@@ -19,5 +19,5 @@ export function toModerationErrorEmbed(
 
   getLogger().error({ err: error }, 'Aksi moderasi gagal');
 
-  return errorEmbed(t('mod.internalError'));
+  return errorEmbed(t('mod.internalError'), t('embed.title.error'));
 }

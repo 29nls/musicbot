@@ -50,7 +50,7 @@ export default {
       const guildId = interaction.guildId;
 
       if (!guildId) {
-        await interaction.editReply({ embeds: [errorEmbed(t('stats.guildOnly'))] });
+        await interaction.editReply({ embeds: [errorEmbed(t('stats.guildOnly'), t('embed.title.error'))] });
         return;
       }
 
@@ -69,7 +69,7 @@ export default {
       );
 
       await interaction.editReply({
-        embeds: [errorEmbed(t('stats.unavailable'))],
+        embeds: [errorEmbed(t('stats.unavailable'), t('embed.title.error'))],
       });
     }
   },

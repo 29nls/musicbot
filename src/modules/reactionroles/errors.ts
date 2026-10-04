@@ -18,7 +18,7 @@ export function toReactionRoleErrorEmbed(
   t: Translator = defaultTranslator,
 ): EmbedBuilder {
   if (error instanceof ReactionRoleValidationError || error instanceof ReactionRoleEmptyError) {
-    return errorEmbed(t(error.key, error.params));
+    return errorEmbed(t(error.key, error.params), t('embed.title.error'));
   }
 
   if (isDatabaseUnavailableError(error)) {
@@ -27,5 +27,5 @@ export function toReactionRoleErrorEmbed(
 
   getLogger().error({ err: error }, 'Reaction role gagal diproses');
 
-  return errorEmbed(t('rr.err.generic'));
+  return errorEmbed(t('rr.err.generic'), t('embed.title.error'));
 }

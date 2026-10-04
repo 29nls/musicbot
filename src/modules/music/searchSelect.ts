@@ -69,7 +69,7 @@ export async function handleSearchSelect(
 ): Promise<void> {
   const token = parseSearchCustomId(interaction.customId);
   if (token === null || !interaction.inCachedGuild()) {
-    await replyOnce(interaction, warningEmbed(defaultTranslator('music.search.unknown')));
+    await replyOnce(interaction, warningEmbed(defaultTranslator('music.search.unknown'), defaultTranslator('embed.title.warning')));
     return;
   }
 
@@ -82,7 +82,7 @@ export async function handleSearchSelect(
 
   const index = parseSearchOptionValue(interaction.values[0]);
   if (index === null) {
-    await replyOnce(interaction, errorEmbed(t('music.search.invalidPick')));
+    await replyOnce(interaction, errorEmbed(t('music.search.invalidPick'), t('embed.title.error')));
     return;
   }
 
@@ -92,10 +92,10 @@ export async function handleSearchSelect(
     case 'expired':
     case 'other-guild':
     case 'bad-index':
-      await replyOnce(interaction, warningEmbed(t('music.search.expired')));
+      await replyOnce(interaction, warningEmbed(t('music.search.expired'), t('embed.title.warning')));
       return;
     case 'not-owner':
-      await replyOnce(interaction, warningEmbed(t('music.search.notOwner')));
+      await replyOnce(interaction, warningEmbed(t('music.search.notOwner'), t('embed.title.warning')));
       return;
     default:
       await playSelection(interaction, guildId, guild, member, selection.track, t);
@@ -119,13 +119,13 @@ async function playSelection(
   const config = await getGuildConfigService().get(guildId);
 
   if (!config.modules.music) {
-    await replyOnce(interaction, warningEmbed(t('music.gate.moduleDisabled')));
+    await replyOnce(interaction, warningEmbed(t('music.gate.moduleDisabled'), t('embed.title.warning')));
     return;
   }
 
   const voiceChannelId = member.voice.channelId;
   if (!voiceChannelId) {
-    await replyOnce(interaction, warningEmbed(t('music.search.needVoice')));
+    await replyOnce(interaction, warningEmbed(t('music.search.needVoice'), t('embed.title.warning')));
     return;
   }
 

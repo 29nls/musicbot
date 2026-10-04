@@ -44,7 +44,7 @@ export default {
       if (!targetMember) {
         await replyEphemeralError(
           interaction,
-          errorEmbed(ctx.t('mod.notMember.kick')),
+          errorEmbed(ctx.t('mod.notMember.kick'), ctx.t('embed.title.error')),
         );
         return;
       }

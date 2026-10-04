@@ -134,7 +134,7 @@ export default {
   async execute(interaction) {
     if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'), defaultTranslator('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -145,7 +145,7 @@ export default {
 
     if (!interaction.inCachedGuild() || !canManageGuild(interaction)) {
       await interaction.reply({
-        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }), t('embed.title.warning'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -183,7 +183,7 @@ export default {
         const panel = await service.find(guildId, panelId);
         if (!panel) {
           await interaction.editReply({
-            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }))],
+            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }), t('embed.title.warning'))],
           });
           return;
         }
@@ -191,7 +191,7 @@ export default {
         const outcome = await closePanel(service, guild, panel, 'manual', new Date(), t);
         if (!outcome.changed) {
           await interaction.editReply({
-            embeds: [warningEmbed(t('rr.cmd.alreadyClosed', { id: String(panelId) }))],
+            embeds: [warningEmbed(t('rr.cmd.alreadyClosed', { id: String(panelId) }), t('embed.title.warning'))],
           });
           return;
         }
@@ -213,7 +213,7 @@ export default {
         const removed = await service.delete(guildId, panelId);
         if (!removed) {
           await interaction.editReply({
-            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }))],
+            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }), t('embed.title.warning'))],
           });
           return;
         }
@@ -230,14 +230,14 @@ export default {
       if (sub === 'add') {
         const blocked = rejectUnusableRoles(roles, guild, t);
         if (blocked) {
-          await interaction.editReply({ embeds: [warningEmbed(blocked)] });
+          await interaction.editReply({ embeds: [warningEmbed(blocked, t('embed.title.warning'))] });
           return;
         }
 
         const panel = await service.addRoles(guildId, panelId, roles);
         if (!panel) {
           await interaction.editReply({
-            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }))],
+            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }), t('embed.title.warning'))],
           });
           return;
         }
@@ -265,7 +265,7 @@ export default {
       );
       if (!panel) {
         await interaction.editReply({
-          embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }))],
+          embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }), t('embed.title.warning'))],
         });
         return;
       }
@@ -292,7 +292,7 @@ async function postPanel(interaction: Interaction, guild: Guild, t: Translator):
   const channel = interaction.options.getChannel('channel', true);
   if (!isGuildTextChannel(channel)) {
     await interaction.editReply({
-      embeds: [warningEmbed(t('rr.err.notTextChannel'))],
+      embeds: [warningEmbed(t('rr.err.notTextChannel'), t('embed.title.warning'))],
     });
     return;
   }
@@ -300,7 +300,7 @@ async function postPanel(interaction: Interaction, guild: Guild, t: Translator):
   const roles = toRoleInputs(interaction, guild);
   const blocked = rejectUnusableRoles(roles, guild, t);
   if (blocked) {
-    await interaction.editReply({ embeds: [warningEmbed(blocked)] });
+    await interaction.editReply({ embeds: [warningEmbed(blocked, t('embed.title.warning'))] });
     return;
   }
 

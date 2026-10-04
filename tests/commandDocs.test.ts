@@ -12,8 +12,8 @@ const README_FILE = 'README.md';
  * **Kenapa ini perlu dijaga.** Blok "Status" di README adalah satu-satunya
  * tempat yang mencantumkan seluruh perintah sekaligus, jadi itulah yang dibaca
  * orang untuk tahu "apa saja yang bot ini bisa". Yang tidak terlihat: command
- * loader memuat berkas dari folder, sementara blok itu ditulis tangan. traced
- * keduanya melenceng tanpa ada yang gagal -- tidak ada error deploy, tidak ada
+ * loader memuat berkas dari folder, sementara blok itu ditulis tangan. Keduanya
+ * melenceng tanpa ada yang gagal -- tidak ada error deploy, tidak ada
  * tes yang merah, hanya dokumen yang diam-diam tidak lagi benar.
  *
  * Yang sudah terjadi sekali: blok itu menulis "19 admin/moderasi" dan

@@ -62,7 +62,7 @@ export default {
 
         if (!current) {
           await interaction.editReply({
-            embeds: [errorEmbed(t('music.lyrics.nothingPlaying'))],
+            embeds: [errorEmbed(t('music.lyrics.nothingPlaying'), t('embed.title.error'))],
           });
           return;
         }

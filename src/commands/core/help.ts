@@ -1,29 +1,36 @@
 import { SlashCommandBuilder } from 'discord.js';
-import type { BotCommand } from '../../types/command.js';
 import { COMMAND_CATEGORIES, type CommandCategory } from '../../config/constants.js';
+import { translatorForGuild } from '../../modules/i18n/index.js';
+import type { BotCommand } from '../../types/command.js';
 import { infoEmbed } from '../../utils/embeds.js';
-
-type CategoryMeta = { readonly label: string; readonly emoji: string };
+import { commandCategoryEmoji, commandCategoryLabel } from './_shared.js';
 
 export default {
   data: new SlashCommandBuilder().setName('help').setDescription('Tampilkan daftar perintah yang tersedia'),
   category: 'core',
   async execute(interaction, client) {
+    // `/help` boleh dipakai di DM, jadi tanpa server pun harus punya bahasa:
+    // `translatorForGuild` memakai bawaan ketika guildId kosong.
+    const t = await translatorForGuild(interaction.guildId);
+
     const embed = infoEmbed(
-      '📖 Daftar Perintah',
-      `Bot ini menyediakan **${client.commands.size}** perintah. Semua perintah memakai format slash command.`,
+      t('help.embed.title'),
+      t('help.embed.intro', { count: client.commands.size }),
     );
 
-    const entries = Object.entries(COMMAND_CATEGORIES) as [CommandCategory, CategoryMeta][];
+    const entries = Object.keys(COMMAND_CATEGORIES) as CommandCategory[];
 
-    for (const [key, meta] of entries) {
+    for (const key of entries) {
       const names = client.commands
         .filter((command) => command.category === key)
         .map((command) => `\`/${command.data.toJSON().name}\``)
         .sort();
 
       if (names.length > 0) {
-        embed.addFields({ name: `${meta.emoji} ${meta.label}`, value: names.join(' · ') });
+        embed.addFields({
+          name: `${commandCategoryEmoji(key)} ${commandCategoryLabel(key, t)}`,
+          value: names.join(' · '),
+        });
       }
     }
 

@@ -13,6 +13,8 @@ import {
 } from 'discord.js';
 import {
   getGuildConfigService,
+  moduleDescription,
+  moduleLabel,
   renderConfigEmbed,
   toConfigErrorEmbed,
   MODULE_LABELS,
@@ -20,6 +22,7 @@ import {
   type GuildConfigPatch,
   type ModulesEnabled,
 } from '../../modules/config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { canManageGuild } from '../../utils/permissions.js';
@@ -32,7 +35,6 @@ const ID_SAVE = 'setup:save';
 const ID_CANCEL = 'setup:cancel';
 
 const TIMEOUT_MS = 5 * 60_000;
-const TITLE = '🧩 Setup Server';
 
 export default {
   data: new SlashCommandBuilder()
@@ -43,15 +45,33 @@ export default {
   guildOnly: true,
   cooldownSeconds: 5,
   async execute(interaction, _client) {
-    if (!interaction.inGuild() || !canManageGuild(interaction)) {
+    if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        embeds: [
+          warningEmbed(defaultTranslator('mod.gate.guildOnly'), defaultTranslator('embed.title.warning')),
+        ],
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const guildId = interaction.guildId;
+    const t = await translatorFor(guildId);
+    const title = t('setup.embed.title');
+
+    if (!canManageGuild(interaction)) {
+      await interaction.reply({
+        embeds: [
+          warningEmbed(
+            t('mod.gate.needsPermission', { permission: 'Manage Server' }),
+            t('embed.title.warning'),
+          ),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     const service = getGuildConfigService();
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -61,13 +81,13 @@ export default {
     try {
       draft = await service.get(guildId);
     } catch (error) {
-      await interaction.editReply({ embeds: [toConfigErrorEmbed(error)] });
+      await interaction.editReply({ embeds: [toConfigErrorEmbed(error, t)] });
       return;
     }
 
     const message = await interaction.editReply({
-      embeds: [renderConfigEmbed(draft, TITLE)],
-      components: buildComponents(draft),
+      embeds: [renderConfigEmbed(draft, title, t)],
+      components: buildComponents(draft, t),
     });
 
     let finished = false;
@@ -83,7 +103,7 @@ export default {
 
         if (component.customId === ID_CANCEL) {
           await component.update({
-            embeds: [warningEmbed('Setup dibatalkan. Tidak ada perubahan yang disimpan.', '🧩 Setup Server')],
+            embeds: [warningEmbed(t('setup.cancelled'), title)],
             components: [],
           });
           collector.stop('cancelled');
@@ -94,8 +114,8 @@ export default {
           const saved = await service.update(guildId, buildPatch(draft));
           await component.update({
             embeds: [
-              successEmbed('Konfigurasi tersimpan dan langsung berlaku — tanpa restart bot.'),
-              renderConfigEmbed(saved, TITLE),
+              successEmbed(t('setup.saved'), t('embed.title.success')),
+              renderConfigEmbed(saved, title, t),
             ],
             components: [],
           });
@@ -103,8 +123,8 @@ export default {
         } catch (error) {
           finished = false;
           await component.update({
-            embeds: [toConfigErrorEmbed(error), renderConfigEmbed(draft, TITLE)],
-            components: buildComponents(draft),
+            embeds: [toConfigErrorEmbed(error, t), renderConfigEmbed(draft, title, t)],
+            components: buildComponents(draft, t),
           });
         }
         return;
@@ -125,8 +145,8 @@ export default {
       }
 
       await component.update({
-        embeds: [renderConfigEmbed(draft, TITLE)],
-        components: buildComponents(draft),
+        embeds: [renderConfigEmbed(draft, title, t)],
+        components: buildComponents(draft, t),
       });
     });
 
@@ -160,14 +180,17 @@ function readModules(values: string[]): ModulesEnabled {
   };
 }
 
-function buildComponents(draft: GuildConfig): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+function buildComponents(
+  draft: GuildConfig,
+  t: Translator = defaultTranslator,
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
   const keys = Object.keys(MODULE_LABELS) as (keyof ModulesEnabled)[];
 
   return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ChannelSelectMenuBuilder()
         .setCustomId(ID_LOG)
-        .setPlaceholder('📋 Channel log')
+        .setPlaceholder(t('config.field.logChannel'))
         .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setMinValues(1)
         .setMaxValues(1),
@@ -175,7 +198,7 @@ function buildComponents(draft: GuildConfig): ActionRowBuilder<MessageActionRowC
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ChannelSelectMenuBuilder()
         .setCustomId(ID_WELCOME)
-        .setPlaceholder('👋 Channel welcome')
+        .setPlaceholder(t('config.field.welcomeChannel'))
         .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setMinValues(1)
         .setMaxValues(1),
@@ -183,28 +206,31 @@ function buildComponents(draft: GuildConfig): ActionRowBuilder<MessageActionRowC
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new RoleSelectMenuBuilder()
         .setCustomId(ID_DJ)
-        .setPlaceholder('🎧 Role DJ')
+        .setPlaceholder(t('config.field.djRole'))
         .setMinValues(1)
         .setMaxValues(1),
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(ID_MODULES)
-        .setPlaceholder('🧩 Modul aktif')
+        .setPlaceholder(t('config.field.modules'))
         .setMinValues(1)
         .setMaxValues(keys.length)
         .addOptions(
           keys.map((key) => ({
-            label: MODULE_LABELS[key].label,
+            label: moduleLabel(key, t),
             value: key,
-            description: MODULE_LABELS[key].description,
+            description: moduleDescription(key, t),
             default: draft.modules[key],
           })),
         ),
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(ID_SAVE).setLabel('Simpan').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(ID_CANCEL).setLabel('Batal').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(ID_SAVE).setLabel(t('setup.button.save')).setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(ID_CANCEL)
+        .setLabel(t('setup.button.cancel'))
+        .setStyle(ButtonStyle.Secondary),
     ),
   ];
 }
