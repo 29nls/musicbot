@@ -215,7 +215,10 @@ describe('izin OAuth2 di tools/invite.mjs', () => {
 });
 
 describe('hasil yang benar-benar dilihat pengguna', () => {
-  it('npm run invite mencetak integer yang sama dengan hitungan kode', () => {
+  // Batas eksplisit: tes ini memulai proses node baru lewat execFileSync,
+  // jadi waktunya mengikuti beban mesin, bukan hanya kerja tesnya sendiri.
+  // Assertion di dalamnya tetap sama — hanya batas waktunya yang digeser.
+  it('npm run invite mencetak integer yang sama dengan hitungan kode', { timeout: 30_000 }, () => {
     // Client ID diberikan lewat env supaya tes ini tidak bergantung pada isi
     // .env di mesin siapa pun yang menjalankannya.
     const output = execFileSync(process.execPath, [INVITE_FILE], {

@@ -169,6 +169,20 @@ skema database selalu terbaru tanpa langkah manual.
 | --- | --- |
 | `docker-compose.yml` | Produksi/self-host: bot + Lavalink + Redis. Port infrastruktur **tidak** dibuka ke luar. Postgres lokal ada, tapi harus diminta `--profile local` |
 | `docker-compose.dev.yml` | Overlay saat bot dijalankan dari host (`npm run infra:up`) |
+| [`deploy/casaos/docker-compose.yml`](deploy/casaos/docker-compose.yml) | Untuk NAS CasaOS/ZimaOS: mandiri, build langsung dari GitHub, tidak butuh checkout repo atau `npm` di NAS. Cara pasang ada di [deploy/casaos/README.md](deploy/casaos/README.md) |
+
+### Menjalankan di CasaOS / ZimaOS
+
+Kalau NAS-nya CasaOS atau ZimaOS, pakai stack di
+[`deploy/casaos/`](deploy/casaos/README.md) alih-alih compose di root. Bedanya
+bukan service-nya — semuanya sama — tapi cara pasangnya:
+
+- Tidak perlu checkout repo, tidak perlu `npm` di NAS; compose build langsung
+  dari GitHub dan menyimpan data di `/DATA/AppData/harmony-bot`.
+- Sudah membawa blok `x-casaos`, jadi bisa muncul sebagai aplikasi di App Store.
+- `application.yml` Lavalink dibakar ke dalam image, bukan bind mount. Di
+  CasaOS folder build dihapus setelah selesai, jadi bind mount ke file repo akan
+  menunjuk ke berkas yang sudah tidak ada.
 
 Compose mengganti `REDIS_URL` dan `LAVALINK_HOST` menjadi hostname container
 (`redis`, `lavalink`), tapi **tidak pernah menyentuh `DATABASE_URL`** —
@@ -2303,13 +2317,16 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~61,5% statements** dari **1.694 tes di 98
-file** (naik dari ~43% waktu playlist, filter, lirik, health check, statistik,
-store bersama, metrik, state musik bersama, multi-node Lavalink, penulisan
-atomik, multi-bahasa, gerbang sharding beserta lease-nya, pesan error
-kepemilikan player, penyapuan panel lintas shard, orkestrasi keempat
-sapuan retensi di kedua jalurnya, handler `interactionCreate` serta
-`messageCreate`, dan agregasi metrik lintas shard).
+yang tidak di-commit). Angka saat ini: **~70,1% statements** (68,8% branch,
+78,2% fungsi, 70,1% baris) dari **1.993 tes di 111 file** (naik dari ~43%
+waktu playlist, filter, lirik, health check, statistik, store bersama, metrik,
+state musik bersama, multi-node Lavalink, penulisan atomik, multi-bahasa,
+gerbang sharding beserta lease-nya, pesan error kepemilikan player, penyapuan
+panel lintas shard, orkestrasi keempat sapuan retensi di kedua jalurnya,
+handler `interactionCreate` serta `messageCreate`, agregasi metrik lintas shard,
+sembilan belas handler event logging, lifecycle member, pemicu perintah
+custom, loader event, badan `execute` perintah musik, dan titik rakit
+singleton).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
 fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang

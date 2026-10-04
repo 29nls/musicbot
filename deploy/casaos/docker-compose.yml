@@ -1,0 +1,181 @@
+# Stack Harmony untuk CasaOS / ZimaOS.
+#
+# Berbeda dengan `docker-compose.yml` di root, berkas ini **mandiri**: tidak
+# butuh checkout repo di host, tidak butuh `npm` di NAS, dan tidak mem-bind
+# mount apa pun ke folder di luar /DATA/AppData.
+#
+# Pemasangan:
+#
+#   1. Buat folder data dan isi berkas .env:
+#        mkdir -p /DATA/AppData/harmony-bot
+#        cp .env.example /DATA/AppData/harmony-bot/.env   # lalu isi tokennya
+#   2. Salin berkas ini ke /DATA/AppData/harmony-bot/docker-compose.yml
+#   3. Di CasaOS: Apps > File Manager, lalu pakai "Custom" install, atau
+#      jalankan dari SSH:
+#        cd /DATA/AppData/harmony-bot
+#        docker compose up -d
+#
+# Build mengambil sumber langsung dari GitHub, jadi `docker compose up` di NAS
+# tanpa terminal tetap bisa — asalkan DNS & HTTPS ke GitHub tersedia.
+#
+# Yang SENGAJA tidak ada di sini: container PostgreSQL. Database produksi
+# adalah Supabase dan `DATABASE_URL` diambil apa adanya dari .env. Menimpanya
+# dengan hostname container berarti bot diam-diam bicara ke database yang
+# berbeda dari yang migrasinya baru saja diterapkan.
+
+name: harmony
+
+services:
+  # Terapkan migrasi sebelum bot start. Memakai stage `build` dari
+  # Dockerfile karena Prisma CLI ada di devDependencies dan tidak ikut ke
+  # image runtime.
+  #
+  # `migrate deploy` (bukan `migrate dev`) karena yang kedua butuh shadow
+  # database, dan Supabase tidak mengizinkan membuatnya.
+  migrate:
+    build:
+      context: ${HARMONY_REPO:-https://github.com/29nls/musicbot.git}#${HARMONY_REF:-main}
+      target: build
+    image: harmony-bot:build
+    container_name: harmony-migrate
+    restart: "no"
+    env_file:
+      - ${HARMONY_DATA:-/DATA/AppData/harmony-bot}/.env
+    command: ["npx", "prisma", "migrate", "deploy"]
+
+  bot:
+    build:
+      context: ${HARMONY_REPO:-https://github.com/29nls/musicbot.git}#${HARMONY_REF:-main}
+    image: harmony-bot:local
+    container_name: harmony-bot
+    restart: unless-stopped
+    # Image alpine resmi menjalankan proses sebagai user `node` (uid 1000).
+    # Menimpanya dengan PUID/PGID NAS membuat file log & volume tetap milik
+    # pengguna yang mengelola CasaOS, bukan milik root.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file:
+      - ${HARMONY_DATA:-/DATA/AppData/harmony-bot}/.env
+    environment:
+      NODE_ENV: production
+      # Hostname service, supaya bot menemukan container lain.
+      REDIS_URL: redis://redis:6379
+      LAVALINK_HOST: lavalink
+      # Dipaksa ke 8080 dan port yang dipublish juga 8080 supaya keduanya
+      # tidak bisa melenceng. Nilai HEALTH_PORT di .env diabaikan di stack ini;
+      # kalau diisi lain, health check di bawah akan probe port yang salah.
+      HEALTH_PORT: "8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      lavalink:
+        condition: service_started
+    # Bot tidak punya antarmuka web, jadi satu-satunya yang bisa dibuka
+    # manusia dari browser adalah endpoint health (PRD §11). Itu yang
+    # dijadikan "app" oleh CasaOS.
+    #
+    # CATATAN: kalau `CASAOS_PORT` diubah, `x-casaos.port_map` di bawah HARUS
+    # diubah juga. `port_map` adalah string statis di blok metadata, bukan
+    # ekspresi — kalau keduanya dibiarkan berbeda, CasaOS membuka port yang
+    # salah dan gejalanya hanya "apinya tidak merespons".
+    ports:
+      - "${CASAOS_PORT:-8080}:8080"
+    mem_limit: 768m
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Image turunan: config Lavalink sudah dibakar ke dalam image, jadi tidak
+  # ada bind mount yang bisa hilang saat folder build dibersihkan.
+  lavalink:
+    build:
+      context: ${HARMONY_REPO:-https://github.com/29nls/musicbot.git}#${HARMONY_REF:-main}
+      dockerfile: deploy/casaos/lavalink.Dockerfile
+    image: harmony-lavalink:local
+    container_name: harmony-lavalink
+    restart: unless-stopped
+    environment:
+      # Harus sama dengan LAVALINK_PASSWORD di .env.
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env}
+      # Heap JVM. Turunkan ke -Xmx512M kalau NAS hanya punya RAM terbatas;
+      # naikkan ke -Xmx2G kalau sering memutar lagu panjang.
+      JAVA_TOOL_OPTIONS: -Xmx1G
+    volumes:
+      - lavalink_plugins:/opt/Lavalink/plugins
+      - lavalink_logs:/opt/Lavalink/logs
+    # Sengaja TIDAK ada `ports`: hanya jaringan internal compose yang boleh
+    # bicara ke mesin audio. Debug dari luar? Buka sementara lewat SSH:
+    #   docker compose exec lavalink sh
+    expose:
+      - "2333"
+    mem_limit: 1g
+
+  # Cache bersama: cooldown, cache perintah custom, lease pekerjaan retensi,
+  # dan laporan metrik lintas shard semuanya lewat store ini. Steel stateless
+  # tanpa Redis akan kehilangan keempatnya.
+  redis:
+    image: redis:7-alpine
+    container_name: harmony-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "192mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis_data:
+  lavalink_plugins:
+  lavalink_logs:
+
+x-casaos:
+  # Identitas protokol app store. Reverse-domain, minimal dua bagian.
+  id: io.github.29nls.harmony
+  # Service yang dilihat manusia. Endpoint /health adalah satu-satunya
+  # antarmuka berbasis browser yang dimiliki bot.
+  main: bot
+  index: /health
+  # WAJIB string, bukan angka: `port_map: 8080` tanpa tanda kutip ditolak.
+  # Nilai ini harus sama dengan hasil `CASAOS_PORT` di service `bot`.
+  port_map: "8080"
+  scheme: http
+  # Repo belum punya berkas ikon. CasaOS/ZimaOS menerima URL apa pun dan
+  # memakai bawaannya kalau gagal dimuat, jadi placeholder ini diganti dengan
+  # URL ikon asli ketika asetnya tersedia.
+  icon: https://raw.githubusercontent.com/IceWhaleTech/CasaOS/main/src/assets/img/logo.png
+  title:
+    en_US: Harmony
+    id_ID: Harmony
+  tagline:
+    en_US: Discord music and admin bot
+    id_ID: Bot musik dan admin Discord
+  description:
+    en_US: Harmony is a Discord bot for music playback and server moderation, with Lavalink for audio and Redis for shared state.
+    id_ID: Harmony adalah bot Discord untuk pemutaran musik dan moderasi server, memakai Lavalink untuk audio dan Redis untuk state bersama.
+  category: Media
+  author: 29nls
+  developer: 29nls
+  website: https://github.com/29nls/musicbot
+  architectures:
+    - amd64
+    - arm64
+  version: "0.1.0"
+  tips:
+    en_US: Fill in DISCORD_TOKEN and LAVALINK_PASSWORD in the .env file before starting.
+    id_ID: Isi DISCORD_TOKEN dan LAVALINK_PASSWORD di berkas .env sebelum memulai.

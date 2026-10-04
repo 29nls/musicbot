@@ -276,14 +276,21 @@ describe('publikasi ke store bersama', () => {
     // Store memori memakai jam sungguhan, jadi TTL pendek bisa ditunggu.
     const store = new MemoryKeyValueStore();
     const now = Date.now();
-    await publishFleetReport(store, instance({ instanceId: 'a' }), now, 1);
+    // TTL 60 ms, bukan 1 ms. Store memori memakai jam sungguhan, jadi TTL
+    // 1 ms bisa sudah habis sebelum assertion pertama sempat membacanya —
+    // tesnya jadi menolak bukan karena prune, tapi karena kelambatan mesin.
+    await publishFleetReport(store, instance({ instanceId: 'a' }), now, 60);
     expect((await collectFleetMetrics(store, { now })).instances).toBe(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Jeda nyata dibuat jauh lebih besar dari TTL, jadi kadaluarsa di sini
+    // ditentukan oleh store, bukan oleh scheduler yang kebetulan lambat.
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     // Jam pembaca ikut maju supaya yang diuji benar-benar TTL store.
-    expect((await collectFleetMetrics(store, { now: now + 50 })).instances).toBe(0);
-  });  it('membuang laporan proses yang berhenti melapor, walau dokumennya masih hidup', async () => {
+    expect((await collectFleetMetrics(store, { now: now + 500 })).instances).toBe(0);
+  });
+
+  it('membuang laporan proses yang berhenti melapor, walau dokumennya masih hidup', async () => {
     // Ini kasus yang paling mudah terlewat: TTL dokumen disegarkan setiap kali
     // shard lain menulis, jadi dokumennya tidak pernah kedaluwarsa selama ada
     // yang hidup. Kalau prune hanya mengandalkan TTL dokumen, shard yang sudah
