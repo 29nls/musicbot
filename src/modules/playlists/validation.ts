@@ -1,3 +1,4 @@
+import { defaultTranslator, type MessageKey } from '../i18n/index.js';
 import { MAX_PLAYLIST_NAME_LENGTH } from './types.js';
 
 /**
@@ -14,25 +15,34 @@ export function parsePlaylistName(raw: string): string {
   const name = raw.replace(/\s+/g, ' ').trim();
 
   if (name.length === 0) {
-    throw new PlaylistNameError('Nama playlist tidak boleh kosong.');
+    throw new PlaylistNameError('playlist.errNameEmpty');
   }
 
   if (name.length > MAX_PLAYLIST_NAME_LENGTH) {
     throw new PlaylistNameError(
-      `Nama playlist maksimal ${MAX_PLAYLIST_NAME_LENGTH} karakter ` +
-        `(sekarang ${name.length}).`,
+      'playlist.errNameTooLong',
+      { max: MAX_PLAYLIST_NAME_LENGTH, count: name.length },
     );
   }
 
   return name;
 }
 
-/** Nama playlist tidak valid; pesannya aman langsung ditampilkan ke member. */
+/**
+ * Nama playlist tidak valid; pesannya aman langsung ditampilkan ke member.
+ *
+ * Menyimpan kunci katalog + parameter, bukan kalimat: pemanggil yang menyusun
+ * embed terakhir baru tahu bahasa server. `message` diturunkan dari bahasa
+ * bawaan supaya error yang terbaca di log tetap kalimat yang bisa dicari.
+ */
 export class PlaylistNameError extends Error {
   public override readonly name = 'PlaylistNameError';
 
-  constructor(message: string) {
-    super(message);
+  constructor(
+    public readonly key: MessageKey,
+    public readonly params?: Record<string, string | number>,
+  ) {
+    super(defaultTranslator(key, params));
   }
 }
 

@@ -1,3 +1,5 @@
+import type { MessageKey } from '../i18n/catalog.js';
+
 /**
  * Playlist member (Fase 2, PRD §5.2 & §10).
  *
@@ -64,7 +66,7 @@ export interface CreatePlaylistInput {
 /** Kenapa sebuah permintaan playlist tidak bisa dipenuhi. */
 export type PlaylistFailure =
   | { kind: 'name-taken'; name: string }
-  | { kind: 'name-invalid'; message: string }
+  | { kind: 'name-invalid'; key: MessageKey; params?: Record<string, string | number> }
   | { kind: 'not-found' }
   | { kind: 'empty' }
   | { kind: 'full'; limit: number }

@@ -20,8 +20,8 @@ komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 > `/config set locale:id|en`. Reaction roles, custom command, tiket, playlist,
 > `/stats`, dan mode 24/7 juga sudah jalan.
 >
-> **Yang belum:** dashboard web (§5.3) sama sekali belum ada, dan sharding belum
-> boleh diaktifkan karena player Lavalink masih in-memory.
+> **Yang belum:** dashboard web (§5.3) sama sekali belum ada, dan konfigurasi
+> sharding belum pernah diuji dengan dua proses sungguhan.
 ---
 
 ## 1. Prasyarat
@@ -719,6 +719,21 @@ Teks command tidak ikut diperiksa penjaga yang sama, karena memang tidak
 perlu: nama dan deskripsinya dibaca Discord dari payload saat deploy, bukan
 dari kode, dan `commandTranslations.ts` sudah memaksa tiap perintah punya
 terjemahan Inggris.
+
+**Modul `playlists` terlewat dan sekarang ikut katalog.** `/playlist` sendiri
+sudah diterjemahkan, tapi renderer-nya hidup di modul terpisah
+[playlists/](src/modules/playlists/) yang tidak pernah ikut sapuan mana pun —
+embed daftar dan detail playlist masih menulis `'🎼 Playlist'`, `'Milikmu (n)'`,
+`'Pribadi'`, `'Anonim'`, `${count} lagu`, dan kalimat kosongnya sendiri,
+sedangkan `PlaylistNameError` masih menyimpan kalimat. Sekarang semua renderer
+menerima `t` sebagai argumen terakhir, `PlaylistNameError` jadi `(key, params)`,
+dan `{count} lagu` punya bentuk tunggal dan jamak (`1 track` vs `2 tracks`)
+supaya bahasa Inggris tidak menampilkan "1 tracks". Cara temuan ini diperoleh:
+pemindaian seluruh `src/` untuk teks yang benar-benar sampai ke member
+(`setTitle`, `setDescription`, `setFooter`, `content:`, nama field). Dari 40
+kandidat, 38 adalah deskripsi perintah — itu memang dibaca Discord dari payload
+saat deploy dan sudah punya terjemahan di `commandTranslations.ts` — dan dua
+sisanya adalah kebocoran modul playlists itu.
 
 ### Menambah field konfigurasi baru
 
@@ -2128,20 +2143,37 @@ bentuk cukup dilewati, bukan membatalkan seluruh antrean.
 **Multi-node Lavalink** juga sudah memakai store bersama ini — lihat bagian
 [Multi-node Lavalink](#multi-node-lavalink).
 
-**Sharding sendiri masih belum boleh diaktifkan**, tapi blokernya tinggal satu:
-player Lavalink, yang emang hanya bisa dipegang satu proses karena koneksi voice
-begitu. Yang sudah beres adalah state yang boleh dibagi — antrean, mode loop,
-cooldown, cache, session — dan penulisan yang raced tidak lagi saling menimpa.
-Yang belum: `ShardManager` benar-benar dipakai saat `DISCORD_MAX_SHARDS > 1`,
-dan penjadwalan job per shard.
+**Sharding sudah bisa dijalankan, dan gerbangnya menolak start lebih dulu.**
+`DISCORD_MAX_SHARDS` menyatakan total shard, `DISCORD_SHARD_LIST` menyatakan
+bagian proses ini (`0,2,3`). Keduanya harus konsisten: tanpa daftar shard, dua
+proses dengan `.env` yang sama akan **sama-sama menyambungkan setiap guild**,
+dan bot baru menabrak dirinya sendiri saat player sebuah guild sedang dipegang
+lease proses lain. Sharding di sini berarti banyak proses, bukan banyak socket
+dalam satu proses — kalau satu proses memegang semuanya, seluruh pekerjaan
+lintas proses yang sudah selesai jadi tidak berguna karena memang hanya ada satu
+penulisnya. Operator yang memang ingin satu proses memegang semuanya
+menyatakannya terus terang lewat `DISCORD_SHARD_LIST=0,1,2,3`.
+
+Gerbangnya ada di [sharding.ts](src/config/sharding.ts) dan menolak dua hal:
+store kunci-nilai yang jatuh ke memori, dan `DISCORD_SHARD_LIST` yang belum diisi
+saat `DISCORD_MAX_SHARDS > 1`. Entri shard yang rusak **dilempar, bukan
+dibuang** — shard yang hilang diam-diam dari daftar tidak akan pernah
+tersambung, jadi server-servernya gelap tanpa satu pun pesan error.
+
+Yang tersisa dan ditulis terang: player Lavalink tetap milik satu proses, jadi
+yang menjaganya adalah **lease kepemilikan** per guild
+([ownership.ts](src/modules/music/ownership.ts)) — proses lain ditolak
+sebelum menyentuh voice, bukan setelah player-nya menggantung. Dan konfigurasi
+ini belum pernah diuji dengan dua proses sungguhan: Redis, Lavalink, dan
+PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~57,0% statements** dari **1.318 tes di 70
+yang tidak di-commit). Angka saat ini: **~58,9% statements** dari **1.555 tes di 89
 file** (naik dari ~43% waktu playlist, filter, lirik, health check, statistik,
 store bersama, metrik, state musik bersama, multi-node Lavalink, penulisan
-atomik, dan multi-bahasa).
+atomik, multi-bahasa, dan gerbang sharding).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
 fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang
@@ -2191,7 +2223,9 @@ setiap push/PR.
 | Pesan “Lavalink belum terhubung” | `docker compose ps` → pastikan `harmony-lavalink` jalan. Plugin diunduh saat start pertama, jadi butuh internet. Cek `docker compose logs lavalink` |
 | `Modul perintah tidak valid ...` saat start | Ada file di `src/commands/**` (atau `src/events/**`) tanpa `default export BotCommand` — beri nama diawali `_` atau pindahkan keluar folder itu |
 | Bot keluar sendiri dari voice channel | Auto-disconnect setelah `idleTimeoutSec` tanpa lagu. Atur lewat `/config set idle-timeout` |
-| Log menyebut "Redis tidak bisa dihubungi" | Bot tetap jalan dengan store memori: rate limit berlaku per proses dan sharding belum aman. Periksa `docker compose ps redis` atau `REDIS_URL` di `.env` |
+| Log menyebut "Redis tidak bisa dihubungi" | Bot tetap jalan dengan store memori: rate limit berlaku per proses dan sharding ditolak start. Periksa `docker compose ps redis` atau `REDIS_URL` di `.env` |
+| Start berhenti dengan "butuh Redis yang hidup" | `DISCORD_MAX_SHARDS > 1` sementara store jatuh ke memori. Naikkan `DISCORD_MAX_SHARDS` hanya setelah Redis hidup |
+| Start berhenti dengan "tanpa DISCORD_SHARD_LIST" | `DISCORD_MAX_SHARDS > 1` tapi proses ini belum menyatakan shard-nya, jadi akan menyambungkan semuanya. Isi `DISCORD_SHARD_LIST` dengan shard milik proses ini |
 | Tombol halaman antrean tidak bereaksi | Pesan `/queue` yang lama tidak bisa diubah Discord (interaksi hanya berlaku 15 menit). Jalankan `/queue` lagi untuk dapat tombol baru; antrean sendiri tidak hilang |
 | `/stats` selalu nol padahal ada yang sering `/play` | Baris statistik hanya terbentuk setelah **lagu selesai berbunyi** minimal 10 detik, dan hanya di server yang sama. Kalau tetap nol, cek log untuk pesan `Gagal menyimpan statistik playback` (biasanya database sedang bermasalah) |
 | Mode 24/7 aktif tapi bot tidak ada di channel | `/247 status` akan menyebut alasannya. Yang paling sering: bot sedang memutar di channel lain (perpindahan menunggu lagu selesai), channel dihapus admin, atau bot kehilangan izin **Connect**/**Speak** di channel itu |

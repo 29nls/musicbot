@@ -13,6 +13,16 @@ const envSchema = z.object({
   // Discord
   DISCORD_TOKEN: z.string().min(20, 'wajib diisi (Developer Portal → Bot → Reset Token)'),
   DISCORD_CLIENT_ID: snowflake,
+  //
+  // Sharding (PRD §5.3). `DISCORD_MAX_SHARDS` adalah total shard; default 1
+  // berarti satu proses dan jalur gateway tunggal seperti biasa.
+  DISCORD_MAX_SHARDS: z.coerce.number().int().min(1).max(1_000).default(1),
+  //
+  // Shard yang dipegang proses ini, dipisah koma (mis. `0,2,3`). Wajib diisi
+  // kalau `DISCORD_MAX_SHARDS > 1`: tanpa itu setiap proses menyambungkan
+  // seluruh shard, jadi setiap guild terhubung dua kali dari token yang sama.
+  // Kosong saat `DISCORD_MAX_SHARDS=1` karena memang tidak ada pembagian.
+  DISCORD_SHARD_LIST: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   DEV_GUILD_ID: z.preprocess(emptyToUndefined, snowflake.optional()),
   // Darurat saja: true = jangan minta privileged intent, supaya bot tetap bisa
   // login saat Developer Portal tidak bisa diakses. Welcome, autorole, automod,

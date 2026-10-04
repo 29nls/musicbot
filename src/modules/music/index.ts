@@ -14,13 +14,26 @@ export {
 } from './singleton.js';
 export { MusicService } from './musicService.js';
 export {
+  PLAYER_OWNER_RENEW_MS,
+  PLAYER_OWNER_TTL_MS,
+  PlayerOwnedElsewhereError,
+  PlayerOwnership,
+  playerOwnerKey,
+} from './ownership.js';
+export type { PlayerOwnershipClaim } from './ownership.js';
+export {
   MAX_LAVALINK_NODES,
   lavalinkNodeName,
   parseLavalinkNodes,
   summarizeLavalinkNodes,
 } from './nodes.js';
 export type { LavalinkNodeList, LavalinkNodeReport, LavalinkNodeSpec, LavalinkNodeStatus } from './nodes.js';
-export type { EnqueueRequest, MusicServiceOptions, PlayRequest } from './musicService.js';
+export type {
+  EnqueueRequest,
+  MusicNodeOptions,
+  MusicServiceOptions,
+  PlayRequest,
+} from './musicService.js';
 export { canControlMusic, clampVolume, isInSameVoiceChannel } from './permissions.js';
 export { renderPlayOutcome } from './render.js';
 export { handleSearchSelect, searchSelectRow } from './searchSelect.js';

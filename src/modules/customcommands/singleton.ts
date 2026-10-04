@@ -1,5 +1,4 @@
 import { getPrisma } from '../../services/database.js';
-import { getKeyValueStore } from '../../services/kvStore.js';
 import { PrismaCustomCommandRepository } from './repository.js';
 import { CustomCommandService } from './service.js';
 
@@ -13,9 +12,10 @@ let service: CustomCommandService | undefined;
  * langsung terlihat di proses lain tanpa menunggu TTL 60 detik habis.
  */
 export function getCustomCommandService(): CustomCommandService {
-  service ??= new CustomCommandService(new PrismaCustomCommandRepository(getPrisma()), {
-    store: getKeyValueStore(),
-  });
+  // Store tidak diteruskan, supaya `CustomCommandService` mengambilnya saat
+  // dipakai. Service ini dibangun lazily dan bisa lebih dulu dari store kunci-
+  // nilai proses, jadi meneruskan store di sini menangkap store memori bawaan.
+  service ??= new CustomCommandService(new PrismaCustomCommandRepository(getPrisma()));
 
   return service;
 }

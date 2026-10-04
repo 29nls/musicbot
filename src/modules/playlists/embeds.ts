@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { formatSeconds } from '../music/searchSession.js';
 import { PLAYLIST_TRACK_PREVIEW, type Playlist, type StoredTrack } from './types.js';
 
@@ -21,35 +22,42 @@ export function storedTrackLine(track: StoredTrack, index: number): string {
  * 0 detik dan menulis "0:00" untuk playlist yang seluruhnya live adalah angka yang
  * terlihat salah, bukan pembulatan.
  */
-export function playlistSummary(playlist: Playlist): string {
+export function playlistSummary(
+  playlist: Playlist,
+  t: Translator = defaultTranslator,
+): string {
   const count = playlist.tracks.length;
-  if (count === 0) return 'kosong';
+  if (count === 0) return t('playlist.summaryEmpty');
 
   const timed = playlist.tracks.filter((track) => track.durationMs > 0);
   const liveCount = count - timed.length;
   const totalMs = timed.reduce((sum, track) => sum + track.durationMs, 0);
 
-  const parts = [`${count} lagu`, formatSeconds(totalMs)];
-  if (liveCount > 0) parts.push(`${liveCount} live`);
+  // Bahasa Inggris butuh bentuk tunggal dan jamak, jadi kuncinya berpasangan.
+  const trackCount = t(count === 1 ? 'playlist.summaryTrack' : 'playlist.summaryTracks', {
+    count,
+  });
+  const parts = [trackCount, formatSeconds(totalMs)];
+  if (liveCount > 0) parts.push(t('playlist.summaryLive', { count: liveCount }));
 
   return parts.join(' • ');
 }
 
 /** Daftar playlist milik member (dan yang ia bagikan ke server ini). */
-export function playlistListEmbed(input: {
-  playlists: readonly Playlist[];
-  userId: string;
-}): EmbedBuilder {
+export function playlistListEmbed(
+  input: {
+    playlists: readonly Playlist[];
+    userId: string;
+  },
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.music)
-    .setTitle('🎼 Playlist')
+    .setTitle(t('playlist.listTitle'))
     .setTimestamp();
 
   if (input.playlists.length === 0) {
-    embed.setDescription(
-      'Belum ada playlist. Buat dulu dengan `/playlist create <nama>`, ' +
-        'lalu tambahkan lagunya dari `/playlist add`.',
-    );
+    embed.setDescription(t('playlist.listEmpty'));
     return embed;
   }
 
@@ -58,48 +66,51 @@ export function playlistListEmbed(input: {
 
   if (mine.length > 0) {
     embed.addFields({
-      name: `Milikmu (${mine.length})`,
+      name: t('playlist.listMine', { count: mine.length }),
       value: mine
-        .map((playlist) => `**${playlist.name}** — ${playlistSummary(playlist)}`)
+        .map((playlist) => `**${playlist.name}** — ${playlistSummary(playlist, t)}`)
         .join('\n'),
     });
   }
 
   if (shared.length > 0) {
     embed.addFields({
-      name: `Dibagikan server (${shared.length})`,
+      name: t('playlist.listShared', { count: shared.length }),
       value: shared
         .map(
           (playlist) =>
-            `**${playlist.name}** — <@${playlist.ownerId}> · ${playlistSummary(playlist)}`,
+            `**${playlist.name}** — <@${playlist.ownerId}> · ${playlistSummary(playlist, t)}`,
         )
         .join('\n'),
     });
   }
 
-  embed.setFooter({ text: 'Putar dengan `/playlist play <nama>`.' });
+  embed.setFooter({ text: t('playlist.listFooter') });
 
   return embed;
 }
 
 /** Isi satu playlist, dengan cuplikan lagu dan catatan kalau dipangkas. */
-export function playlistDetailEmbed(playlist: Playlist): EmbedBuilder {
+export function playlistDetailEmbed(
+  playlist: Playlist,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.music)
     .setTitle(`🎼 ${playlist.name}`)
     .setTimestamp()
     .addFields(
-      { name: 'Isi', value: playlistSummary(playlist), inline: true },
-      { name: 'Pembuat', value: ownerLabel(playlist.ownerId), inline: true },
+      { name: t('playlist.fieldContents'), value: playlistSummary(playlist, t), inline: true },
+      { name: t('playlist.fieldCreator'), value: ownerLabel(playlist.ownerId, t), inline: true },
       {
-        name: 'Visibility',
-        value: playlist.isPublic ? 'Dibagikan ke server' : 'Pribadi',
+        name: t('playlist.fieldVisibility'),
+        value: playlist.isPublic ? t('playlist.visibilityPublic') : t('playlist.visibilityPrivate'),
         inline: true,
       },
     );
 
   if (playlist.tracks.length === 0) {
-    embed.setDescription('Playlist ini masih kosong.');
+    embed.setDescription(t('playlist.detailEmpty'));
     return embed;
   }
 
@@ -108,7 +119,7 @@ export function playlistDetailEmbed(playlist: Playlist): EmbedBuilder {
 
   if (playlist.tracks.length > shown.length) {
     embed.setFooter({
-      text: `+${playlist.tracks.length - shown.length} lagu lain tidak ditampilkan`,
+      text: t('playlist.detailMoreTracks', { count: playlist.tracks.length - shown.length }),
     });
   }
 
@@ -122,8 +133,8 @@ export function playlistDetailEmbed(playlist: Playlist): EmbedBuilder {
  * mention ke user ID asli — mention itu akan lebih dulu memberitahu member yang
  * meminta penghapusan bahwa datanya masih ada.
  */
-function ownerLabel(ownerId: string): string {
-  if (ownerId.startsWith(ANONYM_PREFIX)) return 'Anonim';
+function ownerLabel(ownerId: string, t: Translator): string {
+  if (ownerId.startsWith(ANONYM_PREFIX)) return t('playlist.ownerAnonymized');
 
   return `<@${ownerId}>`;
 }

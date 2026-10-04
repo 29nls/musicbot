@@ -45,7 +45,7 @@ export class PlaylistService {
       name = parsePlaylistName(input.name);
     } catch (error) {
       if (error instanceof PlaylistNameError) {
-        return fail({ kind: 'name-invalid', message: error.message });
+        return fail({ kind: 'name-invalid', key: error.key, params: error.params });
       }
       throw error;
     }

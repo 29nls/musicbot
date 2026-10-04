@@ -1,5 +1,6 @@
 import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { getEnv } from './config/env.js';
+import { parseShardList, resolveShardPlan } from './config/sharding.js';
 import { getLogger } from './services/logger.js';
 import type { BotCommand } from './types/command.js';
 
@@ -56,10 +57,22 @@ export class BotClient extends Client {
   public readonly commands = new Collection<string, BotCommand>();
 
   constructor() {
-    const minimal = getEnv().BOT_INTENTS_MINIMAL;
+    const env = getEnv();
+    const minimal = env.BOT_INTENTS_MINIMAL;
+
+    // Sharding (PRD §5.3). Proses ini hanya menyambungkan shard miliknya,
+    // bukan semuanya: `shards: 4` tanpa daftar akan membuat setiap guild
+    // terhubung dua kali begitu dua proses dijalankan. `resolveShardPlan`
+    // mengembalikan `null` untuk `DISCORD_MAX_SHARDS=1`, jadi jalur gateway
+    // token tunggal tidak berubah sama sekali.
+    const shardList = parseShardList(env.DISCORD_SHARD_LIST, env.DISCORD_MAX_SHARDS);
+    const plan = resolveShardPlan({ maxShards: env.DISCORD_MAX_SHARDS, shardList });
 
     super({
       intents: resolveIntents(minimal),
+      // `shardCount` wajib ikut: tanpa itu discord.js memakai panjang daftar
+      // sebagai total, dan guild bergeser ke shard yang tidak menjalankan apa pun.
+      ...(plan ? { shards: plan.ids, shardCount: plan.total } : {}),
       partials: minimal ? [Partials.Channel] : [Partials.Channel, Partials.Message, Partials.GuildMember],
       // Anti mass-mention: bot tidak akan pernah ping @everyone/@here secara tidak sengaja.
       allowedMentions: { parse: ['users'], repliedUser: false },

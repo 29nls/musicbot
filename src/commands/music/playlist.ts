@@ -223,7 +223,9 @@ export default {
 
         case 'list': {
           const list = await playlists.list(guildId, userId, { includePublic: true });
-          await interaction.editReply({ embeds: [playlistListEmbed({ playlists: list, userId })] });
+          await interaction.editReply({
+            embeds: [playlistListEmbed({ playlists: list, userId }, t)],
+          });
           return;
         }
 
@@ -234,7 +236,7 @@ export default {
             return;
           }
 
-          await interaction.editReply({ embeds: [playlistDetailEmbed(found.value)] });
+          await interaction.editReply({ embeds: [playlistDetailEmbed(found.value, t)] });
           return;
         }
 
@@ -443,7 +445,7 @@ async function resolveForAdd(
 function describeFailure(error: PlaylistFailure, action: string, t: Translator) {
   switch (error.kind) {
     case 'name-invalid':
-      return errorEmbed(error.message, t('embed.title.error'));
+      return errorEmbed(t(error.key, error.params), t('embed.title.error'));
     case 'name-taken':
       return errorEmbed(t('playlist.errNameTaken', { name: error.name }), t('embed.title.error'));
     case 'not-found':

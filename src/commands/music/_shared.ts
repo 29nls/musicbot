@@ -11,6 +11,7 @@ import {
   canControlMusic,
   getMusicService,
   isInSameVoiceChannel,
+  PlayerOwnedElsewhereError,
   type MusicService,
 } from '../../modules/music/index.js';
 import { getLogger } from '../../services/logger.js';
@@ -206,6 +207,13 @@ export async function handleMusicFailure(
   );
 
   const t = await translatorFor(interaction.guildId ?? 'unknown');
+
+  // Guild yang sedang dipegang proses lain bukan kegagalan acak: member perlu
+  // tahu masalahnya ada di sisi bot, bukan ditolak tanpa alasan yang jelas.
+  if (error instanceof PlayerOwnedElsewhereError) {
+    await replyEphemeralError(interaction, errorEmbed(t('music.gate.ownedElsewhere'), t('embed.title.error')));
+    return;
+  }
 
   await replyEphemeralError(interaction, errorEmbed(t('music.gate.internalError'), t('embed.title.error')));
 }

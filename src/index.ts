@@ -1,5 +1,6 @@
 import { BotClient } from './client.js';
 import { EnvError, getEnv } from './config/env.js';
+import { assertShardingReady, parseShardList } from './config/sharding.js';
 import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
 import { startHealthServer, type HealthServerHandle } from './modules/health/index.js';
@@ -7,7 +8,7 @@ import { getMusicService, initMusic, isMusicConnected } from './modules/music/in
 import { clearCaseLinks } from './modules/moderation/index.js';
 import { connectDatabase, disconnectDatabase, pingDatabase } from './services/database.js';
 import { getLogger } from './services/logger.js';
-import { createKeyValueStore, type KeyValueStoreHandle } from './services/kvStore.js';
+import { createKeyValueStore, setKeyValueStore, type KeyValueStoreHandle } from './services/kvStore.js';
 import { setCooldownStore } from './utils/cooldown.js';
 import { startPanelExpiryJob, type PanelExpiryJob } from './services/panelExpiryJob.js';
 import { startRetentionJob, type RetentionJob } from './services/retentionJob.js';
@@ -38,6 +39,18 @@ async function main(): Promise<void> {
   const env = getEnv();
   const logger = getLogger();
 
+  // Store kunci-nilai (Redis kalau bisa dihubungi, memori kalau tidak)
+  // dibangun DI AWAL, sebelum ada modul yang memakainya. Urutan ini bukan
+  // detail: modul musik, cache perintah custom, dan lease kepemilikan player
+  // mengambil store dari `getKeyValueStore()` saat dibangun. Kalau store dibuat
+  // belakangan, semuanya menangkap store memori bawaan dan tetap jalan —
+  // jadi bot terlihat memakai Redis padahal state-nya tidak pernah keluar dari
+  // satu proses. Kegagalan Redis sendiri sengaja tidak menghentikan bot, hanya
+  // menulis peringatan di log.
+  keyValueStore = await createKeyValueStore();
+  setKeyValueStore(keyValueStore);
+  setCooldownStore(keyValueStore.store);
+
   client = new BotClient();
 
   await loadCommands(client.commands);
@@ -49,11 +62,15 @@ async function main(): Promise<void> {
 
   registerProcessHandlers(client);
 
-  // Store kunci-nilai (Redis kalau bisa dihubungi, memori kalau tidak). Rate
-  // limit lewat sini supaya berlaku lintas proses; kegagalan Redis sengaja
-  // tidak menghentikan bot, hanya menulis peringatan di log.
-  keyValueStore = await createKeyValueStore();
-  setCooldownStore(keyValueStore.store);
+  // Sharding tanpa store bersama berarti beberapa proses saling menimpa state
+  // yang seharusnya satu pemilik: rate limit, antrean, dan lease player.
+  // Menolak start lebih jujur daripada menjalankan bot yang merusak state
+  // diam-diam lalu melapor "antrean kosong" tanpa penjelasan.
+  assertShardingReady({
+    maxShards: env.DISCORD_MAX_SHARDS,
+    shardList: parseShardList(env.DISCORD_SHARD_LIST, env.DISCORD_MAX_SHARDS),
+    driver: keyValueStore.driver,
+  });
 
   // Metrik proses (PRD §11): satu registry dipakai seluruh proses supaya
   // angka di /metrics sama dengan yang terlihat di log.

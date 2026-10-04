@@ -63,7 +63,7 @@ export class CustomCommandService {
   private readonly trackedKeys = new Set<string>();
   private readonly now: () => number;
   private readonly cacheTtlMs: number;
-  private readonly store: KeyValueStore;
+  private readonly storeOverride: KeyValueStore | undefined;
 
   constructor(
     private readonly repository: CustomCommandRepository,
@@ -71,7 +71,20 @@ export class CustomCommandService {
   ) {
     this.now = options.now ?? (() => Date.now());
     this.cacheTtlMs = options.cacheTtlMs ?? GUILD_CACHE_TTL_MS;
-    this.store = options.store ?? getKeyValueStore();
+    this.storeOverride = options.store;
+  }
+
+  /**
+   * Store yang dipakai.
+   *
+   * Diambil saat dipakai, bukan saat objek dibuat: service ini dibangun saat
+   * pertama kali dibutuhkan, yang bisa sebelum store kunci-nilai proses selesai
+   * dibuat. Kalau store-nya ditangkap saat konstruksi, yang tertangkap adalah
+   * store memori bawaan — jadi cache daftar perintah per server tidak pernah
+   * terbagi antar proses meski Redis hidup, padahal itu janjinya.
+   */
+  private get store(): KeyValueStore {
+    return this.storeOverride ?? getKeyValueStore();
   }
 
   /** Daftar perintah server ini (langsung dari database, bukan cache). */

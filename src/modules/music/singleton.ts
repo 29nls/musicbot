@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Client } from 'discord.js';
 import { getEnv } from '../../config/env.js';
 import { getLogger } from '../../services/logger.js';
@@ -6,6 +7,8 @@ import { getMetricsRegistry } from '../metrics/index.js';
 import { getStatsService } from '../stats/index.js';
 import { MusicService } from './musicService.js';
 import { lavalinkNodeName, parseLavalinkNodes } from './nodes.js';
+import { PlayerOwnership } from './ownership.js';
+import { getKeyValueStore } from '../../services/kvStore.js';
 import { SearchSessionStore } from './searchSession.js';
 import { StayService } from './stayService.js';
 
@@ -21,6 +24,20 @@ const MIN_LISTENED_MS = 10_000;
 let service: MusicService | undefined;
 let searchSessions: SearchSessionStore | undefined;
 let stayService: StayService | undefined;
+/**
+ * ID proses untuk lease kepemilikan player (§5.3).
+ *
+ * Dibuat sekali per proses dan tidak pernah dipublikasikan: nilainya hanya
+ * dipakai sebagai pemilik lease di store bersama, jadi kestabilannya antar
+ * perintah yang penting, bukan nilai acak yang berubah-ubah tiap panggilan.
+ */
+let instanceId: string | undefined;
+
+/** ID proses ini, dibuat saat pertama kali dibutuhkan. */
+function processInstanceId(): string {
+  instanceId ??= randomUUID();
+  return instanceId;
+}
 
 /**
  * Siapkan mesin musik. **Harus dipanggil sebelum `client.login()`** karena
@@ -52,6 +69,13 @@ export function initMusic(client: Client): MusicService {
       name: lavalinkNodeName(node),
     })),
     maxQueueSize: env.MAX_QUEUE_SIZE,
+    // Kepemilikan player di store bersama. Store-nya diambil lewat fungsi, bukan
+    // objek, karena modul musik dibangun sebelum store kunci-nilai selesai
+    // dibuat — kalau objeknya yang diambil, yang tertangkap adalah store memori
+    // bawaan dan lease ownership tidak pernah keluar dari satu proses.
+    // Kalau store-nya tidak bisa menegakkan satu pemilik (Redis mati),
+    // `PlayerOwnership.available` false dan MusicService tidak memblokir apa pun.
+    ownership: new PlayerOwnership(() => getKeyValueStore(), processInstanceId()),
     getConfig: (guildId) => getGuildConfigService().get(guildId),
     // Statistik playback (Fase 3, §5.3). Modul musik tidak tahu soal database,
     // jadi hanya menerima callback: statistik boleh gagal tanpa playback ikut gagal.
@@ -120,6 +144,7 @@ export function getStayService(): StayService {
 export function resetMusicSingletons(): void {
   service = undefined;
   stayService = undefined;
+  instanceId = undefined;
   // Di-lewat supaya shutdown tidak menunggu satu putaran Redis per session.
   void searchSessions?.clear();
   searchSessions = undefined;

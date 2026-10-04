@@ -111,17 +111,29 @@ export interface SearchSessionStoreOptions {
  */
 export class SearchSessionStore {
   private readonly trackedTokens = new Set<string>();
-  private readonly store: KeyValueStore;
+  private readonly storeOverride: KeyValueStore | undefined;
   private readonly now: () => number;
   private readonly ttlMs: number;
   private readonly tokenFactory: TokenFactory;
   private putsSinceSweep = 0;
 
   constructor(options: SearchSessionStoreOptions = {}) {
-    this.store = options.store ?? getKeyValueStore();
+    this.storeOverride = options.store;
     this.now = options.now ?? (() => Date.now());
     this.ttlMs = options.ttlMs ?? SEARCH_SESSION_TTL_MS;
     this.tokenFactory = options.tokenFactory ?? defaultTokenFactory;
+  }
+
+  /**
+   * Store yang dipakai.
+   *
+   * Diambil saat dipakai, bukan saat objek dibuat: modul musik dibangun
+   * sebelum store kunci-nilai proses selesai dibuat, jadi kalau store-nya
+   * ditangkap saat konstruksi, yang tertangkap adalah store memori bawaan dan
+   * session tidak pernah terbagi antar proses meski Redis hidup.
+   */
+  private get store(): KeyValueStore {
+    return this.storeOverride ?? getKeyValueStore();
   }
 
   /** Berapa token yang dicatat proses ini (dipakai tes & diagnosa). */

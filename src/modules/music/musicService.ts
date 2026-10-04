@@ -14,6 +14,11 @@ import { IdleTimer } from './idleTimer.js';
 import { cycleResetOn, planAdvance, type LoopMode } from './loop.js';
 import { filterParamsFor, isWithinSafeBounds, type FilterMode } from './filters.js';
 import { lavalinkNodeName, summarizeLavalinkNodes, type LavalinkNodeReport } from './nodes.js';
+import {
+  PLAYER_OWNER_RENEW_MS,
+  PlayerOwnedElsewhereError,
+  type PlayerOwnership,
+} from './ownership.js';
 import { splitByTrackLimits } from './limits.js';
 import { clampVolume } from './permissions.js';
 import type { FilterOptions } from 'shoukaku';
@@ -59,6 +64,13 @@ export interface MusicServiceOptions {
    * Disuntik di tes; kalau tidak diisi, memakai store kunci-nilai proses.
    */
   sharedState?: SharedMusicState;
+  /**
+   * Kepemilikan player di store bersama (§5.3).
+   *
+   * Disuntik, bukan dibuat di sini: `utils`/service tidak boleh bergantung ke
+   * store secara langsung, dan tes butuh store sendiri tanpa Redis.
+   */
+  ownership?: PlayerOwnership;
   /**
    * Dipanggil tiap lagu selesai diputar, untuk statistik (§5.3).
    *
@@ -147,6 +159,10 @@ export class MusicService {
    * berjalan tidak menahan referensi lagu selamanya.
    */
   private readonly playedCycles = new Map<string, TrackInfo[]>();
+  /** Guild yang lease kepemilikannya dipegang proses ini (§5.3). */
+  private readonly ownedGuilds = new Set<string>();
+  /** Timer perpanjangan lease; `undefined` sampai ada guild yang diklaim. */
+  private ownershipTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(client: Client, private readonly options: MusicServiceOptions) {
     const nodes = options.nodes.length > 0 ? options.nodes : [DEFAULT_NODE];
@@ -519,6 +535,10 @@ export class MusicService {
         getLogger().warn({ err: error, guildId }, 'Gagal keluar dari voice channel');
       });
     }
+
+    // Player sudah tidak ada, jadi lease juga dilepas: guild ini boleh
+    // diambil proses lain tanpa menunggu TTL lima menit.
+    await this.releasePlayerOwnership(guildId);
   }
 
   /**
@@ -760,6 +780,11 @@ export class MusicService {
   }
 
   private async ensurePlayer(guildId: string, channelId: string, shardId: number): Promise<Player> {
+    // Diklaim lebih dulu, termasuk saat player sudah ada: ini yang memperpanjang
+    // lease setiap ada perintah, jadi guild yang dipegang proses ini tidak
+    // pernah diambil proses lain lewat jalur diam-diam.
+    await this.claimPlayerOwnership(guildId);
+
     const existing = this.manager.players.get(guildId);
     if (existing && this.botVoiceChannelId(guildId) === channelId) return existing;
 
@@ -778,6 +803,73 @@ export class MusicService {
 
     this.attachPlayerLogging(player);
     return player;
+  }
+
+  /**
+   * Klaim kepemilikan player guild ini sebelum apa pun menyentuhnya (§5.3).
+   *
+   * Melempar kalau guild sedang dipegang proses lain: diam-diam melanjutkan
+   * akan menghasilkan dua proses yang menjalankan player untuk guild yang sama,
+   * dan penyebabnya tidak akan terlihat dari luar.
+   */
+  private async claimPlayerOwnership(guildId: string): Promise<void> {
+    const ownership = this.options.ownership;
+    if (!ownership?.available) return;
+
+    const claim = await ownership.claim(guildId);
+    if (claim === 'foreign') {
+      throw new PlayerOwnedElsewhereError(guildId, await ownership.ownerOf(guildId));
+    }
+
+    this.ownedGuilds.add(guildId);
+    this.startOwnershipHeartbeat();
+  }
+
+  /**
+   * Perpanjang lease yang dipegang proses ini.
+   *
+   * Diperpanjang karena guild bisa memegang player-nya jauh lebih lama
+   * daripada TTL lease: koneksi mode 24/7 yang sama mungkin bertahan
+   * berminggu-minggu.
+   * Kalau ternyata proses lain sudah mengambil alih, guild dilepas dari daftar
+   * lokal supaya proses ini tidak menembak owner yang bukan dirinya.
+   */
+  private async renewOwnership(): Promise<void> {
+    const ownership = this.options.ownership;
+    if (!ownership?.available || this.ownedGuilds.size === 0) return;
+
+    for (const guildId of [...this.ownedGuilds]) {
+      const claim = await ownership.claim(guildId);
+      if (claim !== 'foreign') continue;
+
+      this.ownedGuilds.delete(guildId);
+      getLogger().warn(
+        { guildId },
+        'Kepemilikan player guild ini diambil proses lain — guild dikeluarkan dari daftar lokal',
+      );
+    }
+  }
+
+  /** Timer perpanjangan; `unref()` supaya tidak menahan proses saat bot berhenti. */
+  private startOwnershipHeartbeat(): void {
+    if (this.ownershipTimer) return;
+
+    this.ownershipTimer = setInterval(() => {
+      void this.renewOwnership();
+    }, PLAYER_OWNER_RENEW_MS);
+    this.ownershipTimer.unref?.();
+  }
+
+  /** Lepas lease kalau ini memang milik proses ini. */
+  private async releasePlayerOwnership(guildId: string): Promise<void> {
+    if (!this.ownedGuilds.delete(guildId)) return;
+
+    await this.options.ownership?.release(guildId);
+
+    if (this.ownedGuilds.size === 0 && this.ownershipTimer) {
+      clearInterval(this.ownershipTimer);
+      this.ownershipTimer = undefined;
+    }
   }
 
   private async scheduleIdleDisconnect(guildId: string): Promise<void> {
