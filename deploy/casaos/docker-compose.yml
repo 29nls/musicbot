@@ -106,7 +106,14 @@ services:
     restart: unless-stopped
     environment:
       # Harus sama dengan LAVALINK_PASSWORD di .env.
-      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env}
+      #
+      # CATATAN PENTING: nilai di sini dibaca saat compose di-parse, dari
+      # `.env` di direktori proyek compose — BUKAN dari berkas yang disebut di
+      # `env_file:`. Kalau muncul "required variable LAVALINK_PASSWORD is
+      # missing a value", jalankan dulu:
+      #   node deploy/casaos/preflight.mjs
+      # Nilai kosong dihitung sama dengan tidak ada.
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env - jalankan: node /DATA/AppData/harmony-bot/preflight.mjs}
       # Heap JVM. Turunkan ke -Xmx512M kalau NAS hanya punya RAM terbatas;
       # naikkan ke -Xmx2G kalau sering memutar lagu panjang.
       JAVA_TOOL_OPTIONS: -Xmx1G

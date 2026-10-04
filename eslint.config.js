@@ -27,4 +27,20 @@ export default tseslint.config(
       'prefer-const': 'error',
     },
   },
+  {
+    // Skrip CLI yang dijalankan langsung oleh pengguna di server (mis.
+    // `deploy/casaos/preflight.mjs`). Bedanya dari kode bot: ini wajib mencetak
+    // ke stdout supaya pesannya terlihat, dan berjalan di Node, bukan di bundler.
+    files: ['deploy/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        Buffer: 'readonly',
+      },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
 );

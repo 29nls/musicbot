@@ -32,10 +32,27 @@ juga berfungsi. Berkas ini ada supaya bot bisa dipasang sebagai "app" CasaOS bia
 mkdir -p /DATA/AppData/harmony-bot
 curl -fsSL https://raw.githubusercontent.com/29nls/musicbot/main/.env.example \
   -o /DATA/AppData/harmony-bot/.env
+curl -fsSL https://raw.githubusercontent.com/29nls/musicbot/main/deploy/casaos/preflight.mjs \
+  -o /DATA/AppData/harmony-bot/preflight.mjs
 ```
+
+Berkas `preflight.mjs` ikut diunduh karena compose butuh `node` untuk
+menjalankannya. Kalau NAS belum punya Node.js, langkah ini dilewati saja dan
+jalankan skripnya dari mesin lain.
 
 Isi minimal `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DATABASE_URL`, dan
 `LAVALINK_PASSWORD`. Daftar lengkap ada di [`.env.example`](../../.env.example).
+
+Periksa dulu sebelum lanjut — skrip ini melaporkan variabel yang kosong, masih
+berupa contoh, atau salah lokasi:
+
+```bash
+node /DATA/AppData/harmony-bot/preflight.mjs
+```
+
+> `LAVALINK_PASSWORD` **tidak boleh kosong**. Compose memperlakukan nilai kosong
+> sama dengan tidak ada, dan pesan errornya berbunyi "missing a value" padahal
+> barisnya sudah ada — itu membingungkan karena penyebabnya berbeda.
 
 > `LAVALINK_PASSWORD` wajib diisi. Compose menolak start kalau kosong — itu
 > disengaja, karena password Lavalink yang dikosongkan membuat mesin audio bisa
@@ -64,7 +81,37 @@ disediakan CasaOS.
 Build pertama mengunduh dependensi npm dan image Lavalink, jadi butuh beberapa
 menit tergantung koneksi. Build berikutnya memakai cache.
 
-## Verifikasi
+## Kalau `docker compose up` gagal
+
+### `required variable LAVALINK_PASSWORD is missing a value`
+
+Ini dibaca saat compose di-parse, dari `.env` di **direktori proyek compose** —
+bukan dari berkas yang disebut di `env_file:`. Dua sumber itu punya nama sama
+tetapi berbeda, jadi mudah terkira satu hal.
+
+Jalankan diagnosisnya dulu (skripnya sudah diunduh di langkah 1):
+
+```bash
+node /DATA/AppData/harmony-bot/preflight.mjs
+```
+
+Yang biasanya jadi penyebab:
+
+| Penyebab | Cara(memberi) |
+|---|---|
+| `LAVALINK_PASSWORD=` kosong di `.env` | Isi dengan password, mis. `LAVALINK_PASSWORD=hasil-acak-panjang` |
+| Baris masih `harmony_dev_password` dari `.env.example` | Ganti dengan password sungguhan |
+| Compose dijalankan dari folder lain | `cd /DATA/AppData/harmony-bot && docker compose up -d` |
+| `.env` ada di path lain | `docker compose --env-file /path/lain/.env up -d` |
+
+### Bot start lalu langsung mati
+
+```bash
+docker compose logs bot | head -40
+```
+
+Paling sering: migrasi gagal (koneksi database ditolak) atau `.env` terpotong
+karena ada spasi di sekitar `=`. `preflight.mjs` sudah memeriksa keduanya.
 
 ```bash
 cd /DATA/AppData/harmony-bot
