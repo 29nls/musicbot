@@ -1625,12 +1625,20 @@ Penegasannya ada di dua tempat, karena keduanya menutup celah yang berbeda:
   menu — member tetap ditolak dengan jelas. Panel yang terlihat aktif tapi sudah
   berakhir adalah kondisi yang membingungkan; ini yang paling sering dikeluhkan
   orang soal bot sejenis.
-- **Penyapuan hanya-appearance work.** Ia membersihkan tampilan, tidak
-  memegang kebenaran. Kalau Discord sedang lambat atau guild-nya belum ada di
-  cache, panel tetap benar-benar ditolak.
+- **Penyapuan hanya membersihkan tampilan, bukan memegang kebenaran.** Kalau
+  Discord sedang lambat atau guild-nya belum ada di cache, panel tetap
+  benar-benar ditolak.
 
 `/reactionrole close` memakai jalur yang sama persis dengan penyapuan otomatis,
 seperti penutupan tiket: database dan pesan tidak mungkin berbeda pendapat.
+Keduanya bisa berebut panel yang sama bila dijalankan bersamaan, jadi penutupan
+adalah **klaim atomik**: `markClosed` menulis dengan syarat `closedAt: null`,
+dan hanya pemanggil yang barisnya benar-benar berubah yang boleh melanjut
+mengedit pesan. Pemanggil yang kalah menerima `null` lalu berhenti di situ —
+bukan mengedit pesan yang sama dua kali lalu dua-duanya melaporkan berhasil.
+Sapuan otomatis juga **hanya mengambil panel milik guild yang dipegang shard ini**:
+kuerinya dibatasi ke daftar guild itu, jadi panel milik proses lain tidak
+pernah menyita kuota batch dan membuat panel milik sendiri tertahan.
 
 Untuk menutup total beserta pesannya, tetap pakai `/reactionrole delete`.
 
@@ -2190,11 +2198,11 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~59,2% statements** dari **1.571 tes di 91
+yang tidak di-commit). Angka saat ini: **~59,4% statements** dari **1.583 tes di 92
 file** (naik dari ~43% waktu playlist, filter, lirik, health check, statistik,
 store bersama, metrik, state musik bersama, multi-node Lavalink, penulisan
-atomik, multi-bahasa, gerbang sharding beserta lease-nya, dan pesan error
-kepemilikan player).
+atomik, multi-bahasa, gerbang sharding beserta lease-nya, pesan error
+kepemilikan player, dan penyapuan panel lintas shard).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
 fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang

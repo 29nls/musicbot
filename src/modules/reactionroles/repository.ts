@@ -15,7 +15,11 @@ export interface ReactionRoleRepository {
   findOption(optionId: number): Promise<PanelOptionLookup | null>;
   attachMessage(panelId: number, messageId: string): Promise<void>;
   markClosed(guildId: string, panelId: number, now: Date): Promise<ReactionRolePanel | null>;
-  findDueForExpiry(now: Date, limit: number): Promise<ReactionRolePanel[]>;
+  findDueForExpiry(
+    now: Date,
+    guildIds: readonly string[],
+    limit: number,
+  ): Promise<ReactionRolePanel[]>;
 }
 
 export class PrismaReactionRoleRepository implements ReactionRoleRepository {
@@ -154,39 +158,66 @@ export class PrismaReactionRoleRepository implements ReactionRoleRepository {
   /**
    * Tandai panel sudah dinonaktifkan.
    *
-   * `closedAt: null` sebagai syarat: panel yang sudah tertutup oleh sweep atau
-   * perintah `close` tidak perlu disentuh lagi, dan pengaman ini membuat dua
-   * pemanggil yang berebut (job + perintah admin) aman.
+   * Penandaan harus jadi satu klaim atomik, bukan "baca dulu lalu tulis":
+   * job penyapuan dan perintah `close` bisa berebut panel yang sama, dan
+   * saat sharding banyak proses bisa berebut bersamaan.
+   *
+   * `updateMany` bersyarat `closedAt: null` itulah klaimnya — hanya satu
+   * pemanggil yang melihat `count > 0`. Kalau hasilnya dibuang, kedua
+   * pemanggil sama-sama mengira menang, sehingga pesan yang sama diedit dua
+   * kali dan dua-duanya melaporkan panel berhasil ditutup.
+   *
+   * Baris dibaca ulang setelah klaim menang supaya `closedAt` yang
+   * dikembalikan benar-benar nilai yang baru ditulis, bukan bayangan dari
+   * pembacaan yang terjadi sebelum klaim.
    */
   async markClosed(
     guildId: string,
     panelId: number,
     now: Date,
   ): Promise<ReactionRolePanel | null> {
-    const row = await this.prisma.reactionRolePanel.findFirst({
-      where: { id: panelId, guildId },
-      include: PANEL_INCLUDE,
-    });
-    if (!row || row.closedAt) return null;
-
-    await this.prisma.reactionRolePanel.updateMany({
-      where: { id: panelId, closedAt: null },
+    const claimed = await this.prisma.reactionRolePanel.updateMany({
+      where: { id: panelId, guildId, closedAt: null },
       data: { closedAt: now },
     });
+    if (claimed.count === 0) return null;
 
-    return toPanelDomain(row);
+    const row = await this.prisma.reactionRolePanel.findFirst({
+      where: { id: panelId },
+      include: PANEL_INCLUDE,
+    });
+
+    return row ? toPanelDomain(row as ReactionRolePanelWithOptions) : null;
   }
 
   /**
-   * Panel yang masa hidupnya sudah habis dan belum pernah dinonaktifkan.
+   * Panel yang masa hidupnya sudah habis, milik guild yang diminta saja.
    *
-   * `closedAt: null` membuat hasil ini shrinking: panel yang sudah diurus
-   * tidak akan muncul lagi di sapuan berikutnya, jadi tidak ada pekerjaan
+   * `guildIds` adalah daftar guild milik shard ini, jadi kueri dibatasi ke
+   * sana. Tanpa batas itu setiap proses menarik baris yang sama lalu membuang
+   * hampir semuanya karena guild-nya bukan miliknya: kuota `limit` terisi
+   * panel milik shard lain, sementara panel milik shard ini tidak pernah
+   * sampai disentuh — dan karena hasil sapuan tidak ikut menyusut, panel itu
+   * tertahan selamanya di urutan teratas.
+   *
+   * `closedAt: null` membuat hasil ini menyusut: panel yang sudah diurus
+   * tidak muncul lagi di sapuan berikutnya, jadi tidak ada pekerjaan
    * berulang setiap 15 menit.
    */
-  async findDueForExpiry(now: Date, limit: number): Promise<ReactionRolePanel[]> {
+  async findDueForExpiry(
+    now: Date,
+    guildIds: readonly string[],
+    limit: number,
+  ): Promise<ReactionRolePanel[]> {
+    // Tidak ada guild milik proses ini: jangan sentuh database sama sekali.
+    if (guildIds.length === 0 || limit <= 0) return [];
+
     const rows = await this.prisma.reactionRolePanel.findMany({
-      where: { closedAt: null, expiresAt: { lte: now } },
+      where: {
+        closedAt: null,
+        expiresAt: { lte: now },
+        guildId: { in: [...guildIds] },
+      },
       include: PANEL_INCLUDE,
       orderBy: { expiresAt: 'asc' },
       take: limit,

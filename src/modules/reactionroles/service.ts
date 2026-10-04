@@ -44,9 +44,19 @@ export class ReactionRoleService {
     return this.repository.markClosed(guildId, panelId, now);
   }
 
-  /** Panel yang masa hidupnya sudah habis — bahan baku job penyapuan. */
-  async findDueForExpiry(now = new Date(), limit = MAX_PANEL_OPTIONS): Promise<ReactionRolePanel[]> {
-    return this.repository.findDueForExpiry(now, limit);
+  /**
+   * Panel yang masa hidupnya sudah habis — bahan baku job penyapuan.
+   *
+   * `guildIds` dibatasi ke guild milik shard ini. Daftarnya kosong berarti
+   * proses ini tidak memegang guild apa pun, jadi tidak ada yang bisa
+   * ditutup dan repository tidak perlu menyentuh database sama sekali.
+   */
+  async findDueForExpiry(
+    now = new Date(),
+    guildIds: readonly string[] = [],
+    limit = MAX_PANEL_OPTIONS,
+  ): Promise<ReactionRolePanel[]> {
+    return this.repository.findDueForExpiry(now, guildIds, limit);
   }
 
   async list(guildId: string): Promise<ReactionRolePanel[]> {

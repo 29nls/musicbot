@@ -14,7 +14,18 @@ import { translatorFor } from '../modules/i18n/index.js';
  * memaksakan service asli di sini akan membuat job tidak bisa diuji.
  */
 export interface PanelExpiryRunner extends PanelCloser {
-  findDueForExpiry(now?: Date, limit?: number): ReturnType<ReactionRoleService['findDueForExpiry']>;
+  /**
+   * Panel yang lewat masa hidup milik guild yang diminta saja.
+   *
+   * Berparameter guild wajib: kuerinya harus terikat ke shard yang sedang
+   * berjalan, kalau tidak tiap proses saling mengambil panel yang sama lalu
+   * membuangnya karena guild-nya bukan miliknya.
+   */
+  findDueForExpiry(
+    now?: Date,
+    guildIds?: readonly string[],
+    limit?: number,
+  ): ReturnType<ReactionRoleService['findDueForExpiry']>;
 }
 
 /** Sumber guild yang sudah login; null = bot belum siap. */
@@ -34,7 +45,10 @@ export interface PanelExpiryResult {
   closed: number;
   /** Panel yang tidak bisa diedit pesannya (sudah dihapus / channel hilang). */
   messageMissing: number;
-  /** Panel yang sudah ditutup sebelumnya — dilewati, bukan dihitung. */
+  /**
+   * Panel yang dilewati tanpa ditutup: sudah tertutup sebelumnya, atau guild-nya
+   * tidak ada di cache shard ini. Keduanya tertunggu sapuan berikutnya.
+   */
   skipped: number;
 }
 
@@ -128,9 +142,10 @@ export function startPanelExpiryJob(options: PanelExpiryJobOptions = {}): PanelE
 /**
  * Satu putaran penyapuan.
  *
- * Guild yang belum ada di cache dilewati: panelnya akan tertangguni sampai
- * sapuan berikutnya, dan itu jauh lebih baik daripada tries Edit ke guild yang
- * tidak ada (yang akan gagal untuk setiap panel di dalamnya).
+ * Kueri dibatasi ke guild milik shard ini, jadi hasilnya tidak lagi berbalik
+ * dengan guild milik proses lain. Panel yang ternyata tidak ada di cache tetap
+ * dilewati: lebih baik tertunggu sampai sapuan berikutnya daripada mencoba Edit
+ * ke guild yang tidak ada, yang akan gagal untuk setiap panel di dalamnya.
  */
 async function sweep(
   runner: PanelExpiryRunner,
@@ -140,10 +155,16 @@ async function sweep(
 ): Promise<PanelExpiryResult> {
   const result: PanelExpiryResult = { closed: 0, messageMissing: 0, skipped: 0 };
 
-  const panels = await runner.findDueForExpiry(now, batchSize);
-  if (panels.length === 0) return result;
-
+  // Daftar guild diambil lebih dulu karena itulah yang membatasi kueri: panel
+  // milik shard lain tidak boleh menyita kuota batch ini.
   const cache = new Map(guilds().map((guild) => [guild.id, guild]));
+  const ownedGuildIds = [...cache.keys()];
+
+  // Bot belum memegang guild apa pun: tidak ada yang bisa ditutup.
+  if (ownedGuildIds.length === 0) return result;
+
+  const panels = await runner.findDueForExpiry(now, ownedGuildIds, batchSize);
+  if (panels.length === 0) return result;
 
   for (const panel of panels) {
     const guild = cache.get(panel.guildId);

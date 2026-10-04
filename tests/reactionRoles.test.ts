@@ -170,10 +170,20 @@ class FakeReactionRoleRepository implements ReactionRoleRepository {
     return { ...found };
   }
 
-  async findDueForExpiry(now: Date, limit: number): Promise<ReactionRolePanel[]> {
+  async findDueForExpiry(
+    now: Date,
+    guildIds: readonly string[],
+    limit: number,
+  ): Promise<ReactionRolePanel[]> {
+    const owned = new Set(guildIds);
+
     return this.panels
       .filter(
-        (item) => !item.closedAt && item.expiresAt !== null && item.expiresAt <= now,
+        (item) =>
+          owned.has(item.guildId) &&
+          !item.closedAt &&
+          item.expiresAt !== null &&
+          item.expiresAt <= now,
       )
       .sort((a, b) => (a.expiresAt?.getTime() ?? 0) - (b.expiresAt?.getTime() ?? 0))
       .slice(0, limit)
@@ -563,7 +573,7 @@ describe('penyapuan masa hidup', () => {
   it('hanya panel yang sudah lewat masa hidup yang ikut disapu', async () => {
     const { service } = await seed();
 
-    const due = await service.findDueForExpiry(NOW, 10);
+    const due = await service.findDueForExpiry(NOW, [GUILD_ID], 10);
 
     expect(due.map((item) => item.id)).toEqual([1]);
   });
@@ -572,7 +582,7 @@ describe('penyapuan masa hidup', () => {
     const { service } = await seed();
     await service.markClosed(GUILD_ID, 1, NOW);
 
-    expect(await service.findDueForExpiry(NOW, 10)).toEqual([]);
+    expect(await service.findDueForExpiry(NOW, [GUILD_ID], 10)).toEqual([]);
   });
 
   it('panel permanen tidak pernah masuk daftar sapuan', async () => {
@@ -584,7 +594,7 @@ describe('penyapuan masa hidup', () => {
       roles: [{ roleId: ROLE_A }],
     });
 
-    expect(await service.findDueForExpiry(NOW, 10)).toEqual([]);
+    expect(await service.findDueForExpiry(NOW, [GUILD_ID], 10)).toEqual([]);
   });
 
   it('menandai panel tertutup hanya sekali', async () => {
@@ -611,7 +621,7 @@ describe('penyapuan masa hidup', () => {
       );
     }
 
-    expect(await service.findDueForExpiry(NOW, 2)).toHaveLength(2);
+    expect(await service.findDueForExpiry(NOW, [GUILD_ID], 2)).toHaveLength(2);
   });
 });
 

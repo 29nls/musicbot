@@ -96,10 +96,24 @@ class FakeRunner implements PanelExpiryRunner {
   public failFor = new Set<number>();
   public listError: Error | null = null;
 
-  async findDueForExpiry(): Promise<ReactionRolePanel[]> {
+  /** Panel yang benar-benar diminta kueri: hanya guild milik shard ini. */
+  public dueFor: ReactionRolePanel[] | null = null;
+
+  /** Guild yang dilihat pada panggilan terakhir ke `findDueForExpiry`. */
+  public lastGuildIds: readonly string[] = [];
+
+  async findDueForExpiry(_now?: Date, guildIds: readonly string[] = []): Promise<ReactionRolePanel[]> {
     if (this.listError) throw this.listError;
 
-    return this.due;
+    this.lastGuildIds = guildIds;
+
+    // `dueFor` meniru runner yang mengabaikan cakupan guild (mis. kueri
+    // basi); kalau tidak diisi, hanya guild yang diminta yang dikembalikan.
+    if (this.dueFor) return this.dueFor;
+
+    const owned = new Set(guildIds);
+
+    return this.due.filter((item) => owned.has(item.guildId));
   }
 
   async markClosed(guildId: string, panelId: number, now?: Date): Promise<ReactionRolePanel | null> {
@@ -235,15 +249,17 @@ describe('job penyapuan panel', () => {
     job.stop();
   });
 
-    it('panel dari guild yang belum ada di cache dilewati, bukan dipaksa', async () => {
+  it('panel dari guild yang belum ada di cache dilewati, bukan dipaksa', async () => {
     const runner = new FakeRunner();
-    runner.due = [panel()];
-    const { edits } = makeGuild();
+    // Runner mengabaikan cakupan guild dan mengembalikan panel milik guild
+    // lain — cbd. proses yang kehilangan guild dari cache di antara kueri
+    // dan pemrosesan. Perulangan di dalam sweep tetap harus menjaganya.
+    runner.dueFor = [panel()];
+    const { guild, edits } = makeGuild();
 
-    // Guild panel tidak ada di daftar — bot belum sempat cache-nya.
     const job = startPanelExpiryJob({
       runner,
-      guilds: () => [],
+      guilds: () => [guild],
       runOnStart: false,
       intervalMs: 0,
     });
@@ -311,9 +327,10 @@ describe('job penyapuan panel', () => {
       return [];
     };
 
+    const { guild } = makeGuild();
     const job = startPanelExpiryJob({
       runner,
-      guilds: () => [],
+      guilds: () => [guild],
       runOnStart: false,
       intervalMs: 0,
     });
@@ -331,9 +348,10 @@ describe('job penyapuan panel', () => {
     const runner = new FakeRunner();
     runner.listError = new Error('ECONNREFUSED');
 
+    const { guild } = makeGuild();
     const job = startPanelExpiryJob({
       runner,
-      guilds: () => [],
+      guilds: () => [guild],
       runOnStart: false,
       intervalMs: 0,
     });
@@ -352,9 +370,10 @@ describe('job penyapuan panel', () => {
     };
 
     vi.useFakeTimers();
+    const { guild } = makeGuild();
     const job = startPanelExpiryJob({
       runner,
-      guilds: () => [],
+      guilds: () => [guild],
       runOnStart: false,
       intervalMs: 15 * 60_000,
     });
