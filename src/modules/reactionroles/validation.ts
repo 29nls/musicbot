@@ -1,3 +1,4 @@
+import { defaultTranslator, type MessageKey, type Translator } from '../i18n/index.js';
 import {
   MAX_OPTION_DESCRIPTION_LENGTH,
   MAX_OPTION_LABEL_LENGTH,
@@ -8,12 +9,22 @@ import {
   type RoleInput,
 } from './types.js';
 
-/** Error validasi yang pesannya aman ditampilkan ke user Discord. */
+/**
+ * Error validasi yang pesannya aman ditampilkan ke user Discord.
+ *
+ * Yang disimpan adalah kunci katalog + parameternya, bukan kalimat jadi:
+ * pemanggil yang menyusun embed menerjemahkannya ke bahasa server.
+ * `message` tetap diisi bahasa Indonesia untuk log internal dan `toThrow`
+ * di tes.
+ */
 export class ReactionRoleValidationError extends Error {
   public override readonly name = 'ReactionRoleValidationError';
 
-  constructor(message: string) {
-    super(message);
+  constructor(
+    public readonly key: MessageKey,
+    public readonly params?: Record<string, string | number>,
+  ) {
+    super(defaultTranslator(key, params));
   }
 }
 
@@ -22,7 +33,7 @@ const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 export function assertSnowflake(value: string, label: string): string {
   const trimmed = value.trim();
   if (!SNOWFLAKE_PATTERN.test(trimmed)) {
-    throw new ReactionRoleValidationError(`ID ${label} tidak valid: \`${value}\`.`);
+    throw new ReactionRoleValidationError('rr.err.invalidId', { label, value });
   }
   return trimmed;
 }
@@ -56,10 +67,10 @@ export function normalizeRoleInputs(
 
   const total = existing.length + result.length;
   if (total > MAX_PANEL_OPTIONS) {
-    throw new ReactionRoleValidationError(
-      `Satu panel maksimal ${MAX_PANEL_OPTIONS} role (sekarang ${total}). ` +
-        'Buat panel terpisah, atau kurangi role yang ditambahkan.',
-    );
+    throw new ReactionRoleValidationError('rr.err.tooManyOptions', {
+      max: MAX_PANEL_OPTIONS,
+      total,
+    });
   }
 
   return result;
@@ -68,9 +79,7 @@ export function normalizeRoleInputs(
 /** Setelah dihapus, panel harus masih punya minimal satu opsi. */
 export function assertPanelKeepsOneOption(remaining: number): void {
   if (remaining < 1) {
-    throw new ReactionRoleValidationError(
-      'Ini opsi terakhir di panel. Hapus panelnya dengan `/reactionrole delete` kalau memang tidak dipakai lagi.',
-    );
+    throw new ReactionRoleValidationError('rr.err.lastOption');
   }
 }
 
@@ -89,9 +98,7 @@ const BARE_ID_PATTERN = /\b\d{17,20}\b/g;
 export function parseRoleMentions(input: string | null | undefined): string[] {
   const raw = input?.trim();
   if (!raw) {
-    throw new ReactionRoleValidationError(
-      'Sebutkan minimal satu role, contoh: `@Pemain @Penggemar`.',
-    );
+    throw new ReactionRoleValidationError('rr.err.noRoles');
   }
 
   const ids: string[] = [];
@@ -111,10 +118,7 @@ export function parseRoleMentions(input: string | null | undefined): string[] {
   }
 
   if (ids.length === 0) {
-    throw new ReactionRoleValidationError(
-      'Role tidak terbaca. Pilih role lewat autocomplete `@` agar tersimpan sebagai mention ' +
-        '(`<@&123…>`), atau tulis ID role-nya.',
-    );
+    throw new ReactionRoleValidationError('rr.err.unreadableRoles');
   }
 
   return ids;
@@ -158,10 +162,9 @@ export function parsePanelDuration(
   const match = /^(\d{1,5})\s*([a-z]*)$/.exec(trimmed);
   const amountText = match?.[1];
   if (!amountText) {
-    throw new ReactionRoleValidationError(
-      `Masa hidup \`${input?.trim()}\` tidak terbaca. ` +
-        'Contoh yang benar: `30m`, `6h`, `7d`, atau `permanen`.',
-    );
+    throw new ReactionRoleValidationError('rr.err.durationUnreadable', {
+      value: input?.trim() ?? '',
+    });
   }
 
   const amount = Number(amountText);
@@ -169,30 +172,29 @@ export function parsePanelDuration(
   // Tanpa satuan dianggap jam — panel biasanya dipakai per acara, bukan per menit.
   const multiplier = unit === '' ? 3_600_000 : DURATION_UNIT_MS[unit];
   if (multiplier === undefined) {
-    throw new ReactionRoleValidationError(
-      `Satuan \`${unit}\` tidak dikenal. Pakai \`m\` (menit), \`h\` (jam), atau \`d\` (hari).`,
-    );
+    throw new ReactionRoleValidationError('rr.err.durationUnit', { unit });
   }
 
   const ms = amount * multiplier;
   if (ms < MIN_PANEL_LIFETIME_MS) {
-    throw new ReactionRoleValidationError(
-      'Masa hidup panel minimal 10 menit. Pakai `permanen` kalau memang tidak ingin berakhir.',
-    );
+    throw new ReactionRoleValidationError('rr.err.durationMin');
   }
   if (ms > MAX_PANEL_LIFETIME_MS) {
-    throw new ReactionRoleValidationError('Masa hidup panel maksimal 365 hari.');
+    throw new ReactionRoleValidationError('rr.err.durationMax');
   }
 
   return new Date(now.getTime() + ms);
 }
 
 /** 604_800_000 → "7 hari" (untuk embed & balasan perintah). */
-export function describePanelLifetime(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '0 menit';
-  if (ms % 86_400_000 === 0) return `${ms / 86_400_000} hari`;
-  if (ms % 3_600_000 === 0) return `${ms / 3_600_000} jam`;
-  if (ms % 60_000 === 0) return `${ms / 60_000} menit`;
+export function describePanelLifetime(
+  ms: number,
+  t: Translator = defaultTranslator,
+): string {
+  if (!Number.isFinite(ms) || ms <= 0) return t('rr.lifetime.minutes', { count: 0 });
+  if (ms % 86_400_000 === 0) return t('rr.lifetime.days', { count: ms / 86_400_000 });
+  if (ms % 3_600_000 === 0) return t('rr.lifetime.hours', { count: ms / 3_600_000 });
+  if (ms % 60_000 === 0) return t('rr.lifetime.minutes', { count: ms / 60_000 });
 
-  return `${Math.round(ms / 60_000)} menit`;
+  return t('rr.lifetime.minutes', { count: Math.round(ms / 60_000) });
 }

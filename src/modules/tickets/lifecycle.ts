@@ -5,6 +5,7 @@ import {
   type TextChannel,
 } from 'discord.js';
 import { getLogger } from '../../services/logger.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { isGuildTextChannel } from '../../utils/discord.js';
 import { closedTicketChannelName, ticketChannelName } from './naming.js';
 import { buildTicketControls, ticketClosedEmbed, ticketOpenedEmbed } from './embeds.js';
@@ -41,6 +42,7 @@ export async function openTicket(
   service: TicketService,
   guild: Guild,
   input: { staffRoleId: string; openerId: string; subject: string },
+  t: Translator = defaultTranslator,
 ): Promise<OpenTicketOutcome> {
   const { ticket, existing } = await service.open({
     guildId: guild.id,
@@ -66,8 +68,8 @@ export async function openTicket(
 
   await channel
     .send({
-      embeds: [ticketOpenedEmbed(ticket, input.staffRoleId)],
-      components: [buildTicketControls()],
+      embeds: [ticketOpenedEmbed(ticket, input.staffRoleId, t)],
+      components: [buildTicketControls(t)],
     })
     .catch((error: unknown) => {
       // Tiket tetap valid tanpa pesan pembuka; member sudah diarahkan ke channel.
@@ -98,6 +100,7 @@ export async function closeAndArchive(
   channelId: string,
   closedBy: string,
   now = new Date(),
+  t: Translator = defaultTranslator,
 ): Promise<CloseResult | null> {
   const closed = await service.close(guild.id, channelId, closedBy, now);
   if (!closed) return null;
@@ -106,7 +109,7 @@ export async function closeAndArchive(
   const channel = toTextChannel(fetched);
 
   const transcriptSaved = await saveTranscript(service, channel, closed, now);
-  if (channel) await archiveTicketChannel(channel, closed, closedBy);
+  if (channel) await archiveTicketChannel(channel, closed, closedBy, t);
 
   return { ticket: closed, channel, transcriptSaved };
 }
@@ -173,23 +176,24 @@ export async function archiveTicketChannel(
   channel: TextChannel,
   ticket: Ticket,
   closedBy: string,
+  t: Translator = defaultTranslator,
 ): Promise<void> {
-  await channel.setName(closedTicketChannelName(ticket.ticketNumber), 'Tiket ditutup');
+  await channel.setName(closedTicketChannelName(ticket.ticketNumber), t('ticket.audit.closed'));
 
   const everyone = channel.guild.roles.everyone;
   await channel.permissionOverwrites.edit(
     everyone,
     { SendMessages: false },
-    { reason: 'Tiket ditutup' },
+    { reason: t('ticket.audit.closed') },
   );
   await channel.permissionOverwrites.edit(
     ticket.openerId,
     { SendMessages: false },
-    { reason: 'Tiket ditutup' },
+    { reason: t('ticket.audit.closed') },
   );
 
   await channel
-    .send({ embeds: [ticketClosedEmbed(ticket, closedBy)] })
+    .send({ embeds: [ticketClosedEmbed(ticket, closedBy, t)] })
     .catch((error: unknown) => {
       getLogger().warn({ err: error, channel: channel.id }, 'Gagal mengirim pengumuman tiket ditutup');
     });

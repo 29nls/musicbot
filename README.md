@@ -553,15 +553,13 @@ Dua keputusan yang mencegah sapuan ini jadi "ubah kalimat":
   nama perintah. Embed memakai `categoryLabel(category, t)` yang baru, jadi
   teks yang tampil ikut bahasa server tanpa merusak nama pilihan.
 
-Yang **belum** ikut diterjemahkan: `/automod` `/customcommand`
-`/reactionrole` `/ticket`, plus **22 berkas event log** di
-[src/events/logging/](src/events/logging/) (judul embed seperti "Channel
-Diperbarui" dan nama field seperti "Nama" / "Topik" masih bahasa Indonesia).
-Event handler itu punya sifat yang berbeda: **judul dan ringkasannya tersimpan
-di tabel `log_entry`**, jadi entri yang sudah tercatat sebelum server diganti ke
-bahasa Inggris **tidak akan ikut berubah** — penerjemahan susulan mustahil tanpa
-menulis ulang riwayat. Itulah alasan sapuan ini berhenti di renderer dan bukan
-di event handler: bagian renderer selesai sekarang, bagian event handler menyusul pada sapuan berikutnya.
+Sisa yang belum ikut diterjemahkan saat sapuan itu berjalan adalah `/automod`,
+`/customcommand`, `/reactionrole`, `/ticket`, dan 22 berkas event log di
+[src/events/logging/](src/events/logging/). Semuanya sudah menyusul — lihat
+bagian-bagian di bawah. Event handler menyimpan batas yang tidak bisa dihapus:
+**judul dan ringkasannya tersimpan di tabel `log_entry`**, jadi entri yang sudah
+tercatat sebelum server diganti ke bahasa Inggris **tidak akan ikut berubah** —
+penerjemahan susulan mustahil tanpa menulis ulang riwayat.
 
 **Mekanismenya:** `gateMusicCommand` sudah membaca config server untuk aturan
 lain, jadi penerjemah diambil sekali di sana lalu dipakai ulang lewat
@@ -644,11 +642,38 @@ tanpa menyebut salah satu yang ikut berubah. Dua-duanya ditutup, dan keduanya
 punya tes. Footer konfirmasi juga punya kunci tunggal dan jamak terpisah,
 karena `MODERATION_RETENTION_YEARS` = 1 dan "1 years" bukan bahasa Inggris.
 
-**Yang belum:** `/customcommand`, `/reactionrole`, `/ticket` — masih ditulis
-langsung dalam bahasa Indonesia, dan katalog runtime jatuh ke bahasa Indonesia
-secara sadar untuk kunci yang belum ada, bukan diam-diam jadi bahasa acak.
-Katalog setengah terisi lebih buruk daripada kosong: orang akan melihat dua
-bahasa dalam satu layar tanpa punya cara tahu mana yang belum.
+**Sapuan `/customcommand`, `/reactionrole`, dan `/ticket` juga sudah tuntas.**
+Ketiganya memakai kunci katalog `cc.*`, `rr.*`, dan `ticket.*`; modul murni
+menyimpan kunci (bukan kalimat); renderer menerima `t` sebagai argumen terakhir
+dengan nilai bawaan bahasa Indonesia; dan perintah mengambil
+`translatorFor(guildId)` sekali di awal. Yang ikut diterjemahkan bukan cuma
+embed: pesan validasi (`CustomCommandValidationError`
+`ReactionRoleValidationError`, `ReactionRoleEmptyError`,
+`TicketValidationError`, dan `TicketChannelError` semuanya membawa
+`(key, params)`), label tombol dan judul modal tiket, placeholder select menu,
+status panel, alasan penutupan panel, sampai **file transkrip tiket** dan alasan
+yang ditulis ke audit log Discord.
+
+**Tiga hal nyata ikut ketemu:**
+
+1. **Gerbang `/automod` masih menulis pesannya langsung.** Satu-satunya sisa
+   sapuan sebelumnya: server berbahasa Inggris membaca pesan izin Indonesia di
+   gerbangnya sendiri. Sekarang lewat `mod.gate.needsPermission` dan dijaga tes
+   yang memindai semua pemanggil embed di berkas perintah.
+2. **Dua tes `tests/stats.test.ts` bergantung jam dinding.** Barisnya dicatat
+   dengan `new Date()` tapi dibaca dengan `now: NOW` yang tetap, jadi keduanya
+   mulai gagal begitu tanggal melewati `NOW`. Sekarang pencatatan memakai
+   `at: NOW` yang sama dengan pembacaannya — deterministik, bukan menunggu besok
+   lagi.
+3. **Komentar rusak ringan dibersihkan** (`Discord:permission`, `majority`,
+   `duaconcerns`, `atznya`, `kurasakan`, dan indentasi blok JSDoc di repository
+   tiket).
+
+**Yang belum:** `/config`, `/setup`, `/help`, `/ping` — teks runtime-nya masih
+ditulis langsung dalam bahasa Indonesia. Katalog runtime tetap jatuh ke bahasa
+Indonesia secara sadar untuk kunci yang belum ada, bukan diam-diam jadi bahasa
+acak: katalog setengah terisi lebih buruk daripada kosong, karena orang akan
+melihat dua bahasa dalam satu layar tanpa punya cara tahu mana yang belum.
 
 Teks command tidak ikut diperiksa penjaga yang sama, karena memang tidak
 perlu: nama dan deskripsinya dibaca Discord dari payload saat deploy, bukan

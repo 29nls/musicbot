@@ -8,6 +8,7 @@ import {
   type GuildTextBasedChannel,
 } from 'discord.js';
 import { getGuildConfigService } from '../../modules/config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import {
   TICKET_LIST_LIMIT,
   buildCreateButton,
@@ -88,16 +89,16 @@ export default {
   guildOnly: true,
   cooldownSeconds: 5,
   async execute(interaction) {
-    if (!interaction.inCachedGuild()) {
+    if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini hanya bisa dipakai di server.')],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const guildId = interaction.guildId;
-    const guild = interaction.guild;
+    const t = await translatorFor(guildId);
     const sub = interaction.options.getSubcommand(true);
 
     // `transcript` sengaja dikecualikan: pembuat tiket boleh membaca transkrip
@@ -105,11 +106,21 @@ export default {
     // dipasang di sini, member bahkan tidak akan melihat perintahnya.
     if (sub !== 'transcript' && !canManageGuild(interaction)) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
+
+    if (!interaction.inCachedGuild()) {
+      await interaction.reply({
+        embeds: [warningEmbed(t('ticket.err.notCached'))],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const guild = interaction.guild;
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -119,35 +130,32 @@ export default {
 
       if (!config.modules.tickets) {
         await interaction.editReply({
-          embeds: [
-            warningEmbed(
-              'Modul tiket sedang mati.\nNyalakan dengan `/config set tickets:true` dulu.',
-              '❌ Modul Mati',
-            ),
-          ],
+          embeds: [warningEmbed(t('ticket.err.moduleOff'), t('ticket.err.moduleOffTitle'))],
         });
         return;
       }
 
       if (sub === 'transcript') {
-        await showTranscript(interaction, guildId, config);
+        await showTranscript(interaction, guildId, config, t);
         return;
       }
 
       if (sub === 'list') {
         const summary = await getTicketService().listOpen(guildId, TICKET_LIST_LIMIT);
-        await interaction.editReply({ embeds: [ticketListEmbed(summary.tickets, summary.total)] });
+        await interaction.editReply({
+          embeds: [ticketListEmbed(summary.tickets, summary.total, t)],
+        });
         return;
       }
 
       if (sub === 'close') {
-        await closeFromCommand(interaction, guild);
+        await closeFromCommand(interaction, guild, t);
         return;
       }
 
-      await postPanel(interaction, guild, config, sub === 'setup', configs);
+      await postPanel(interaction, guild, config, sub === 'setup', configs, t);
     } catch (error) {
-      await interaction.editReply({ embeds: [toTicketErrorEmbed(error)] });
+      await interaction.editReply({ embeds: [toTicketErrorEmbed(error, t)] });
     }
   },
 } satisfies BotCommand;
@@ -161,8 +169,9 @@ async function postPanel(
   config: Awaited<ReturnType<ConfigService['get']>>,
   isSetup: boolean,
   configs: ConfigService,
+  t: Translator,
 ): Promise<void> {
-  const incomplete = missingTicketConfig(config);
+  const incomplete = missingTicketConfig(config, t);
   if (incomplete) {
     await interaction.editReply({ embeds: [warningEmbed(incomplete)] });
     return;
@@ -178,11 +187,7 @@ async function postPanel(
 
   if (!panelChannel) {
     await interaction.editReply({
-      embeds: [
-        warningEmbed(
-          'Channel panel tiket tidak bisa dikirim. Pastikan channel-nya masih ada dan bertipe teks.',
-        ),
-      ],
+      embeds: [warningEmbed(t('ticket.cmd.noPanelChannel'))],
     });
     return;
   }
@@ -198,12 +203,15 @@ async function postPanel(
 
   const sent = await panelChannel.send({
     embeds: [
-      ticketPanelEmbed({
-        staffRoleId,
-        description: interaction.options.getString('description'),
-      }),
+      ticketPanelEmbed(
+        {
+          staffRoleId,
+          description: interaction.options.getString('description'),
+        },
+        t,
+      ),
     ],
-    components: [buildCreateButton()],
+    components: [buildCreateButton(t)],
   });
 
   // Panel lama dihapus supaya member tidak punya dua tombol yang menunjuk ke
@@ -216,10 +224,10 @@ async function postPanel(
   await interaction.editReply({
     embeds: [
       successEmbed(
-        isSetup
-          ? `Tiket siap dipakai. Panel dikirim ke ${panelChannel}.`
-          : `Panel tiket dikirim ulang ke ${panelChannel}.`,
-        '🎫 Tiket Disiapkan',
+        t(isSetup ? 'ticket.cmd.setupDone' : 'ticket.cmd.panelResent', {
+          channel: panelChannel.id,
+        }),
+        t('ticket.cmd.panelTitle'),
       ),
     ],
   });
@@ -241,16 +249,12 @@ async function showTranscript(
   interaction: Interaction,
   guildId: string,
   config: Awaited<ReturnType<ConfigService['get']>>,
+  t: Translator,
 ): Promise<void> {
   const ticket = await resolveTicket(interaction, guildId);
   if (!ticket) {
     await interaction.editReply({
-      embeds: [
-        warningEmbed(
-          'Tiket tidak ditemukan. Jalankan di dalam channel tiketnya, atau sebut nomornya ' +
-            'lewat `/ticket transcript ticket:7`.',
-        ),
-      ],
+      embeds: [warningEmbed(t('ticket.cmd.noTicket'))],
     });
     return;
   }
@@ -258,11 +262,7 @@ async function showTranscript(
   const isOwner = ticket.openerId === interaction.user.id;
   if (!isOwner && !isStaff(interaction.member as GuildMember | null, config)) {
     await interaction.editReply({
-      embeds: [
-        warningEmbed(
-          'Transkrip ini hanya bisa dibaca staff tiket atau member yang membukanya.',
-        ),
-      ],
+      embeds: [warningEmbed(t('ticket.cmd.transcriptDenied'))],
     });
     return;
   }
@@ -271,19 +271,15 @@ async function showTranscript(
   if (!transcript) {
     await interaction.editReply({
       embeds: [
-        warningEmbed(
-          'Transkrip untuk tiket ini tidak tersedia. Bisa jadi tiketnya ditutup sebelum ' +
-            'fitur transkrip ada, channelnya sudah dihapus manual, atau pembacaan pesannya gagal.',
-          '📄 Transkrip Tidak Tersedia',
-        ),
+        warningEmbed(t('ticket.cmd.noTranscript'), t('ticket.cmd.noTranscriptTitle')),
       ],
     });
     return;
   }
 
-  const text = renderTranscriptText(ticket, transcript);
+  const text = renderTranscriptText(ticket, transcript, t);
   await interaction.editReply({
-    embeds: [ticketTranscriptEmbed(ticket, transcript)],
+    embeds: [ticketTranscriptEmbed(ticket, transcript, t)],
     files: [
       {
         attachment: Buffer.from(text, 'utf8'),
@@ -310,15 +306,15 @@ function transcriptFileName(ticket: Ticket): string {
   return `transkrip-tiket-${number}.txt`;
 }
 
-async function closeFromCommand(interaction: Interaction, guild: Guild): Promise<void> {
+async function closeFromCommand(
+  interaction: Interaction,
+  guild: Guild,
+  t: Translator,
+): Promise<void> {
   const ticket = await getTicketService().findOpenByChannel(guild.id, interaction.channelId);
   if (!ticket) {
     await interaction.editReply({
-      embeds: [
-        warningEmbed(
-          'Tidak ada tiket terbuka di channel ini. Jalankan perintah ini di dalam channel tiketnya.',
-        ),
-      ],
+      embeds: [warningEmbed(t('ticket.cmd.noOpenHere'))],
     });
     return;
   }
@@ -328,28 +324,23 @@ async function closeFromCommand(interaction: Interaction, guild: Guild): Promise
     guild,
     interaction.channelId,
     interaction.user.id,
+    new Date(),
+    t,
   );
   if (!result) {
-    await interaction.editReply({ embeds: [warningEmbed('Tiket ini sudah ditutup.')] });
+    await interaction.editReply({ embeds: [warningEmbed(t('ticket.err.alreadyClosed'))] });
     return;
   }
 
   if (!result.channel) {
     await interaction.editReply({
-      embeds: [
-        warningEmbed(
-          `Tiket ${result.ticket.ticketNumber} ditandai sudah ditutup, tapi channelnya tidak bisa diarsipkan ` +
-            '(kemungkinan sudah dihapus manual).',
-        ),
-      ],
+      embeds: [warningEmbed(t('ticket.cmd.closedChannelGone', { number: result.ticket.ticketNumber }))],
     });
     return;
   }
 
   await interaction.editReply({
-    embeds: [
-      successEmbed(`Tiket ${result.ticket.ticketNumber} ditutup dan diarsipkan.`),
-    ],
+    embeds: [successEmbed(t('ticket.cmd.closed', { number: result.ticket.ticketNumber }))],
   });
 }
 

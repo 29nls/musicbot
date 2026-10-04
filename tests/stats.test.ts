@@ -362,8 +362,23 @@ describe('StatsService', () => {
     const repository = new FakeStatRepository();
     const service = new StatsService(repository, quietLogger);
 
-    await service.recordTrack({ guildId: GUILD_ID, title: 'Lagu', uri: 'https://youtu.be/abc', listenedMs: 200_000 });
-    await service.recordTrack({ guildId: GUILD_ID, title: 'Lagu', uri: 'https://youtu.be/abc', listenedMs: 100_000 });
+    // `at: NOW`: menulis dan membaca harus memakai jam yang sama. Tanpa ini,
+    // tesnya bergantung jam dinding — jam berapa pun saat dijalankan, rentang
+    // `now: NOW` tidak akan memuat baris yang dicatat "hari ini".
+    await service.recordTrack({
+      guildId: GUILD_ID,
+      title: 'Lagu',
+      uri: 'https://youtu.be/abc',
+      listenedMs: 200_000,
+      at: NOW,
+    });
+    await service.recordTrack({
+      guildId: GUILD_ID,
+      title: 'Lagu',
+      uri: 'https://youtu.be/abc',
+      listenedMs: 100_000,
+      at: NOW,
+    });
 
     expect(repository.rows).toHaveLength(1);
     expect(repository.rows[0]?.count).toBe(2);
@@ -396,8 +411,8 @@ describe('StatsService', () => {
     const repository = new FakeStatRepository();
     const service = new StatsService(repository, quietLogger);
 
-    await service.recordCommand('play', GUILD_ID);
-    await service.recordTrack({ guildId: GUILD_ID, title: 'Lagu', listenedMs: 10_000 });
+    await service.recordCommand('play', GUILD_ID, NOW);
+    await service.recordTrack({ guildId: GUILD_ID, title: 'Lagu', listenedMs: 10_000, at: NOW });
 
     expect(await service.summary({ guildId: GUILD_ID, kind: 'command', now: NOW })).toMatchObject({ totalCount: 1 });
     expect(await service.summary({ guildId: GUILD_ID, kind: 'track', now: NOW })).toMatchObject({ totalCount: 1 });

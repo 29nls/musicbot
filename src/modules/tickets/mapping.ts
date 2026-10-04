@@ -25,7 +25,7 @@ export interface TicketRow {
 /**
  * Baris DB → domain.
  *
- * Status yang tidak dikenal (mis. versi bot yang lebih baru, atau kurasakan)
+ * Status yang tidak dikenal (mis. versi bot yang lebih baru, atau data lama)
  * dianggap `closed`: data lama tidak boleh muncul lagi sebagai tiket aktif.
  */
 export function toDomain(row: TicketRow): Ticket {

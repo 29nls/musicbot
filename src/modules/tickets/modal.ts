@@ -12,6 +12,7 @@ import {
 import { getLogger } from '../../services/logger.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService, type GuildConfig } from '../config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../i18n/index.js';
 import { toTicketErrorEmbed } from './errors.js';
 import { openTicket, type OpenTicketOutcome } from './lifecycle.js';
 import { getTicketService } from './singleton.js';
@@ -27,16 +28,18 @@ import { missingTicketConfig, parseTicketSubject } from './validation.js';
 const SUBJECT_FIELD = 'subjek';
 
 /** Modal yang meminta topik singkat dari member. */
-export function buildTicketSubjectModal(): ModalBuilder {
+export function buildTicketSubjectModal(
+  t: Translator = defaultTranslator,
+): ModalBuilder {
   return new ModalBuilder()
     .setCustomId(TICKET_SUBJECT_MODAL)
-    .setTitle('Buat Tiket')
+    .setTitle(t('ticket.modal.title'))
     .addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
           .setCustomId(SUBJECT_FIELD)
-          .setLabel('Topik tiket')
-          .setPlaceholder('Contoh: tidak bisa masuk voice channel')
+          .setLabel(t('ticket.modal.subjectLabel'))
+          .setPlaceholder(t('ticket.modal.subjectPlaceholder'))
           .setStyle(TextInputStyle.Short)
           .setMinLength(MODAL_SUBJECT_MIN_LENGTH)
           .setMaxLength(MODAL_SUBJECT_MAX_LENGTH)
@@ -55,20 +58,21 @@ export function buildTicketSubjectModal(): ModalBuilder {
 export async function showTicketSubjectModal(
   interaction: ButtonInteraction,
   config: GuildConfig,
+  t: Translator = defaultTranslator,
 ): Promise<void> {
-  const incomplete = missingTicketConfig(config);
+  const incomplete = missingTicketConfig(config, t);
   if (incomplete) {
     await reply(interaction, warningEmbed(incomplete));
     return;
   }
 
   try {
-    await interaction.showModal(buildTicketSubjectModal());
+    await interaction.showModal(buildTicketSubjectModal(t));
   } catch (error) {
     getLogger().warn({ err: error, guild: interaction.guildId }, 'Gagal membuka modal tiket');
     await reply(
       interaction,
-      warningEmbed('Tidak bisa membuka formulir tiket. Coba lagi sebentar lagi.'),
+      warningEmbed(t('ticket.modal.openFailed')),
     );
   }
 }
@@ -88,66 +92,76 @@ export async function handleTicketSubjectSubmit(
   const guild = interaction.guild;
   if (!guild) return;
 
+  const t = await translatorFor(guild.id);
+
   let subject: string;
   try {
     subject = parseTicketSubject(interaction.fields.getTextInputValue(SUBJECT_FIELD));
   } catch (error) {
-    await reply(interaction, toTicketErrorEmbed(error));
+    await reply(interaction, toTicketErrorEmbed(error, t));
     return;
   }
 
   try {
     const config = await getGuildConfigService().get(guild.id);
     if (!config.modules.tickets) {
-      await reply(interaction, warningEmbed('Modul tiket sedang mati di server ini.'));
+      await reply(interaction, warningEmbed(t('ticket.err.moduleOff')));
       return;
     }
 
-    const incomplete = missingTicketConfig(config);
+    const incomplete = missingTicketConfig(config, t);
     if (incomplete) {
       await reply(interaction, warningEmbed(incomplete));
       return;
     }
 
     const member = interaction.member as GuildMember | null;
-    const outcome = await openTicket(getTicketService(), guild, {
-      staffRoleId: config.ticketStaffRoleId as string,
-      openerId: member?.id ?? interaction.user.id,
-      subject,
-    });
+    const outcome = await openTicket(
+      getTicketService(),
+      guild,
+      {
+        staffRoleId: config.ticketStaffRoleId as string,
+        openerId: member?.id ?? interaction.user.id,
+        subject,
+      },
+      t,
+    );
 
     if (!outcome.ok) {
-      await reply(interaction, failureEmbed(outcome));
+      await reply(interaction, failureEmbed(outcome, t));
       return;
     }
 
     await reply(
       interaction,
-      successEmbed(`Tiket dibuat: <#${outcome.channel.id}>. Topik: **${outcome.ticket.subject}**`),
+      successEmbed(t('ticket.modal.created', {
+        channel: outcome.channel.id,
+        subject: outcome.ticket.subject ?? '',
+      })),
     );
   } catch (error) {
     getLogger().error(
       { err: error, guild: guild.id, user: interaction.user.id },
       'Pengiriman formulir tiket gagal',
     );
-    await reply(interaction, toTicketErrorEmbed(error));
+    await reply(interaction, toTicketErrorEmbed(error, t));
   }
 }
 
 /** Pesan yang tepat untuk setiap kegagalan, tanpa menebak. */
-function failureEmbed(outcome: Extract<OpenTicketOutcome, { ok: false }>): EmbedBuilder {
+function failureEmbed(
+  outcome: Extract<OpenTicketOutcome, { ok: false }>,
+  t: Translator,
+): EmbedBuilder {
   if (outcome.reason === 'duplicate') {
     return warningEmbed(
       outcome.existingChannelId
-        ? `Kamu sudah punya tiket terbuka: <#${outcome.existingChannelId}>. Tutup dulu sebelum membuka yang baru.`
-        : 'Kamu sudah punya tiket terbuka. Tutup dulu sebelum membuka yang baru.',
+        ? t('ticket.modal.duplicateWithChannel', { channel: outcome.existingChannelId })
+        : t('ticket.modal.duplicate'),
     );
   }
 
-  return warningEmbed(
-    'Gagal membuat channel tiket. Pastikan aku punya izin **Manage Channels** ' +
-      'dan kategori tiket yang kamu tentukan masih ada.',
-  );
+  return warningEmbed(t('ticket.err.channelFailed'));
 }
 
 async function reply(

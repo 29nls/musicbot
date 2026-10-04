@@ -19,12 +19,12 @@ import { checkCooldown } from '../utils/cooldown.js';
  * File terpisah dari `messageCreate.ts` (automod) karena keduanya listen ke
  * event yang sama tapi tidak ada hubungannya: satu menilai pesan untuk
  * melanggar rule, satu lagi untuk melihat apakah pesan itu memanggil perintah
- * custom. Menggabungkannya hanya akan membuat duaconcerns ikut memblokir satu
+ * custom. Menggabungkannya hanya akan membuat dua concerns ikut memblokir satu
  * sama lain.
  *
  * **Urutan pemeriksaan di sini menentukan biaya setiap pesan di server.**
  * Pemicu dibaca lebih dulu dan hanya dari isi pesan — tanpa satu pun query —
- * karena itu majority dari semua pesan yang masuk. Database baru disentuh
+ * karena itu mayoritas dari semua pesan yang masuk. Database baru disentuh
  * setelah pesan itu benar-benar berbentuk pemicu, modulnya nyala, dan hak
  * kirim pesan sudah dipastikan ada.
  */

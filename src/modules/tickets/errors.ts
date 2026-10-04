@@ -1,4 +1,5 @@
 import type { EmbedBuilder } from 'discord.js';
+import { defaultTranslator, type MessageKey, type Translator } from '../i18n/index.js';
 import { getLogger } from '../../services/logger.js';
 import { isDatabaseUnavailableError } from '../../services/prismaErrors.js';
 import { errorEmbed } from '../../utils/embeds.js';
@@ -9,33 +10,34 @@ import { TicketValidationError } from './validation.js';
  *
  * Detail internal tidak pernah bocor ke user; pesan di sini ditulis supaya
  * penyebab yang sering terjadi (izin Discord kurang, channel dihapus) punya
- * penjelasan yang bisa ditindaklanjuti.
+ * penjelasan yang bisa ditindaklanjuti. Pesan yang datang dari error ber-kunci
+ * ikut bahasa server.
  */
-export function toTicketErrorEmbed(error: unknown): EmbedBuilder {
+export function toTicketErrorEmbed(
+  error: unknown,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   if (isDatabaseUnavailableError(error)) {
-    return errorEmbed(
-      'Database tidak bisa dihubungi, jadi tiket tidak bisa dicatat.\n' +
-        'Periksa `DATABASE_URL` di .env dan koneksi internetmu; `npm run infra:up` hanya berlaku kalau memakai Postgres lokal.',
-      '❌ Database Offline',
-    );
+    return errorEmbed(t('ticket.err.dbOffline'), t('ticket.err.dbOfflineTitle'));
   }
 
   if (error instanceof TicketChannelError || error instanceof TicketValidationError) {
-    return errorEmbed(error.message);
+    return errorEmbed(t(error.key, error.params));
   }
 
   getLogger().error({ err: error }, 'Sistem tiket gagal diproses');
 
-  return errorEmbed(
-    'Terjadi kesalahan saat memproses tiket. Detailnya sudah dicatat di log bot.',
-  );
+  return errorEmbed(t('ticket.err.generic'));
 }
 
 /** Kesalahan yang diketahui penyebabnya dan bisa dijelaskan ke member. */
 export class TicketChannelError extends Error {
   public override readonly name = 'TicketChannelError';
 
-  constructor(message: string) {
-    super(message);
+  constructor(
+    public readonly key: MessageKey,
+    public readonly params?: Record<string, string | number>,
+  ) {
+    super(defaultTranslator(key, params));
   }
 }

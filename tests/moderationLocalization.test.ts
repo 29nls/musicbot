@@ -397,8 +397,12 @@ describe('renderer moderasi tanpa penerjemah', () => {
  * kalimat Indonesia. Begitu salah satu diterjemahkan, pengujian itu gagal dan
  * daftar di sini harus ikut diperkecil — jadi tidak ada perintah yang diam-diam
  * lolos dari penjaga.
+ *
+ * Sekarang kosong: `/customcommand`, `/reactionrole`, dan `/ticket` sudah
+ * mengambil seluruh teksnya dari katalog, jadi penjaga ini berlaku penuh untuk
+ * semua berkas perintah admin.
  */
-const BELUM_DITERJEMAHKAN = ['customcommand.ts', 'reactionrole.ts', 'ticket.ts'];
+const BELUM_DITERJEMAHKAN: string[] = [];
 
 /**
  * Penjaga: tidak boleh ada kalimat Bahasa Indonesia yang ditulis langsung di

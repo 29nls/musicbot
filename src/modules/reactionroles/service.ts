@@ -1,4 +1,5 @@
 import { getLogger } from '../../services/logger.js';
+import { defaultTranslator, type MessageKey } from '../i18n/index.js';
 import type { ReactionRoleRepository } from './repository.js';
 import type {
   CreatePanelInput,
@@ -12,7 +13,7 @@ import { assertPanelKeepsOneOption, normalizeRoleInputs } from './validation.js'
 /**
  * Logika domain panel reaction role.
  *
- * Tidak menyentuh Discord:permission role, select menu, dan pengiriman pesan
+ * Tidak menyentuh Discord: permission role, select menu, dan pengiriman pesan
  * tetap di lapisan perintah & handler komponen.
  */
 export class ReactionRoleService {
@@ -21,7 +22,7 @@ export class ReactionRoleService {
   async create(input: CreatePanelInput): Promise<ReactionRolePanel> {
     const roles = normalizeRoleInputs(input.roles);
     if (roles.length === 0) {
-      throw new ReactionRoleEmptyError('Pilih minimal satu role untuk panel.');
+      throw new ReactionRoleEmptyError('rr.err.noRolesForPanel');
     }
 
     return this.repository.create({ ...input, roles });
@@ -69,7 +70,7 @@ export class ReactionRoleService {
       panel.options.map((option) => option.roleId),
     );
     if (additions.length === 0) {
-      throw new ReactionRoleEmptyError('Semua role itu sudah ada di panel ini.');
+      throw new ReactionRoleEmptyError('rr.err.allRolesInPanel');
     }
 
     return this.repository.addOptions(panelId, additions);
@@ -89,7 +90,7 @@ export class ReactionRoleService {
     return this.repository.removeOptions(panelId, roleIds);
   }
 
-  /** Hapus panel; pemanggil yang responsible menghapus pesan Discord-nya. */
+  /** Hapus panel; pemanggil yang bertanggung jawab menghapus pesan Discord-nya. */
   async delete(guildId: string, panelId: number): Promise<ReactionRolePanel | null> {
     return this.repository.delete(guildId, panelId);
   }
@@ -109,11 +110,19 @@ export class ReactionRoleService {
   }
 }
 
-/** Pesan aman ke user saat panel kosong / input tidak mengubah apa pun. */
+/**
+ * Pesan aman ke user saat panel kosong / input tidak mengubah apa pun.
+ *
+ * Sama seperti error validasi: yang dibawa adalah kunci katalog, bukan
+ * kalimat, supaya tampil dalam bahasa server.
+ */
 export class ReactionRoleEmptyError extends Error {
   public override readonly name = 'ReactionRoleEmptyError';
 
-  constructor(message: string) {
-    super(message);
+  constructor(
+    public readonly key: MessageKey,
+    public readonly params?: Record<string, string | number>,
+  ) {
+    super(defaultTranslator(key, params));
   }
 }

@@ -1,3 +1,4 @@
+import { defaultTranslator, type MessageKey } from '../i18n/index.js';
 import { MAX_NAME_LENGTH, MAX_RESPONSE_LENGTH, TRIGGER_PREFIX } from './types.js';
 
 /**
@@ -17,12 +18,22 @@ import { MAX_NAME_LENGTH, MAX_RESPONSE_LENGTH, TRIGGER_PREFIX } from './types.js
  */
 const NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
-/** Nama pemicu tidak valid; pesannya aman langsung ditampilkan ke admin. */
+/**
+ * Nama pemicu tidak valid; pesannya aman langsung ditampilkan ke admin.
+ *
+ * Yang disimpan bukan kalimatnya, melainkan kunci katalog + parameternya:
+ * pemanggil yang menyusun embed menerjemahkannya ke bahasa server. `message`
+ * tetap diisi bahasa Indonesia supaya log internal dan `toThrow` di tes tidak
+ * kehilangan teks.
+ */
 export class CustomCommandValidationError extends Error {
   public override readonly name = 'CustomCommandValidationError';
 
-  constructor(message: string) {
-    super(message);
+  constructor(
+    public readonly key: MessageKey,
+    public readonly params?: Record<string, string | number>,
+  ) {
+    super(defaultTranslator(key, params));
   }
 }
 
@@ -48,27 +59,23 @@ export function parseTriggerName(raw: string, options: ParseNameOptions = {}): s
   if (prefix && name.startsWith(prefix)) name = name.slice(prefix.length).trim();
 
   if (name.length === 0) {
-    throw new CustomCommandValidationError('Nama perintah tidak boleh kosong.');
+    throw new CustomCommandValidationError('cc.err.emptyName');
   }
 
   if (name.length > MAX_NAME_LENGTH) {
-    throw new CustomCommandValidationError(
-      `Nama perintah maksimal ${MAX_NAME_LENGTH} karakter (sekarang ${name.length}).`,
-    );
+    throw new CustomCommandValidationError('cc.err.nameTooLong', {
+      max: MAX_NAME_LENGTH,
+      now: name.length,
+    });
   }
 
   if (!NAME_PATTERN.test(name)) {
-    throw new CustomCommandValidationError(
-      'Nama perintah harus diawali huruf, lalu hanya boleh huruf, angka, strip (-), dan garis bawah (_).',
-    );
+    throw new CustomCommandValidationError('cc.err.namePattern');
   }
 
   const reserved = (options.reserved ?? []).map((item) => item.toLocaleLowerCase('id'));
   if (reserved.includes(name)) {
-    throw new CustomCommandValidationError(
-      `\`${prefix}${name}\` tidak boleh dipakai: nama itu dipakai perintah Harmony yang lain. ` +
-        'Pilih nama lain supaya tidak ambigu.',
-    );
+    throw new CustomCommandValidationError('cc.err.reserved', { name: `${prefix}${name}` });
   }
 
   return name;
@@ -85,13 +92,14 @@ export function parseResponse(raw: string): string {
   const response = raw.replace(/\r\n?/g, '\n').replace(/[ \t]{2,}/g, ' ').trim();
 
   if (response.length === 0) {
-    throw new CustomCommandValidationError('Isi balasan tidak boleh kosong.');
+    throw new CustomCommandValidationError('cc.err.emptyResponse');
   }
 
   if (response.length > MAX_RESPONSE_LENGTH) {
-    throw new CustomCommandValidationError(
-      `Isi balasan maksimal ${MAX_RESPONSE_LENGTH} karakter (sekarang ${response.length}).`,
-    );
+    throw new CustomCommandValidationError('cc.err.responseTooLong', {
+      max: MAX_RESPONSE_LENGTH,
+      now: response.length,
+    });
   }
 
   return response;

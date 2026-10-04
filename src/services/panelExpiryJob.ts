@@ -4,6 +4,7 @@ import { closePanel, type PanelCloser } from '../modules/reactionroles/expire.js
 import { getReactionRoleService } from '../modules/reactionroles/index.js';
 import type { ReactionRoleService } from '../modules/reactionroles/service.js';
 import { getLogger } from './logger.js';
+import { translatorFor } from '../modules/i18n/index.js';
 
 /**
  * Yang dibutuhkan job dari modul reaction role — interface tipis supaya bisa
@@ -152,7 +153,8 @@ async function sweep(
     }
 
     try {
-      const outcome = await closePanel(runner, guild, panel, 'expired', now);
+      const t = await translatorFor(panel.guildId);
+      const outcome = await closePanel(runner, guild, panel, 'expired', now, t);
 
       if (!outcome.changed) result.skipped += 1;
       else {

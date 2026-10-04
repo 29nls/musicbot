@@ -4,6 +4,7 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 import { getGuildConfigService } from '../../modules/config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import {
   MAX_NAME_LENGTH,
   MAX_RESPONSE_LENGTH,
@@ -100,15 +101,25 @@ export default {
   guildOnly: true,
   cooldownSeconds: 3,
   async execute(interaction, client) {
-    if (!interaction.inCachedGuild() || !canManageGuild(interaction)) {
+    if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const guildId = interaction.guildId;
+    const t = await translatorFor(guildId);
+
+    if (!canManageGuild(interaction)) {
+      await interaction.reply({
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
@@ -118,12 +129,10 @@ export default {
 
       if (sub === 'list') {
         const commands = await service.list(guildId);
-        const embed = customCommandListEmbed(commands);
+        const embed = customCommandListEmbed(commands, t);
 
         if (!config.modules.customCommands) {
-          embed.setFooter({
-            text: 'Modul sedang mati — perintah tidak akan dipanggil. Nyalakan dengan /config set custom-commands:true',
-          });
+          embed.setFooter({ text: t('cc.list.moduleOff') });
         }
 
         await interaction.editReply({ embeds: [embed] });
@@ -145,11 +154,11 @@ export default {
         await interaction.editReply({
           embeds: [
             successEmbed(
-              (result.kind === 'created'
-                ? `Perintah \`${TRIGGER_PREFIX}${command.name}\` dibuat.`
-                : `Balasan \`${TRIGGER_PREFIX}${command.name}\` diperbarui.`) +
-                `\n\n${command.response}`,
-              result.kind === 'created' ? '💬 Perintah Ditambahkan' : '♻️ Perintah Diperbarui',
+              t(result.kind === 'created' ? 'cc.add.created' : 'cc.add.replaced', {
+                prefix: TRIGGER_PREFIX,
+                name: command.name,
+              }) + `\n\n${command.response}`,
+              t(result.kind === 'created' ? 'cc.add.titleCreated' : 'cc.add.titleUpdated'),
             ),
           ],
         });
@@ -162,7 +171,7 @@ export default {
 
         if (result.kind === 'not-found') {
           await interaction.editReply({
-            embeds: [warningEmbed(`Perintah \`${TRIGGER_PREFIX}${name}\` tidak ada di server ini.`)],
+            embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }))],
           });
           return;
         }
@@ -170,8 +179,9 @@ export default {
         await interaction.editReply({
           embeds: [
             successEmbed(
-              `Balasan \`${TRIGGER_PREFIX}${result.command.name}\` diperbarui.\n\n${result.command.response}`,
-              '💬 Perintah Diperbarui',
+              t('cc.add.replaced', { prefix: TRIGGER_PREFIX, name: result.command.name }) +
+                `\n\n${result.command.response}`,
+              t('cc.add.titleUpdated'),
             ),
           ],
         });
@@ -183,12 +193,12 @@ export default {
 
         if (result.kind === 'not-found') {
           await interaction.editReply({
-            embeds: [warningEmbed(`Perintah \`${TRIGGER_PREFIX}${name}\` tidak ada di server ini.`)],
+            embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }))],
           });
           return;
         }
 
-        await interaction.editReply({ embeds: [customCommandDeletedEmbed(result.command)] });
+        await interaction.editReply({ embeds: [customCommandDeletedEmbed(result.command, t)] });
         return;
       }
 
@@ -196,19 +206,19 @@ export default {
 
       if (!command) {
         await interaction.editReply({
-          embeds: [warningEmbed(`Perintah \`${TRIGGER_PREFIX}${name}\` tidak ada di server ini.`)],
+          embeds: [warningEmbed(t('cc.err.notFound', { prefix: TRIGGER_PREFIX, name }))],
         });
         return;
       }
 
       await interaction.editReply({
-        embeds: [customCommandDetailEmbed(command, buildPreview(interaction, command))],
+        embeds: [customCommandDetailEmbed(command, buildPreview(interaction, command, t), t)],
       });
     } catch (error) {
       // Validasi nama/isi balasan adalah kesalahan admin yang harus dibacakan
       // apa adanya; sisanya dicatat sebagai kegagalan bot.
       if (error instanceof CustomCommandValidationError) {
-        await interaction.editReply({ embeds: [errorEmbed(error.message)] });
+        await interaction.editReply({ embeds: [errorEmbed(t(error.key, error.params))] });
         return;
       }
 
@@ -218,7 +228,7 @@ export default {
       );
 
       await interaction.editReply({
-        embeds: [errorEmbed('Gagal memproses perintah custom. Detailnya sudah dicatat di log bot.')],
+        embeds: [errorEmbed(t('cc.err.generic'))],
       });
     }
   },
@@ -233,13 +243,14 @@ export default {
 function buildPreview(
   interaction: Interaction,
   command: CustomCommand,
+  t: Translator,
 ): { text: string; truncated: boolean } | null {
   const text = renderedMessage(command.response, {
     userId: interaction.user.id,
     username: interaction.user.displayName || interaction.user.username,
     guildName: interaction.guild?.name ?? 'Server',
     channelId: interaction.channelId,
-    args: 'contoh',
+    args: t('cc.preview.args'),
   });
 
   if (!text) return null;

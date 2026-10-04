@@ -304,6 +304,18 @@ describe('penjaga: tidak ada teks Indonesia yang tertinggal di modul automod', (
     expect(offenders).toEqual([]);
   });
 
+  it('embed balasan di perintah automod tidak pernah menerima kalimat jadi', () => {
+    // Gerbang izin di berkas perintah sempat lolos dari sapuan sebelumnya karena
+    // penjaganya hanya memindai `src/modules/automod`. Tes ini memindai badan
+    // perintahnya sendiri: setiap pemanggil embed harus lewat `t`, bukan literal.
+    const code = stripComments(readFileSync('src/commands/admin/automod.ts', 'utf8'));
+    const offenders = [
+      ...code.matchAll(/(?:warningEmbed|successEmbed|infoEmbed|errorEmbed)\(\s*'([^']*)'/g),
+    ].map((match) => match[0]);
+
+    expect(offenders).toEqual([]);
+  });
+
   it('daftar berkas yang sudah diterjemahkan sama persis dengan kenyataan', async () => {
     const files = (await listModuleFiles('src/modules/automod'))
       .map((file) => basename(file))

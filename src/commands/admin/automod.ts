@@ -194,9 +194,9 @@ export default {
   guildOnly: true,
   cooldownSeconds: 5,
   async execute(interaction, _client) {
-    if (!interaction.inGuild() || !canManageGuild(interaction)) {
+    if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -204,6 +204,14 @@ export default {
 
     const guildId = interaction.guildId;
     const t = await translatorFor(guildId);
+
+    if (!canManageGuild(interaction)) {
+      await interaction.reply({
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
     const group = interaction.options.getSubcommandGroup(false);
     const subcommand = interaction.options.getSubcommand(true);
     const service = getAutomodService();

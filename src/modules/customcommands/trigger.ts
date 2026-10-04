@@ -6,6 +6,7 @@
  * apa yang sebenarnya terkirim setelah placeholder diganti.
  */
 
+import { type MessageKey } from '../i18n/index.js';
 import { PLACEHOLDER_TOKENS, TRIGGER_PREFIX } from './types.js';
 
 export interface ParsedTrigger {
@@ -31,7 +32,7 @@ function stripBotMention(content: string, botId: string | null | undefined): str
 /**
  * Baca isi pesan dan putuskan apakah itu pemicu perintah custom.
  *
- * Mengembalikan `null` untuk semua yang bukan pemicu — dan itulah majority
+ * Mengembalikan `null` untuk semua yang bukan pemicu — dan itulah mayoritas
  * dari semua pesan di server mana pun. Karena itu pemeriksaan ini harus murahan
  * dan tidak menyentuh database sama sekali: harga salah membaca di sini bukan
  * satu pesan keliru, tapi satu query untuk setiap pesan yang masuk.
@@ -92,13 +93,18 @@ export function renderResponse(template: string, context: RenderContext): string
     .trim();
 }
 
-/** Placeholder yang dipakai di balasan, untuk ditampilkan di `/customcommand show`. */
-export const PLACEHOLDER_HELP: Array<{ token: string; label: string }> = [
-  { token: PLACEHOLDER_TOKENS[0], label: 'mention pemanggil' },
-  { token: PLACEHOLDER_TOKENS[1], label: 'nama pengguna pemanggil' },
-  { token: PLACEHOLDER_TOKENS[2], label: 'nama server ini' },
-  { token: PLACEHOLDER_TOKENS[3], label: 'mention channel tempat dipanggil' },
-  { token: PLACEHOLDER_TOKENS[4], label: 'teks setelah nama perintah' },
+/**
+ * Placeholder yang dipakai di balasan, untuk ditampilkan di `/customcommand show`.
+ *
+ * Label disimpan sebagai kunci katalog, bukan kalimat: embed yang
+ * menampilkannya yang menerjemahkannya ke bahasa server.
+ */
+export const PLACEHOLDER_HELP: Array<{ token: string; labelKey: MessageKey }> = [
+  { token: PLACEHOLDER_TOKENS[0], labelKey: 'cc.placeholder.user' },
+  { token: PLACEHOLDER_TOKENS[1], labelKey: 'cc.placeholder.username' },
+  { token: PLACEHOLDER_TOKENS[2], labelKey: 'cc.placeholder.guild' },
+  { token: PLACEHOLDER_TOKENS[3], labelKey: 'cc.placeholder.channel' },
+  { token: PLACEHOLDER_TOKENS[4], labelKey: 'cc.placeholder.args' },
 ];
 
 /** Balasan yang utuh setelah dirender tidak boleh kosong; kalau kosong, bot diam. */

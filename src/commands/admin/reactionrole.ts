@@ -6,6 +6,7 @@ import {
   type Role,
 } from 'discord.js';
 import { getGuildConfigService } from '../../modules/config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import {
   MAX_PANEL_OPTIONS,
   buildPanelComponents,
@@ -131,15 +132,25 @@ export default {
   guildOnly: true,
   cooldownSeconds: 5,
   async execute(interaction) {
-    if (!interaction.inCachedGuild() || !canManageGuild(interaction)) {
+    if (!interaction.inGuild()) {
       await interaction.reply({
-        embeds: [warningEmbed('Perintah ini butuh izin **Manage Server**.')],
+        embeds: [warningEmbed(defaultTranslator('mod.gate.guildOnly'))],
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const guildId = interaction.guildId;
+    const t = await translatorFor(guildId);
+
+    if (!interaction.inCachedGuild() || !canManageGuild(interaction)) {
+      await interaction.reply({
+        embeds: [warningEmbed(t('mod.gate.needsPermission', { permission: 'Manage Server' }))],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     const guild = interaction.guild;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -147,12 +158,7 @@ export default {
       const config = await getGuildConfigService().get(guildId);
       if (!config.modules.reactions) {
         await interaction.editReply({
-          embeds: [
-            warningEmbed(
-              'Modul reaction role sedang mati.\nNyalakan dengan `/config set reactions:true` dulu.',
-              '❌ Modul Mati',
-            ),
-          ],
+          embeds: [warningEmbed(t('rr.err.moduleOff'), t('rr.err.moduleOffTitle'))],
         });
         return;
       }
@@ -162,12 +168,12 @@ export default {
 
       if (sub === 'list') {
         const panels = await service.list(guildId);
-        await interaction.editReply({ embeds: [panelListEmbed(panels)] });
+        await interaction.editReply({ embeds: [panelListEmbed(panels, t)] });
         return;
       }
 
       if (sub === 'post') {
-        await postPanel(interaction, guild);
+        await postPanel(interaction, guild, t);
         return;
       }
 
@@ -177,15 +183,15 @@ export default {
         const panel = await service.find(guildId, panelId);
         if (!panel) {
           await interaction.editReply({
-            embeds: [warningEmbed(`Panel #${panelId} tidak ada di server ini.`)],
+            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }))],
           });
           return;
         }
 
-        const outcome = await closePanel(service, guild, panel, 'manual');
+        const outcome = await closePanel(service, guild, panel, 'manual', new Date(), t);
         if (!outcome.changed) {
           await interaction.editReply({
-            embeds: [warningEmbed(`Panel **#${panelId}** sudah ditutup sebelumnya.`)],
+            embeds: [warningEmbed(t('rr.cmd.alreadyClosed', { id: String(panelId) }))],
           });
           return;
         }
@@ -193,11 +199,10 @@ export default {
         await interaction.editReply({
           embeds: [
             successEmbed(
-              outcome.messageUpdated
-                ? `Panel **#${panelId}** ditutup. Select menu-nya sudah dilepas; pesan & datanya tetap tersimpan.`
-                : `Panel **#${panelId}** ditandai sudah tertutup, tapi pesannya tidak bisa diedit ` +
-                    '(kemungkinan sudah dihapus manual). Datanya sudah aman.',
-              '🎭 Panel Ditutup',
+              t(outcome.messageUpdated ? 'rr.cmd.closed' : 'rr.cmd.closedMessageGone', {
+                id: String(panelId),
+              }),
+              t('rr.cmd.closedTitle'),
             ),
           ],
         });
@@ -208,14 +213,14 @@ export default {
         const removed = await service.delete(guildId, panelId);
         if (!removed) {
           await interaction.editReply({
-            embeds: [warningEmbed(`Panel #${panelId} tidak ada di server ini.`)],
+            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }))],
           });
           return;
         }
 
         await deletePanelMessage(guild, removed);
         await interaction.editReply({
-          embeds: [successEmbed(`Panel **#${panelId}** dihapus.`, '🗑️ Panel Dihapus')],
+          embeds: [successEmbed(t('rr.cmd.deleted', { id: String(panelId) }), t('rr.cmd.deletedTitle'))],
         });
         return;
       }
@@ -223,7 +228,7 @@ export default {
       const roles = toRoleInputs(interaction, guild);
 
       if (sub === 'add') {
-        const blocked = rejectUnusableRoles(roles, guild);
+        const blocked = rejectUnusableRoles(roles, guild, t);
         if (blocked) {
           await interaction.editReply({ embeds: [warningEmbed(blocked)] });
           return;
@@ -232,17 +237,20 @@ export default {
         const panel = await service.addRoles(guildId, panelId, roles);
         if (!panel) {
           await interaction.editReply({
-            embeds: [warningEmbed(`Panel #${panelId} tidak ada di server ini.`)],
+            embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }))],
           });
           return;
         }
 
-        await refreshPanelMessage(guild, panel);
+        await refreshPanelMessage(guild, panel, t);
         await interaction.editReply({
           embeds: [
             panelUpdatedEmbed(
               panel,
-              `Ditambahkan: ${roles.map((role) => `<@&${role.roleId}>`).join(', ')}.`,
+              t('rr.updated.added', {
+                roles: roles.map((role) => `<@&${role.roleId}>`).join(', '),
+              }),
+              t,
             ),
           ],
         });
@@ -257,37 +265,40 @@ export default {
       );
       if (!panel) {
         await interaction.editReply({
-          embeds: [warningEmbed(`Panel #${panelId} tidak ada di server ini.`)],
+          embeds: [warningEmbed(t('rr.cmd.notFound', { id: String(panelId) }))],
         });
         return;
       }
 
-      await refreshPanelMessage(guild, panel);
+      await refreshPanelMessage(guild, panel, t);
       await interaction.editReply({
         embeds: [
           panelUpdatedEmbed(
             panel,
-            `Dihapus dari panel: ${roles.map((role) => `<@&${role.roleId}>`).join(', ')}.`,
+            t('rr.updated.removed', {
+              roles: roles.map((role) => `<@&${role.roleId}>`).join(', '),
+            }),
+            t,
           ),
         ],
       });
     } catch (error) {
-      await interaction.editReply({ embeds: [toReactionRoleErrorEmbed(error)] });
+      await interaction.editReply({ embeds: [toReactionRoleErrorEmbed(error, t)] });
     }
   },
 } satisfies BotCommand;
 
-async function postPanel(interaction: Interaction, guild: Guild): Promise<void> {
+async function postPanel(interaction: Interaction, guild: Guild, t: Translator): Promise<void> {
   const channel = interaction.options.getChannel('channel', true);
   if (!isGuildTextChannel(channel)) {
     await interaction.editReply({
-      embeds: [warningEmbed('Panel hanya bisa dikirim ke channel teks server.')],
+      embeds: [warningEmbed(t('rr.err.notTextChannel'))],
     });
     return;
   }
 
   const roles = toRoleInputs(interaction, guild);
-  const blocked = rejectUnusableRoles(roles, guild);
+  const blocked = rejectUnusableRoles(roles, guild, t);
   if (blocked) {
     await interaction.editReply({ embeds: [warningEmbed(blocked)] });
     return;
@@ -305,24 +316,31 @@ async function postPanel(interaction: Interaction, guild: Guild): Promise<void> 
     expiresAt,
   });
 
-  const names = roleNameMap(panel);
+  const names = roleNameMap(panel, t);
   const sent = await channel.send({
-    embeds: [panelEmbed(panel, names, description)],
-    components: buildPanelComponents(panel, names),
+    embeds: [panelEmbed(panel, names, description, t)],
+    components: buildPanelComponents(panel, names, t),
   });
 
   const service = getReactionRoleService();
   await service.attachMessage(panel.id, sent.id);
 
   const lifetime = expiresAt
-    ? ` Panel mati otomatis dalam ${describePanelLifetime(expiresAt.getTime() - Date.now())}.`
-    : ' Panel ini permanen.';
+    ? t('rr.cmd.lifetime', {
+        duration: describePanelLifetime(expiresAt.getTime() - Date.now(), t),
+      })
+    : t('rr.cmd.permanent');
 
   await interaction.editReply({
     embeds: [
       successEmbed(
-        `Panel **#${panel.id}** dibuat di ${channel} dengan ${panel.options.length} role.${lifetime}`,
-        '🎭 Panel Dibuat',
+        t('rr.cmd.created', {
+          id: String(panel.id),
+          channel: channel.id,
+          count: String(panel.options.length),
+          lifetime,
+        }),
+        t('rr.cmd.createdTitle'),
       ),
     ],
   });
@@ -348,20 +366,27 @@ function toRoleInputs(interaction: Interaction, guild: Guild): RoleInput[] {
  * Dicek di sini, bukan nanti saat select menu ditekan, supaya admin tidak baru
  * tahu masalahnya setelah anggota kesal karena role-nya tidak bisa diambil.
  */
-function rejectUnusableRoles(roles: readonly RoleInput[], guild: Guild): string | null {
+function rejectUnusableRoles(
+  roles: readonly RoleInput[],
+  guild: Guild,
+  t: Translator,
+): string | null {
   if (roles.length > MAX_PANEL_OPTIONS) {
-    return `Maksimal ${MAX_PANEL_OPTIONS} role per perintah (kirim ${roles.length}).`;
+    return t('rr.err.maxRoles', {
+      max: String(MAX_PANEL_OPTIONS),
+      count: String(roles.length),
+    });
   }
 
   if (roles.some((role) => role.roleId === guild.roles.everyone.id)) {
-    return 'Role @everyone tidak bisa diambil sendiri.';
+    return t('rr.err.everyone');
   }
 
   const botMember = guild.members.me;
   if (!botMember) return null;
 
   if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
-    return 'Aku tidak punya izin **Manage Roles**, jadi role apa pun tidak bisa kupasang ke member.';
+    return t('rr.err.needManageRoles');
   }
 
   const tooHigh = roles
@@ -371,31 +396,38 @@ function rejectUnusableRoles(roles: readonly RoleInput[], guild: Guild): string 
     .map((role) => `<@&${role.id}>`);
 
   if (tooHigh.length > 0) {
-    return `Role ini posisinya di atas aku: ${tooHigh.join(', ')}. Pindahkan role bot ke atas, atau pilih role yang lebih rendah.`;
+    return t('rr.err.roleTooHigh', { roles: tooHigh.join(', ') });
   }
 
   return null;
 }
 
 /** Nama role asli untuk label select menu & embed. */
-function roleNameMap(panel: ReactionRolePanel): Map<string, string> {
+function roleNameMap(panel: ReactionRolePanel, t: Translator): Map<string, string> {
   return new Map(
-    panel.options.map((option) => [option.roleId, option.label ?? `Role ${option.id}`]),
+    panel.options.map((option) => [
+      option.roleId,
+      option.label ?? t('rr.role.byId', { id: String(option.id) }),
+    ]),
   );
 }
 
 /** Edit pesan panel supaya daftar role di Discord ikut berubah. */
-async function refreshPanelMessage(guild: Guild, panel: ReactionRolePanel): Promise<void> {
+async function refreshPanelMessage(
+  guild: Guild,
+  panel: ReactionRolePanel,
+  t: Translator,
+): Promise<void> {
   if (!panel.messageId) return;
 
   const channel = await guild.channels.fetch(panel.channelId).catch(() => null);
   if (!channel?.isTextBased() || channel.isDMBased()) return;
 
-  const names = roleNameMap(panel);
+  const names = roleNameMap(panel, t);
   await channel.messages
     .edit(panel.messageId, {
-      embeds: [panelEmbed(panel, names)],
-      components: buildPanelComponents(panel, names),
+      embeds: [panelEmbed(panel, names, undefined, t)],
+      components: buildPanelComponents(panel, names, t),
     })
     // Pesan bisa sudah terhapus (dihapus manual atau channel dihapus) — bukan
     // alasan gagalkan seluruh perintah.

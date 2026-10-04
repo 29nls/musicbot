@@ -9,6 +9,7 @@ import {
 import { getLogger } from '../../services/logger.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService, type GuildConfig } from '../config/index.js';
+import { translatorFor, type Translator } from '../i18n/index.js';
 import { closeAndArchive } from './lifecycle.js';
 import { showTicketSubjectModal } from './modal.js';
 import { getTicketService } from './singleton.js';
@@ -30,25 +31,26 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
   const guildId = interaction.guildId;
   const guild = interaction.guild;
   const member = interaction.member;
+  const t = await translatorFor(guildId);
 
   try {
     const config = await getGuildConfigService().get(guildId);
 
     if (!config.modules.tickets) {
-      await reply(interaction, warningEmbed('Modul tiket sedang mati di server ini.'));
+      await reply(interaction, warningEmbed(t('ticket.err.moduleOff')));
       return;
     }
 
     // Pembuatan tiket butuh topik lebih dulu, jadi tombolnya membuka modal.
-    if (action === 'create') await showTicketSubjectModal(interaction, config);
-    else if (action === 'claim') await claimTicket(interaction, guildId, member, config);
-    else await closeTicket(interaction, guild, member, config);
+    if (action === 'create') await showTicketSubjectModal(interaction, config, t);
+    else if (action === 'claim') await claimTicket(interaction, guildId, member, config, t);
+    else await closeTicket(interaction, guild, member, config, t);
   } catch (error) {
     getLogger().error(
       { err: error, action, guild: guildId, user: interaction.user.id },
       'Tombol tiket gagal diproses',
     );
-    await reply(interaction, toTicketErrorEmbed(error));
+    await reply(interaction, toTicketErrorEmbed(error, t));
   }
 }
 
@@ -57,27 +59,31 @@ async function claimTicket(
   guildId: string,
   member: GuildMember,
   config: GuildConfig,
+  t: Translator,
 ): Promise<void> {
   if (!isStaff(member, config)) {
-    await reply(interaction, warningEmbed('Hanya staff tiket yang bisa mengklaim tiket ini.'));
+    await reply(interaction, warningEmbed(t('ticket.btn.claimNotStaff')));
     return;
   }
 
   const ticket = await getTicketService().findOpenByChannel(guildId, interaction.channelId);
   if (!ticket) {
-    await reply(interaction, warningEmbed('Tiket ini sudah ditutup.'));
+    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed')));
     return;
   }
 
   const claimed = await getTicketService().claim(guildId, interaction.channelId, interaction.user.id);
   if (!claimed) {
-    await reply(interaction, warningEmbed('Tiket ini sudah ditutup.'));
+    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed')));
     return;
   }
 
   await reply(
     interaction,
-    successEmbed(`Tiket ${claimed.ticketNumber} sekarang ditangani <@${interaction.user.id}>.`),
+    successEmbed(t('ticket.btn.claimed', {
+      number: claimed.ticketNumber,
+      user: interaction.user.id,
+    })),
   );
 }
 
@@ -86,17 +92,18 @@ async function closeTicket(
   guild: Guild,
   member: GuildMember,
   config: GuildConfig,
+  t: Translator,
 ): Promise<void> {
   const ticket = await getTicketService().findOpenByChannel(guild.id, interaction.channelId);
   if (!ticket) {
-    await reply(interaction, warningEmbed('Tiket ini sudah tertutup.'));
+    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed')));
     return;
   }
 
   // Yang boleh menutup: staff tiket, atau member yang membuka tiketnya sendiri.
   const isOwner = ticket.openerId === interaction.user.id;
   if (!isOwner && !isStaff(member, config)) {
-    await reply(interaction, warningEmbed('Hanya staff atau pembuat tiket yang bisa menutupnya.'));
+    await reply(interaction, warningEmbed(t('ticket.btn.closeNotAllowed')));
     return;
   }
 
@@ -105,26 +112,25 @@ async function closeTicket(
     guild,
     interaction.channelId,
     interaction.user.id,
+    new Date(),
+    t,
   );
   if (!result) {
-    await reply(interaction, warningEmbed('Tiket ini sudah tertutup.'));
+    await reply(interaction, warningEmbed(t('ticket.err.alreadyClosed')));
     return;
   }
 
   if (!result.channel) {
     await reply(
       interaction,
-      warningEmbed(
-        `Tiket ${result.ticket.ticketNumber} ditandai sudah tertutup, tapi channelnya tidak bisa diarsipkan ` +
-          '(mungkin sudah dihapus manual). Periksa datanya.',
-      ),
+      warningEmbed(t('ticket.btn.closedChannelGone', { number: result.ticket.ticketNumber })),
     );
     return;
   }
 
   await reply(
     interaction,
-    successEmbed(`Tiket ${result.ticket.ticketNumber} ditutup dan diarsipkan. Isinya tetap tersimpan.`),
+    successEmbed(t('ticket.btn.closed', { number: result.ticket.ticketNumber })),
   );
 }
 

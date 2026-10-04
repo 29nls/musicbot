@@ -10,6 +10,7 @@
 
 import { MessageType, type Message, type TextChannel } from 'discord.js';
 import { getLogger } from '../../services/logger.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { formatTicketId, type Ticket } from './types.js';
 
 /** Batas Discord untuk isi satu pesan. */
@@ -200,33 +201,47 @@ function toTranscriptEntry(message: Message): TranscriptEntry {
 /**
  * Waktu ditulis dalam UTC supaya urutannya jelas tanpa member menebak zona waktu.
  */
-export function renderTranscriptText(ticket: Ticket, transcript: TicketTranscript): string {
+export function renderTranscriptText(
+  ticket: Ticket,
+  transcript: TicketTranscript,
+  t: Translator = defaultTranslator,
+): string {
   const lines: string[] = [
-    `Transkrip Tiket ${formatTicketId(ticket.ticketNumber)}`,
-    `Subjek: ${ticket.subject ?? '(tanpa subjek)'}`,
-    `Pembuat: ${ticket.openerId}`,
-    `Dibuka: ${ticket.createdAt.toISOString()}`,
+    t('ticket.transcript.header', { id: formatTicketId(ticket.ticketNumber) }),
+    t('ticket.transcript.subjectLine', {
+      subject: ticket.subject ?? t('ticket.transcript.noSubject'),
+    }),
+    t('ticket.transcript.opener', { id: ticket.openerId }),
+    t('ticket.transcript.openedAt', { time: ticket.createdAt.toISOString() }),
   ];
 
-  if (ticket.closedAt) lines.push(`Ditutup: ${ticket.closedAt.toISOString()}`);
-  lines.push(`Pesan tersimpan: ${transcript.messageCount}`, '');
+  if (ticket.closedAt) {
+    lines.push(t('ticket.transcript.closedAt', { time: ticket.closedAt.toISOString() }));
+  }
+  lines.push(t('ticket.transcript.savedCount', { count: transcript.messageCount }), '');
 
   if (transcript.messages.length === 0) {
-    lines.push('(tidak ada pesan yang bisa dibaca)');
+    lines.push(t('ticket.transcript.empty'));
   }
 
   for (const entry of transcript.messages) {
     lines.push(
-      `[${entry.createdAt}] ${entry.authorName} (${entry.authorId}): ${entry.content || '(tanpa teks)'}`,
+      t('ticket.transcript.entry', {
+        time: entry.createdAt,
+        author: entry.authorName,
+        id: entry.authorId,
+        text: entry.content || t('ticket.transcript.noText'),
+      }),
     );
-    for (const url of entry.attachments) lines.push(`    lampiran: ${url}`);
+    for (const url of entry.attachments) {
+      lines.push(t('ticket.transcript.attachment', { url }));
+    }
   }
 
   if (transcript.truncated) {
     lines.push(
       '',
-      `Catatan: transkrip dipotong pada ${MAX_TRANSCRIPT_MESSAGES} pesan terakhir;`,
-      'percakapan yang lebih lama tidak tersimpan.',
+      t('ticket.transcript.truncatedNote', { max: MAX_TRANSCRIPT_MESSAGES }),
     );
   }
 
@@ -237,15 +252,20 @@ export function renderTranscriptText(ticket: Ticket, transcript: TicketTranscrip
 export function transcriptPreviewLines(
   transcript: TicketTranscript,
   count = TRANSCRIPT_PREVIEW_COUNT,
+  t: Translator = defaultTranslator,
 ): string {
   const messages = transcript.messages.slice(-count);
 
   return messages
     .map((entry) => {
-      const text = entry.content.replace(/\s+/g, ' ').trim() || '(tanpa teks)';
+      const text = entry.content.replace(/\s+/g, ' ').trim() || t('ticket.transcript.noText');
       const time = entry.createdAt.slice(11, 16);
 
-      return `\`${time} UTC\` **${entry.authorName}**: ${truncate(text, 160)}`;
+      return t('ticket.transcript.previewLine', {
+        time,
+        author: entry.authorName,
+        text: truncate(text, 160),
+      });
     })
     .join('\n');
 }

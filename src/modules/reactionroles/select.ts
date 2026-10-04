@@ -7,13 +7,11 @@ import {
 import { getLogger } from '../../services/logger.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService } from '../config/index.js';
+import { defaultTranslator, translatorFor, type Translator } from '../i18n/index.js';
 import { toReactionRoleErrorEmbed } from './errors.js';
 import { getReactionRoleService } from './singleton.js';
 import { isPanelActive, parseRoleOptionCustomId } from './types.js';
 
-/** Pesan yang sama untuk panel yang sudah ditutup dan yang sudah lewat masa hidup. */
-const CLOSED_PANEL_MESSAGE =
-  'Panel role ini sudah ditutup, jadi role-nya tidak bisa diambil lagi. Minta moderator server.';
 
 /**
  * Tangani pilihan dari select menu panel reaction role.
@@ -29,8 +27,20 @@ export async function handleReactionRoleSelect(
     await applySelection(interaction);
   } catch (error) {
     getLogger().warn({ err: error }, 'Pemilihan reaction role gagal');
-    await reply(interaction, toReactionRoleErrorEmbed(error));
+    await reply(
+      interaction,
+      toReactionRoleErrorEmbed(error, await translatorForInteraction(interaction)),
+    );
   }
+}
+
+/** Penerjemah untuk balasan handler; tanpa guild (DM) jatuh ke bahasa bawaan. */
+function translatorForInteraction(
+  interaction: StringSelectMenuInteraction,
+): Promise<Translator> {
+  return interaction.guildId
+    ? translatorFor(interaction.guildId)
+    : Promise.resolve(defaultTranslator);
 }
 
 async function applySelection(interaction: StringSelectMenuInteraction): Promise<void> {
@@ -39,12 +49,11 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
   const optionId = parseRoleOptionCustomId(interaction.customId);
   if (optionId === null) return;
 
+  const t = await translatorForInteraction(interaction);
+
   const lookup = await getReactionRoleService().findOption(optionId);
   if (!lookup || lookup.panel.guildId !== interaction.guildId) {
-    await reply(
-      interaction,
-      warningEmbed('Panel role ini sudah tidak ada. Minta admin untuk membuatnya ulang.'),
-    );
+    await reply(interaction, warningEmbed(t('rr.select.panelGone')));
     return;
   }
 
@@ -55,23 +64,20 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
   // padahal panelnya sudah closed. Member yang masih menyimpan pesan lama tidak
   // boleh bisa mengambil role dari panel yang sudah berakhir.
   if (!isPanelActive(panel)) {
-    await reply(interaction, warningEmbed(CLOSED_PANEL_MESSAGE));
+    await reply(interaction, warningEmbed(t('rr.select.closedPanel')));
     return;
   }
 
   const config = await getGuildConfigService().get(panel.guildId);
   if (!config.modules.reactions) {
-    await reply(interaction, warningEmbed('Modul reaction role sedang mati di server ini.'));
+    await reply(interaction, warningEmbed(t('rr.select.moduleOff')));
     return;
   }
 
   const guild = interaction.guild;
   const role = guild.roles.cache.get(option.roleId);
   if (!role) {
-    await reply(
-      interaction,
-      warningEmbed('Role ini sudah dihapus dari server. Minta admin untuk memperbarui panelnya.'),
-    );
+    await reply(interaction, warningEmbed(t('rr.select.roleGone')));
     return;
   }
 
@@ -89,15 +95,15 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
     await reply(
       interaction,
       ok
-        ? successEmbed(`Role <@&${option.roleId}> **dilepas**.`)
-        : warningEmbed('Tidak bisa melepas role ini. Minta moderator server untuk membantu.'),
+        ? successEmbed(t('rr.select.removed', { role: option.roleId }))
+        : warningEmbed(t('rr.select.removeFailed')),
     );
     return;
   }
 
   const botMember = guild.members.me;
   if (!botMember) {
-    await reply(interaction, warningEmbed('Aku belum termuat di server ini. Coba lagi sebentar lagi.'));
+    await reply(interaction, warningEmbed(t('rr.select.botMissing')));
     return;
   }
 
@@ -108,9 +114,7 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
   if (!canManageRole) {
     await reply(
       interaction,
-      warningEmbed(
-        `Aku tidak bisa memberi role <@&${option.roleId}> — posisinya terlalu tinggi atau aku tidak punya izin **Manage Roles**.`,
-      ),
+      warningEmbed(t('rr.select.cannotAssign', { role: option.roleId })),
     );
     return;
   }
@@ -126,8 +130,8 @@ async function applySelection(interaction: StringSelectMenuInteraction): Promise
   await reply(
     interaction,
     ok
-      ? successEmbed(`Role <@&${option.roleId}> **diambil**.`)
-      : warningEmbed('Tidak bisa memasang role ini. Minta moderator server untuk membantu.'),
+      ? successEmbed(t('rr.select.added', { role: option.roleId }))
+      : warningEmbed(t('rr.select.addFailed')),
   );
 }
 

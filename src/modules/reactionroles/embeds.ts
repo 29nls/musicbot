@@ -5,6 +5,7 @@ import {
   type MessageActionRowComponentBuilder,
 } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import {
   MAX_OPTION_DESCRIPTION_LENGTH,
   MAX_OPTION_LABEL_LENGTH,
@@ -12,8 +13,6 @@ import {
   type ReactionRoleOption,
   type ReactionRolePanel,
 } from './types.js';
-
-const PLACEHOLDER = 'Pilih role yang ingin kamu ambil';
 
 /** Nama role yang tampil di select menu, dipotong ke batas Discord. */
 export function optionLabel(option: ReactionRoleOption, roleName: string): string {
@@ -31,10 +30,12 @@ export function panelEmbed(
   panel: ReactionRolePanel,
   roleNames: ReadonlyMap<string, string>,
   description?: string | null,
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
-  const lifetime = panelLifetimeFooter(panel);
+  const lifetime = panelLifetimeFooter(panel, t);
+  const missingRole = t('rr.role.missing');
   const lines = panel.options.map((option) => {
-    const roleName = roleNames.get(option.roleId) ?? 'Role tidak ditemukan';
+    const roleName = roleNames.get(option.roleId) ?? missingRole;
     const shown = optionLabel(option, roleName);
     const icon = option.emoji ? `${option.emoji} ` : '';
 
@@ -43,18 +44,19 @@ export function panelEmbed(
       : `${icon}**${shown}**`;
   });
 
-  const intro =
-    description?.trim() ||
-    'Pilih role di bawah untuk mengambilnya. Pilih role yang sama lagi untuk melepaskannya.';
+  const intro = description?.trim() || t('rr.panel.intro');
 
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle('🎭 Ambil Role Sendiri')
-    .setDescription(
-      `${intro}\n\n${lines.join('\n')}` +
-        '\n\n*Role yang tidak bisa kamu ambil sendiri? Minta ke moderator server.*',
-    )
-    .setFooter({ text: `Panel #${panel.id} · ${panel.options.length} role tersedia · ${lifetime}` })
+    .setTitle(t('rr.panel.title'))
+    .setDescription(`${intro}\n\n${lines.join('\n')}\n\n${t('rr.panel.roleHint')}`)
+    .setFooter({
+      text: t('rr.panel.footer', {
+        id: String(panel.id),
+        count: String(panel.options.length),
+        lifetime,
+      }),
+    })
     .setTimestamp();
 }
 
@@ -65,26 +67,27 @@ export function panelEmbed(
  * menyimpan tautan ke panel lama punya penjelasan, dan admin bisa mengaudit
  * panel mana yang sudah ditutup. Select menu-nya yang dilepas.
  */
-export function panelClosedEmbed(panel: ReactionRolePanel, reason: string): EmbedBuilder {
+export function panelClosedEmbed(
+  panel: ReactionRolePanel,
+  reason: string,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.warning)
-    .setTitle('🎭 Panel Ini Sudah Ditutup')
+    .setTitle(t('rr.closed.title'))
     .setDescription(
-      `Panel **#${panel.id}** sudah tidak bisa dipakai untuk mengambil role.\n\n${reason}\n\n` +
-        'Minta moderator server kalau kamu masih butuh role ini.',
+      t('rr.closed.description', { id: String(panel.id), reason }),
     )
-    .setFooter({ text: 'Panel · select menu sudah dilepas' })
+    .setFooter({ text: t('rr.closed.footer') })
     .setTimestamp();
 }
 
 /** "permanen" atau "aktif sampai <t:…:R>" — timestamp Discord ikut zona waktu member. */
-function panelLifetimeFooter(panel: ReactionRolePanel): string {
-  if (!panel.expiresAt) return 'tanpa masa hidup';
-  if (panel.closedAt) return 'sudah ditutup';
+function panelLifetimeFooter(panel: ReactionRolePanel, t: Translator): string {
+  if (!panel.expiresAt) return t('rr.lifetime.none');
+  if (panel.closedAt) return t('rr.lifetime.closed');
 
-  const unix = Math.floor(panel.expiresAt.getTime() / 1_000);
-
-  return `aktif sampai <t:${unix}:R>`;
+  return t('rr.lifetime.until', { unix: String(Math.floor(panel.expiresAt.getTime() / 1_000)) });
 }
 
 /**
@@ -96,11 +99,13 @@ function panelLifetimeFooter(panel: ReactionRolePanel): string {
 export function buildRoleSelect(
   panel: ReactionRolePanel,
   roleNames: ReadonlyMap<string, string>,
+  t: Translator = defaultTranslator,
 ): ActionRowBuilder<MessageActionRowComponentBuilder> | null {
   if (panel.options.length === 0) return null;
 
+  const missingRole = t('rr.role.missing');
   const options = panel.options.map((option) => {
-    const roleName = roleNames.get(option.roleId) ?? 'Role tidak ditemukan';
+    const roleName = roleNames.get(option.roleId) ?? missingRole;
 
     return {
       label: optionLabel(option, roleName),
@@ -114,7 +119,7 @@ export function buildRoleSelect(
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`rr-panel-${panel.id}`)
-    .setPlaceholder(PLACEHOLDER)
+    .setPlaceholder(t('rr.select.placeholder'))
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(options);
@@ -132,23 +137,25 @@ export function buildRoleSelect(
 export function buildPanelComponents(
   panel: ReactionRolePanel,
   roleNames: ReadonlyMap<string, string>,
+  t: Translator = defaultTranslator,
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
-  const select = buildRoleSelect(panel, roleNames);
+  const select = buildRoleSelect(panel, roleNames, t);
 
   return select ? [select] : [];
 }
 
 /** Embed `/reactionrole list`. */
-export function panelListEmbed(panels: readonly ReactionRolePanel[]): EmbedBuilder {
+export function panelListEmbed(
+  panels: readonly ReactionRolePanel[],
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle('🎭 Panel Reaction Role')
+    .setTitle(t('rr.list.title'))
     .setTimestamp();
 
   if (panels.length === 0) {
-    return embed.setDescription(
-      'Belum ada panel. Buat dengan `/reactionrole post channel:#pengaturan roles:@Pemain,@Penggemar`.',
-    );
+    return embed.setDescription(t('rr.list.empty'));
   }
 
   const lines = panels.map((panel) => {
@@ -156,10 +163,19 @@ export function panelListEmbed(panels: readonly ReactionRolePanel[]): EmbedBuild
       .map((option) => `<@&${option.roleId}>`)
       .slice(0, 8)
       .join(', ');
-    const more = panel.options.length > 8 ? `, +${panel.options.length - 8} lagi` : '';
-    const state = panelStateLabel(panel);
+    const more =
+      panel.options.length > 8
+        ? t('rr.list.more', { count: String(panel.options.length - 8) })
+        : '';
 
-    return `**#${panel.id}** · <#${panel.channelId}> · ${state} · ${panel.options.length} role\n${roles}${more}`;
+    return t('rr.list.line', {
+      id: String(panel.id),
+      channel: panel.channelId,
+      state: panelStateLabel(panel, t),
+      count: String(panel.options.length),
+      roles,
+      more,
+    });
   });
 
   return embed.setDescription(truncate(lines.join('\n\n'), 4_000));
@@ -169,11 +185,18 @@ export function panelListEmbed(panels: readonly ReactionRolePanel[]): EmbedBuild
 export function panelUpdatedEmbed(
   panel: ReactionRolePanel,
   message: string,
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.success)
-    .setTitle('🎭 Panel Reaction Role Diperbarui')
-    .setDescription(`${message}\n\nPanel **#${panel.id}** sekarang punya ${panel.options.length} role.`)
+    .setTitle(t('rr.updated.title'))
+    .setDescription(
+      t('rr.updated.description', {
+        message,
+        id: String(panel.id),
+        count: String(panel.options.length),
+      }),
+    )
     .setTimestamp();
 }
 
@@ -189,15 +212,17 @@ function truncate(value: string, max: number): string {
  * menunggu sapuan" — itu kondisi nyata yang bisa terjadi selama bot mati, dan
  * admin perlu tahu bedanya dari panel yang benar-benar sudah ditutup.
  */
-function panelStateLabel(panel: ReactionRolePanel): string {
-  if (panel.closedAt) return '⚫ sudah ditutup';
-  if (panel.expiresAt && panel.expiresAt <= new Date()) return '⏳ habis, menunggu sapuan';
+function panelStateLabel(panel: ReactionRolePanel, t: Translator): string {
+  if (panel.closedAt) return t('rr.state.closed');
+  if (panel.expiresAt && panel.expiresAt <= new Date()) return t('rr.state.expired');
   if (panel.expiresAt) {
-    return `🟢 aktif sampai <t:${Math.floor(panel.expiresAt.getTime() / 1_000)}:R>`;
+    return t('rr.state.until', {
+      unix: String(Math.floor(panel.expiresAt.getTime() / 1_000)),
+    });
   }
-  if (!panel.messageId) return '🟡 pesan belum terkirim';
+  if (!panel.messageId) return t('rr.state.noMessage');
 
-  return '🟢 aktif';
+  return t('rr.state.active');
 }
 
 export { roleOptionCustomId };

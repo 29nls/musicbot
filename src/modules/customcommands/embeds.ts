@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { EMBED_COLORS } from '../../config/constants.js';
+import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { PLACEHOLDER_HELP } from './trigger.js';
 import { TRIGGER_PREFIX, type CustomCommand } from './types.js';
 
@@ -19,35 +20,33 @@ export interface CustomCommandPreview {
  * `anon:` = pseudonim hasil `/data-delete`, jadi mentions atau nama asli tidak
  * boleh ikut tampil di embed lama yang masih dibaca admin.
  */
-export function creatorLabel(createdBy: string): string {
-  return createdBy.startsWith('anon:') ? 'Anonim' : `<@${createdBy}>`;
+export function creatorLabel(createdBy: string, t: Translator = defaultTranslator): string {
+  return createdBy.startsWith('anon:') ? t('cc.creator.anon') : `<@${createdBy}>`;
 }
 
 /** Daftar perintah custom di server ini. */
-export function customCommandListEmbed(commands: readonly CustomCommand[]): EmbedBuilder {
+export function customCommandListEmbed(
+  commands: readonly CustomCommand[],
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle('💬 Perintah Custom')
+    .setTitle(t('cc.list.title'))
     .setTimestamp();
 
   if (commands.length === 0) {
-    embed.setDescription(
-      'Belum ada perintah custom.\nBuat dengan `/customcommand add <nama> <balasan>`, ' +
-        'lalu panggil dengan `!nama`.',
-    );
+    embed.setDescription(t('cc.list.empty', { prefix: TRIGGER_PREFIX }));
     return embed;
   }
 
-  embed.setDescription(
-    `${commands.length} perintah. Panggil dengan awalan \`${TRIGGER_PREFIX}\` di channel teks.`,
-  );
+  embed.setDescription(t('cc.list.count', { count: commands.length, prefix: TRIGGER_PREFIX }));
 
   embed.addFields({
-    name: 'Daftar perintah',
+    name: t('cc.list.field'),
     value: clip(commands.map((command) => `\`${TRIGGER_PREFIX}${command.name}\``).join(' · ')),
   });
 
-  embed.setFooter({ text: `Rincian & pratinjau: /customcommand show <nama>` });
+  embed.setFooter({ text: t('cc.list.footer') });
   return embed;
 }
 
@@ -55,43 +54,58 @@ export function customCommandListEmbed(commands: readonly CustomCommand[]): Embe
 export function customCommandDetailEmbed(
   command: CustomCommand,
   preview: CustomCommandPreview | null,
+  t: Translator = defaultTranslator,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLORS.primary)
-    .setTitle(`💬 ${TRIGGER_PREFIX}${command.name}`)
+    .setTitle(t('cc.detail.title', { prefix: TRIGGER_PREFIX, name: command.name }))
     .setTimestamp();
 
   embed.addFields(
-    { name: 'Dibuat oleh', value: creatorLabel(command.createdBy), inline: true },
-    { name: 'Diubah', value: `<t:${Math.floor(command.updatedAt.getTime() / 1000)}:R>`, inline: true },
-    { name: 'Panggil dengan', value: `\`${TRIGGER_PREFIX}${command.name} [teks]\``, inline: true },
+    { name: t('cc.detail.createdBy'), value: creatorLabel(command.createdBy, t), inline: true },
+    {
+      name: t('cc.detail.updated'),
+      value: `<t:${Math.floor(command.updatedAt.getTime() / 1000)}:R>`,
+      inline: true,
+    },
+    {
+      name: t('cc.detail.invoke'),
+      value: `\`${TRIGGER_PREFIX}${command.name} [teks]\``,
+      inline: true,
+    },
   );
 
-  embed.addFields({ name: 'Balasan', value: clip(command.response) });
+  embed.addFields({ name: t('cc.detail.response'), value: clip(command.response) });
 
   if (preview) {
     embed.addFields({
-      name: preview.truncated ? 'Pratinjau (dipotong)' : 'Pratinjau',
+      name: t(preview.truncated ? 'cc.detail.previewTruncated' : 'cc.detail.preview'),
       value: clip(preview.text),
     });
   }
 
   embed.addFields({
-    name: 'Placeholder yang bisa dipakai',
-    value: PLACEHOLDER_HELP.map((item) => `\`${item.token}\` — ${item.label}`).join('\n'),
+    name: t('cc.detail.placeholders'),
+    value: PLACEHOLDER_HELP.map((item) => `\`${item.token}\` — ${t(item.labelKey)}`).join('\n'),
   });
 
   return embed;
 }
 
 /** Konfirmasi perintah yang dihapus. */
-export function customCommandDeletedEmbed(command: CustomCommand): EmbedBuilder {
+export function customCommandDeletedEmbed(
+  command: CustomCommand,
+  t: Translator = defaultTranslator,
+): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.success)
-    .setTitle('🗑️ Perintah dihapus')
+    .setTitle(t('cc.deleted.title'))
     .setDescription(
-      `\`${TRIGGER_PREFIX}${command.name}\` tidak lagi dipanggil.\n` +
-        `Dihapus oleh ${creatorLabel(command.createdBy)}.`,
+      t('cc.deleted.description', {
+        prefix: TRIGGER_PREFIX,
+        name: command.name,
+        creator: creatorLabel(command.createdBy, t),
+      }),
     )
     .setTimestamp();
 }

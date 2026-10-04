@@ -1,5 +1,6 @@
 import type { Guild } from 'discord.js';
 import { getLogger } from '../../services/logger.js';
+import { defaultTranslator, type MessageKey, type Translator } from '../i18n/index.js';
 import { isGuildTextChannel } from '../../utils/discord.js';
 import { panelClosedEmbed } from './embeds.js';
 import type { ReactionRolePanel } from './types.js';
@@ -27,9 +28,13 @@ export interface ClosePanelOutcome {
   messageUpdated: boolean;
 }
 
-const REASON_TEXT: Record<PanelCloseReason, string> = {
-  expired: 'Panel ini punya masa hidup dan sudah habis. Select menu-nya sudah dilepas.',
-  manual: 'Panel ini ditutup manual oleh moderator server. Select menu-nya sudah dilepas.',
+/**
+ * Kunci alasan penutupan — kalimatnya disusun saat panel ditutup, mengikuti
+ * bahasa server.
+ */
+const REASON_KEY: Record<PanelCloseReason, MessageKey> = {
+  expired: 'rr.close.reason.expired',
+  manual: 'rr.close.reason.manual',
 };
 
 /**
@@ -52,11 +57,17 @@ export async function closePanel(
   panel: ReactionRolePanel,
   reason: PanelCloseReason,
   now = new Date(),
+  t: Translator = defaultTranslator,
 ): Promise<ClosePanelOutcome> {
   const marked = await service.markClosed(panel.guildId, panel.id, now);
   if (!marked) return { panel, changed: false, messageUpdated: false };
 
-  const messageUpdated = await disablePanelMessage(guild, { ...panel, closedAt: now }, reason);
+  const messageUpdated = await disablePanelMessage(
+    guild,
+    { ...panel, closedAt: now },
+    reason,
+    t,
+  );
 
   return { panel: marked, changed: true, messageUpdated };
 }
@@ -71,6 +82,7 @@ export async function disablePanelMessage(
   guild: Guild,
   panel: ReactionRolePanel,
   reason: PanelCloseReason,
+  t: Translator = defaultTranslator,
 ): Promise<boolean> {
   if (!panel.messageId) return false;
 
@@ -83,7 +95,7 @@ export async function disablePanelMessage(
   try {
     // `components: []` adalah cara resmi melepas semua komponen dari pesan.
     await message.edit({
-      embeds: [panelClosedEmbed(panel, REASON_TEXT[reason])],
+      embeds: [panelClosedEmbed(panel, t(REASON_KEY[reason]), t)],
       components: [],
     });
 

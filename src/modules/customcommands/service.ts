@@ -215,7 +215,7 @@ export class CustomCommandService {
       getLogger().debug({ guildId, total: commands.length }, 'Cache perintah custom diperbarui');
     } catch (error) {
       // Cache gagal ditulis hanya berarti satu query lagi di pemanggilan
-      // berikutnya;atznya tidak boleh membuat `!perintah` gagal.
+      // berikutnya; kegagalan itu tidak boleh membuat `!perintah` gagal.
       getLogger().warn({ err: error, guildId }, 'Gagal menyimpan cache perintah custom');
     }
   }

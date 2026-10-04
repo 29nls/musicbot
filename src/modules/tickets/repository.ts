@@ -113,10 +113,10 @@ export class PrismaTicketRepository implements TicketRepository {
   }
 
   /**
- * Tanpa syarat `status: 'open'` supaya channel yang sudah diarsipkan masih bisa
- * dicari — justru di channel itulah STAFF dan pembuat tiket membuka transkripnya.
- */
-async findAnyByChannel(guildId: string, channelId: string): Promise<Ticket | null> {
+   * Tanpa syarat `status: 'open'` supaya channel yang sudah diarsipkan masih bisa
+   * dicari — justru di channel itulah STAFF dan pembuat tiket membuka transkripnya.
+   */
+  async findAnyByChannel(guildId: string, channelId: string): Promise<Ticket | null> {
     const row = await this.prisma.ticket.findFirst({
       where: { guildId, channelId },
       orderBy: { ticketNumber: 'desc' },
