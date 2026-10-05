@@ -62,8 +62,8 @@ plugins:
       refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
 
   # LavaSrc: metadata Spotify/Apple Music + lirik (dipakai mulai Fase 2).
-  # Semua sumber dibiarkan false supaya tidak butuh kredensial di M0.
-  # Aktifkan satu per satu sambil mengisi clientId/clientSecret-nya.
+  # Sumber berbayar dibiarkan false supaya tidak butuh kredensial; yang menyala
+  # di sini hanya ytdlp, yang tidak butuh kredensial sama sekali.
   lavasrc:
     sources:
       spotify: false
@@ -73,10 +73,31 @@ plugins:
       vkmusic: false
       tidal: false
       qobuz: false
-      ytdlp: false
+      ytdlp: true
       jiosaavn: false
       flowerytts: false
       youtube: false
+
+    # Sumber yt-dlp: pengambil audio YouTube lewat biner `yt-dlp`, dan ia juga
+    # mendaftarkan `ytsearch:` sendiri (terlihat di log sebagai
+    # "Registering YTDLP audio source manager...").
+    #
+    # Kenapa dinyalakan: youtube-plugin 1.18.2 tidak punya klien yang diterima
+    # YouTube untuk lagu-lagu musik dari mesin ini. Terukur 5 Okt 2026: klien
+    # visionOS yang dipakai yt-dlp mengunduh 300 KB dari video yang sama
+    # (wsEkktRGZ18) di jalur IPv4 maupun IPv6, sementara semua klien plugin
+    # dijawab "This video requires login"; versi plugin terbaru (1.18.2) tidak
+    # memuat klien visionOS sama sekali. Lewat sumber ini, `ytsearch:` benar
+    # benar mulai diputar — dibuktikan tools/ytdlp-probe.mjs.
+    #
+    # Batas yang jujur: audionya tetap berasal dari YouTube, jadi ini bukan cara
+    # memenuhi permintaan "jangan pakai YouTube". Binernya juga harus ada di
+    # mesin yang menjalankan Lavalink — image Docker resmi Lavalink tidak
+    # memuatnya, jadi di sana ini perlu dipasang sendiri atau diarahkan ke biner
+    # di host lewat YTDLP_PATH.
+    ytdlp:
+      path: "${YTDLP_PATH:yt-dlp}"
+
     lyrics-sources:
       lrcLib: true # lirik gratis tanpa kredensial, siap dipakai nanti
     spotify:

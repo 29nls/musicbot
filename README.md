@@ -1218,8 +1218,9 @@ Dua perbaikan yang memang sudah masuk ke [lavalink/application.yml](lavalink/app
   `ANDROID_VR` lebih dulu karena itu satu-satunya yang terukur bisa mengirim
   audio dari mesin ini.
 
-Yang tersisa — dan satu-satunya yang menyentuh akar masalahnya — adalah
-**OAuth**: login ke YouTube, karena yang diminta YouTube memang login.
+Yang menyentuh akar masalahnya adalah **OAuth**: login ke YouTube, karena
+yang diminta YouTube memang login. Ada satu jalur lagi yang tidak butuh akun
+dan sudah terukur jalan — yt-dlp — di bagian berikutnya.
 
 ```env
 YOUTUBE_OAUTH_ENABLED=true
@@ -1271,6 +1272,66 @@ Bagian `dipakai=` di keluaran probe adalah daftar klien yang benar-benar
 diterima plugin, bukan yang ditulis di config. Kalau isinya berbeda dari yang
 diminta, probe berhenti dengan status 2 alih-alih melaporkan angka yang
 menyesatkan.
+
+### Jalur kedua yang sudah terbukti: yt-dlp
+
+OAuth butuh akun; ada perbaikan lain yang tidak, dan sudah terukur jalan di
+mesin ini: membiarkan **yt-dlp** yang mengambil audionya. LavaSrc 4.8.3 punya
+sumber `ytdlp` yang menyalakan `ytsearch:` sendiri, dan biner itu memakai klien
+yang YouTube masih terima saat klien youtube-plugin ditolak.
+
+Angka ukurnya (5 Okt 2026, mesin yang sama, lewat [tools/ytdlp-probe.mjs](tools/ytdlp-probe.mjs)):
+
+| Yang diukur | Hasil |
+| --- | --- |
+| yt-dlp 2026.08.19 menarik audio `wsEkktRGZ18` | URL audio didapat, **300.000 byte benar-benar terunduh** (klien `visionOS`; `--force-ipv4` juga berhasil) |
+| Plugin youtube-source 1.18.2 untuk video yang sama | semua klien repo dijawab "This video requires login" |
+| `ytsearch:cherrybelle dilema` lewat sumber ytdlp | `loadType=search`, 10 hasil, lalu `TrackStartEvent` — lagu benar-benar mulai |
+| Kontrol `scsearch:cherrybelle dilema` | `TrackStartEvent` — membuktikan cara ukur ini memang bisa melihat lagu mulai |
+
+Kenapa yt-dlp bisa padahal plugin tidak: yt-dlp memakai klien **`visionOS`**,
+dan nama itu tidak ada di daftar klien youtube-plugin **1.18.2** — versi terbaru
+yang diterbitkan di maven.lavalink.dev (yang dikenal plugin: Android,
+AndroidMusic, AndroidVr, Ios, MWeb, Music, Tv, Web, WebEmbedded). Jadi ini bukan
+config yang salah; dua jalur itu memang punya daftar klien yang berbeda, dan
+yang satu kebetulan diterima YouTube untuk lagu musik.
+
+Yang perlu disiapkan:
+
+1. Biner `yt-dlp` di mesin yang menjalankan Lavalink
+   (`python -m pip install --user yt-dlp`; di Windows hasilnya mendarat di
+   `%APPDATA%\Python\PythonXY\Scripts` dan **tidak** masuk PATH). Kalau tidak
+   ada di PATH, isi `YTDLP_PATH` di `.env` dengan jalur lengkapnya (lihat
+   [.env.example](.env.example)).
+2. Sumber `ytdlp` menyala di [lavalink/application.yml](lavalink/application.yml)
+   — sudah menjadi bawaan repo ini — dengan `path: "${YTDLP_PATH:yt-dlp}"`.
+3. Restart Lavalink (`npm run infra:lavalink`, atau
+   `docker compose restart lavalink` kalau memakai container). Saat start, log
+   memuat baris `Registering YTDLP audio source manager...`; kalau baris itu
+   tidak muncul, sumbernya belum menyala dan perubahan belum berlaku.
+
+Membuktikan sendiri, tanpa menebak:
+
+```bash
+node tools/ytdlp-probe.mjs C:/Users/ANDA/AppData/Roaming/Python/Python314/Scripts/yt-dlp.exe
+```
+
+Probe menjalankan Lavalink sementara di port bebas memakai config repo, memutar
+kontrol SoundCloud lebih dulu, lalu `ytsearch:`. Keluarannya diakhiri
+`VERDIKT: ...`; kalau kontrolnya tidak mulai, verdict menyatakan pengukuran
+tidak bisa disimpulkan dan proses keluar dengan status bukan 0.
+
+Batas yang jujur:
+
+- **Audionya tetap dari YouTube.** Ini tidak memenuhi permintaan "cari lagu tanpa
+  YouTube" — sumber non-YouTube yang terbukti hidup di config ini hanya
+  SoundCloud (`scsearch:`).
+- Image resmi Lavalink tidak memuat yt-dlp. `deploy/casaos/lavalink.Dockerfile`
+  memasangnya (`apk add --no-cache yt-dlp`), tapi **baris itu belum pernah
+  di-build** di lingkungan pengembangan repo ini.
+- Di `docker-compose.yml`, `YTDLP_PATH` sengaja di-hardcode `yt-dlp` (dari PATH
+  image), bukan dibaca dari `.env`: `.env` biasanya berisi jalur host, dan jalur
+  Windows di dalam container Linux tidak ada artinya.
 
 ### Multi-node Lavalink
 
@@ -2426,15 +2487,15 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
 yang tidak di-commit). Angka saat ini: **~70,1% statements** (68,7% branch,
-78,2% fungsi, 69,8% baris) dari **2.029 tes di 114 file** (naik dari ~43%
+78,2% fungsi, 69,8% baris) dari **2.047 tes di 116 file** (naik dari ~43%
 waktu playlist, filter, lirik, health check, statistik, store bersama, metrik,
 state musik bersama, multi-node Lavalink, penulisan atomik, multi-bahasa,
 gerbang sharding beserta lease-nya, pesan error kepemilikan player, penyapuan
 panel lintas shard, orkestrasi keempat sapuan retensi di kedua jalurnya,
 handler `interactionCreate` serta `messageCreate`, agregasi metrik lintas shard,
 sembilan belas handler event logging, lifecycle member, pemicu perintah
-custom, loader event, badan `execute` perintah musik, dan titik rakit
-singleton).
+custom, loader event, badan `execute` perintah musik, penjaga jalur audio
+yt-dlp, portabilitas skrip CasaOS, dan titik rakit singleton).
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
 fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang

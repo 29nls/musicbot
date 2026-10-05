@@ -81,12 +81,18 @@ services:
     environment:
       # Harus sama dengan LAVALINK_PASSWORD di .env (dipakai bot untuk login).
       LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env}
-      # OAuth YouTube. Kosong secara bawaan supaya tidak ada perubahan perilaku
-      # bagi yang tidak butuh. Nyalakan kalau log Lavalink penuh "All clients
-      # failed to load the item" -- itu tanda YouTube memblokir IP, bukan bug
-      # config. Lihat bagian "Musik tidak bisa dimuat" di README.md.
+      # OAuth YouTube: jalur login, bukan satu-satunya perbaikan. Kosong secara
+      # bawaan supaya instalasi yang sudah jalan tidak berubah perilaku.
+      # Lihat bagian "Musik tidak bisa dimuat" di README.md.
       YOUTUBE_OAUTH_ENABLED: ${YOUTUBE_OAUTH_ENABLED:-false}
       YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
+      # Jalur biner yt-dlp untuk sumber `lavasrc.sources.ytdlp` (pengambil audio
+      # YouTube ketika klien youtube-plugin ditolak YouTube). Sengaja TIDAK
+      # dibaca dari .env: di dalam container nilainya harus `yt-dlp` dari PATH
+      # image, sementara .env biasanya berisi jalur Windows/macOS milik host.
+      # Image resmi Lavalink belum memuat yt-dlp (lihat README, bagian "Musik
+      # tidak bisa dimuat").
+      YTDLP_PATH: yt-dlp
       # Heap Lavalink. Naikkan (mis. -Xmx2G) kalau sering memutar lagu panjang.
       JAVA_TOOL_OPTIONS: -Xmx1G
     volumes:

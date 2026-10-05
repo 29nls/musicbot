@@ -9,10 +9,11 @@
 //   - `Lavalink.jar` diambil dari GitHub Releases kalau belum ada (--download).
 //   - Password Lavalink dibaca dari LAVALINK_PASSWORD di .env, jadi tidak perlu
 //     menyalin rahasia ke baris perintah atau menuliskannya ke log.
-//   - Setelan OAuth YouTube (YOUTUBE_OAUTH_ENABLED/YOUTUBE_REFRESH_TOKEN) ikut
-//     diteruskan dari .env ke JVM. `.env` tidak masuk environment dengan
-//     sendirinya, jadi tanpa langkah ini flag di .env tidak berpengaruh di jalur
-//     ini — beda dari Docker, yang meneruskannya lewat docker-compose.
+//   - Setelan OAuth YouTube (YOUTUBE_OAUTH_ENABLED/YOUTUBE_REFRESH_TOKEN) dan
+//     jalur yt-dlp (YTDLP_PATH) ikut diteruskan dari .env ke JVM. `.env` tidak
+//     masuk environment dengan sendirinya, jadi tanpa langkah ini nilai di .env
+//     tidak berpengaruh di jalur ini — beda dari Docker, yang meneruskannya
+//     lewat docker-compose.
 //   - Plugin (youtube-source, LavaSrc) tetap diunduh sendiri oleh Lavalink ke
 //     folder `lavalink/plugins/`, persis seperti di dalam container.
 //
@@ -53,6 +54,9 @@ const HELP = [
   '                     environment, bukan dari berkas .env.',
   '  YOUTUBE_REFRESH_TOKEN  token hasil alur OAuth; isi setelah sekali jalan supaya',
   '                     alurnya tidak diulang tiap start.',
+  '  YTDLP_PATH        jalur biner yt-dlp untuk sumber `lavasrc.sources.ytdlp`',
+  '                     (pengambil audio YouTube saat klien youtube-plugin',
+  '                     ditolak). Default: yt-dlp dari PATH.',
 ].join('\n');
 
 function fail(message) {
@@ -164,6 +168,12 @@ async function main() {
   // Nilai dari environment proses tetap menang, sama seperti LAVALINK_PASSWORD.
   const oauthEnabled = process.env.YOUTUBE_OAUTH_ENABLED ?? dotEnv.YOUTUBE_OAUTH_ENABLED ?? 'false';
   const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN ?? dotEnv.YOUTUBE_REFRESH_TOKEN ?? '';
+  // Jalur yt-dlp ada di sini karena alasan yang sama: placeholder
+  // `${YTDLP_PATH:yt-dlp}` di application.yml dibaca Spring dari environment.
+  // `|| 'yt-dlp'` bukan hiasan: .env.example menulis `YTDLP_PATH=` kosong, dan
+  // string kosong BUKAN nilai hilang bagi Spring — placeholder akan resolve ke
+  // '' dan LavaSrc mencari biner tanpa nama, bukan jatuh ke default.
+  const ytdlpPath = (process.env.YTDLP_PATH ?? dotEnv.YTDLP_PATH ?? 'yt-dlp').trim() || 'yt-dlp';
 
   console.log('Lavalink ' + VERSION + ' | heap -Xmx' + heap + ' | konfigurasi lavalink/application.yml');
   console.log(
@@ -173,6 +183,9 @@ async function main() {
           ? 'menyala, refresh token tersedia'
           : 'menyala, refresh token belum ada — kode device akan tercetak sebentar lagi'
         : 'mati'),
+  );
+  console.log(
+    'Audio yt-dlp  : ' + ytdlpPath + (ytdlpPath === 'yt-dlp' ? ' (dicari di PATH)' : ''),
   );
   console.log('Tutup dengan Ctrl+C. Prefix http://localhost:2333 harus ada di .env milik bot.');
   console.log('');
@@ -184,6 +197,7 @@ async function main() {
       LAVALINK_SERVER_PASSWORD: password,
       YOUTUBE_OAUTH_ENABLED: oauthEnabled,
       YOUTUBE_REFRESH_TOKEN: refreshToken,
+      YTDLP_PATH: ytdlpPath,
     },
     stdio: 'inherit',
   });

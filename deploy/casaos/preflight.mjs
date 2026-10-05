@@ -16,14 +16,25 @@
  *
  * Skrip ini tidak mengubah apa pun; ia hanya melaporkan penyebabnya.
  *
+ * PORTABILITAS — kenapa berkas ini menghindari sintaks Node baru:
+ * ia dijalankan DI NAS PENGGUNA, dan CasaOS/ZimaOS lazim membawa Node 12.
+ * Versi pertama berkas ini memakai `??`, `.at(-1)`, dan impor `node:fs`; di
+ * Node 12 semuanya berhenti di parse (`SyntaxError: Unexpected token '?'`,
+ * terukur pada Node 12.22.12) sehingga alat diagnosisnya sendiri tidak bisa
+ * jalan — dan pesannya bahkan tidak menyebut versi Node. Jangan tambahkan
+ * kembali `??`, `?.`, `.at(`, `replaceAll`, atau impor berprefiks `node:` ke
+ * berkas ini. Target: Node 12.17+ (ESM tanpa flag). Penjaganya ada di
+ * tests/preflightPortability.test.ts, dan baris pertama keluaran mencetak
+ * versi Node yang menjalankan skrip supaya laporan bug tidak perlu menebak.
+ *
  * Pakai:
  *   node deploy/casaos/preflight.mjs [path/ke/.env]
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
 
-const DEFAULT_DATA = process.env.HARMONY_DATA ?? '/DATA/AppData/harmony-bot';
+const DEFAULT_DATA = process.env.HARMONY_DATA || '/DATA/AppData/harmony-bot';
 
 /**
  * Urutan pencarian berkas .env:
@@ -42,11 +53,17 @@ function locateEnv() {
     resolve(DEFAULT_DATA, '.env'),
   ].filter(Boolean);
 
-  return candidates.find((path) => existsSync(path)) ?? resolve(candidates.at(-1) ?? '.env');
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (found) return found;
+
+  // Tanpa `??` dan `.at(-1)`: keduanya baru ada di Node 14/16, sedangkan
+  // berkas ini harus jalan di Node 12 (lihat catatan portabilitas di atas).
+  const last = candidates[candidates.length - 1];
+  return resolve(last || '.env');
 }
 
 const envPath = locateEnv();
-const composeDir = process.env.HARMONY_COMPOSE_DIR ?? process.cwd();
+const composeDir = process.env.HARMONY_COMPOSE_DIR || process.cwd();
 
 const problems = [];
 const notes = [];
@@ -62,6 +79,8 @@ function report(ok, message) {
   console.log(line);
   if (!ok) problems.push(message);
 }
+
+console.log(`Harmony preflight | Node ${process.versions.node}`);
 
 // --- 1. Berkas .env ada? ---------------------------------------------------
 console.log(`Memeriksa: ${envPath}`);
@@ -105,7 +124,7 @@ for (const key of REQUIRED) {
     continue;
   }
 
-  const value = parsed.get(key) ?? '';
+  const value = parsed.get(key) || '';
   // Compose menganggap nilai kosong sama dengan tidak ada — ini penyebab paling
   // sering, dan pesannya menyesatkan karena "~tidak ada~" padahal barisnya ada.
   if (value === '') {
