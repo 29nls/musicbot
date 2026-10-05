@@ -1175,22 +1175,37 @@ Client [WEB] failed: No supported audio streams available, available types:
 Client [WEB_EMBEDDED_PLAYER] failed: This video is unavailable
 ```
 
-**Ini bukan bug di kode bot dan bukan salah konfigurasi.** Itu YouTube menolak
-permintaan dari IP mesin ini.
+Baris klien di log itu penting. `ANDROID_VR, WEB, WEB_EMBEDDED_PLAYER` adalah
+daftar bawaan plugin — bukan daftar yang dipasang di
+[lavalink/application.yml](lavalink/application.yml), yang berisi enam klien
+dan mencetak `TV` sebagai `TVHTML5`. Jadi log yang menyebut tiga nama itu
+berarti Lavalink yang jalan masih memuat config lama: restart dulu, karena
+selama belum, log seperti itu tidak menguji perbaikan apa pun.
 
-Buktinya, diukur dengan [tools/yts-probe.mjs](tools/yts-probe.mjs) yang
-menjalankan Lavalink sungguhan lalu meminta satu format audio per video:
+Bot menjaga celah ini sendiri. Saat sebuah node Lavalink tersambung, versi plugin
+yang dilaporkan node (`GET /v4/info`, field `plugins`) dibandingkan dengan
+[lavalink/application.yml](lavalink/application.yml), dan selisihnya masuk log
+`warn` lengkap dengan perintah restart. Yang **tidak** bisa diperiksa bot adalah
+daftar klien: tidak ada rute plugin yang mengembalikannya (hanya `/youtube`,
+`/youtube/stream/{videoId}`, dan `/youtube/oauth/{refreshToken}`), dan parameter
+`withClient` tidak bisa dipakai menebaknya — nama yang tidak ada di daftar dan
+nama yang ada tapi kebetulan tidak menemukan format sama-sama menjawab
+`400 Could not find formats`. Jadi daftar klien tetap diperiksa lewat
+[tools/yts-probe.mjs](tools/yts-probe.mjs) yang mencetak `dipakai=`.
 
-| Yang dicoba | Hasil |
+**Ini bukan bug di kode bot.** Yang menolak adalah YouTube, dan penolakannya
+per-item, bukan per-mesin:
+
+| Yang diukur | Hasil |
 | --- | --- |
-| 1.18.1 + client `MUSIC, ANDROID_VR, WEB, WEBEMBEDDED` (config lama) | 0 dari 3 video |
-| 1.18.2 + client yang sama | 0 dari 3 video |
-| 1.18.1 + 6 client (`WEB, ANDROID_VR, WEBEMBEDDED, MWEB, IOS, ANDROID_MUSIC`) | 0 dari 3 video |
-| 1.18.2 + `ANDROID_VR, WEB, MWEB, ANDROID_MUSIC, IOS, TV` | 0 dari 3 video |
+| 3 lagu yang gagal, plugin 1.18.2, enam klien repo ([tools/yts-probe.mjs](tools/yts-probe.mjs)) | 0 dari 3 untuk **setiap** klien |
+| Video kontrol `dQw4w9WgXcQ`, plugin 1.18.2, enam klien yang sama | `ANDROID_VR` 1 dari 1 (26 URL audio); lima klien lain 0 dari 1 |
+| Jawaban YouTube langsung ([tools/yts-ipcheck.mjs](tools/yts-ipcheck.mjs)) | lagu gagal: `ANDROID_VR` → `LOGIN_REQUIRED` “Sign in to confirm you’re not a bot”, `WEB` → `UNPLAYABLE` |
+| IP keluar Cloudflare WARP `104.28.245.124` vs IP asli ISP `45.251.7.237` | hasilnya identik; video kontrol tetap dapat URL audio |
 
-Sebelas video berbeda dicoba, termasuk “Ed Sheeran - Perfect”; semuanya gagal
-kecuali satu video lama yang kebetulan masih punya URL format langsung. Jadi
-naik versi plugin atau menambah client **tidak** menyelesaikannya.
+Jadi video kontrol tetap dilayani dari mesin ini, sementara lagu musik
+menuntut login. Naik versi plugin, menambah klien, dan mengganti jalur
+keluar jaringan semuanya sudah diukur dan **tidak** mengubah hasil.
 
 Dua perbaikan yang memang sudah masuk ke [lavalink/application.yml](lavalink/application.yml):
 
@@ -1203,42 +1218,59 @@ Dua perbaikan yang memang sudah masuk ke [lavalink/application.yml](lavalink/app
   `ANDROID_VR` lebih dulu karena itu satu-satunya yang terukur bisa mengirim
   audio dari mesin ini.
 
-Kalau setelah itu masih gagal, itu blokir IP dan satu-satunya jalan resmi adalah
-**OAuth**:
+Yang tersisa — dan satu-satunya yang menyentuh akar masalahnya — adalah
+**OAuth**: login ke YouTube, karena yang diminta YouTube memang login.
 
 ```env
 YOUTUBE_OAUTH_ENABLED=true
 YOUTUBE_REFRESH_TOKEN=
 ```
 
-Isi `YOUTUBE_REFRESH_TOKEN` kosongkan dulu, lalu jalankan sekali:
+Biarkan `YOUTUBE_REFRESH_TOKEN` kosong dulu, lalu jalankan sekali:
 
 ```bash
-docker compose logs -f lavalink   # plugin mencetak alur OAuth + refresh token
+npm run infra:lavalink            # tanpa Docker: alur OAuth tercetak di terminal ini
+docker compose logs -f lavalink   # kalau Lavalink dijalankan sebagai container
 ```
 
-Salin token yang tercetak ke `YOUTUBE_REFRESH_TOKEN`, lalu restart. Rujukan
-lengkapnya ada di [README youtube-source](https://github.com/lavalink-devs/youtube-source#using-oauth-tokens).
+Plugin lalu mencetak alur device-code, misalnya:
+
+```
+!!! DO NOT AUTHORISE WITH YOUR MAIN ACCOUNT, USE A BURNER !!!
+OAUTH INTEGRATION: To give youtube-source access to your account, go to
+https://www.google.com/device and enter code XXX-XXX-XXX
+```
+
+Buka URL itu, masukkan kodenya, dan selesaikan dengan **akun Google sekali
+pakai**. Setelah itu plugin mencetak refresh token; salin nilainya ke
+`YOUTUBE_REFRESH_TOKEN`, lalu restart supaya alurnya tidak diulang tiap start.
+Rujukan lengkapnya ada di [README youtube-source](https://github.com/lavalink-devs/youtube-source#using-oauth-tokens).
 
 Batas yang jujur:
 
-- **Jalur OAuth belum diuji sampai tuntas di lingkungan ini** — menyelesaikannya
-  butuh akun Google seseorang.
+- Yang sudah terbukti di sini: `YOUTUBE_OAUTH_ENABLED=true` benar-benar memulai
+  alur device-code dan mencetak kode (diukur lewat probe, bukan disimpulkan dari
+  dokumen). Yang belum: menyelesaikannya, karena butuh akun Google seseorang.
 - README upstream memperingatkan OAuth bisa memicu rate limit pada trafik
   tinggi, dan lebih aman dipakai **akun sekali pakai**, bukan akun utama.
-- Kalau cara di atas belum cukup, ganti IP (VPS, VPN, atau IP residensial)
-  menjadi pilihan lain, tapi TIDAK diuji di sini: issue #240 di
-  youtube-source masih terbuka pada 1.18.2.
+- Mengganti IP **bukan** obat untuk kasus ini: hasil dengan WARP dan dengan IP
+  asli ISP identik. Mesin lain bisa berbeda, dan issue #240 di youtube-source
+  masih terbuka pada 1.18.2 — karena itulah `tools/yts-ipcheck.mjs` ikut
+  disertakan, supaya keadaan mesin sendiri bisa dibuktikan, bukan diasumsikan.
 
-Untuk mengukur sendiri setelah perubahan apa pun:
+Untuk mengukur sendiri setelah perubahan apa pun — kedua alat membaca versi
+plugin dan daftar klien langsung dari `application.yml`, jadi tidak ada angka
+yang bisa basi:
 
 ```bash
-node tools/yts-probe.mjs --version 1.18.2 --clients ANDROID_VR,WEB,MWEB,ANDROID_MUSIC,IOS,TV
+node tools/yts-ipcheck.mjs    # apa yang YouTube balas untuk IP ini (tanpa Lavalink)
+node tools/yts-probe.mjs      # jalur plugin: apakah format audio benar-benar bisa diambil
 ```
 
-Bagian `dipakai=` di keluarannya adalah daftar klien yang benar-benar diterima
-plugin — bukan daftar yang ditulis di config. Kalau ada nama yang hilang di sana,
-itu nama yang tidak dikenal.
+Bagian `dipakai=` di keluaran probe adalah daftar klien yang benar-benar
+diterima plugin, bukan yang ditulis di config. Kalau isinya berbeda dari yang
+diminta, probe berhenti dengan status 2 alih-alih melaporkan angka yang
+menyesatkan.
 
 ### Multi-node Lavalink
 
@@ -2393,8 +2425,8 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 ### Cakupan tes
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
-yang tidak di-commit). Angka saat ini: **~70,1% statements** (68,8% branch,
-78,2% fungsi, 69,8% baris) dari **2.018 tes di 113 file** (naik dari ~43%
+yang tidak di-commit). Angka saat ini: **~70,1% statements** (68,7% branch,
+78,2% fungsi, 69,8% baris) dari **2.029 tes di 114 file** (naik dari ~43%
 waktu playlist, filter, lirik, health check, statistik, store bersama, metrik,
 state musik bersama, multi-node Lavalink, penulisan atomik, multi-bahasa,
 gerbang sharding beserta lease-nya, pesan error kepemilikan player, penyapuan

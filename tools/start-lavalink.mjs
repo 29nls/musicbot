@@ -9,6 +9,10 @@
 //   - `Lavalink.jar` diambil dari GitHub Releases kalau belum ada (--download).
 //   - Password Lavalink dibaca dari LAVALINK_PASSWORD di .env, jadi tidak perlu
 //     menyalin rahasia ke baris perintah atau menuliskannya ke log.
+//   - Setelan OAuth YouTube (YOUTUBE_OAUTH_ENABLED/YOUTUBE_REFRESH_TOKEN) ikut
+//     diteruskan dari .env ke JVM. `.env` tidak masuk environment dengan
+//     sendirinya, jadi tanpa langkah ini flag di .env tidak berpengaruh di jalur
+//     ini — beda dari Docker, yang meneruskannya lewat docker-compose.
 //   - Plugin (youtube-source, LavaSrc) tetap diunduh sendiri oleh Lavalink ke
 //     folder `lavalink/plugins/`, persis seperti di dalam container.
 //
@@ -44,6 +48,11 @@ const HELP = [
   'Opsi lain (dibaca dari .env atau environment):',
   '  LAVALINK_PASSWORD  WAJIB. Harus sama dengan nilai di .env milik bot.',
   '  LAVALINK_HEAP     heap JVM untuk Lavalink (default ' + DEFAULT_HEAP + ').',
+  '  YOUTUBE_OAUTH_ENABLED  true untuk menyalakan login YouTube. Dibaca dari .env',
+  '                     juga, karena placeholder di application.yml dibaca JVM dari',
+  '                     environment, bukan dari berkas .env.',
+  '  YOUTUBE_REFRESH_TOKEN  token hasil alur OAuth; isi setelah sekali jalan supaya',
+  '                     alurnya tidak diulang tiap start.',
 ].join('\n');
 
 function fail(message) {
@@ -147,13 +156,35 @@ async function main() {
 
   const heap = process.env.LAVALINK_HEAP ?? dotEnv.LAVALINK_HEAP ?? DEFAULT_HEAP;
 
+  // Dua variabel ini harus diteruskan ke JVM secara eksplisit. Placeholder
+  // `${YOUTUBE_OAUTH_ENABLED:false}` di application.yml dibaca Spring dari
+  // environment proses, sedangkan `.env` hanya dibaca skrip ini (Docker aman
+  // karena compose meneruskan nilai .env-nya sendiri). Tanpa baris di bawah,
+  // mengisi .env tampak berhasil tapi tidak berpengaruh apa pun di jalur ini.
+  // Nilai dari environment proses tetap menang, sama seperti LAVALINK_PASSWORD.
+  const oauthEnabled = process.env.YOUTUBE_OAUTH_ENABLED ?? dotEnv.YOUTUBE_OAUTH_ENABLED ?? 'false';
+  const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN ?? dotEnv.YOUTUBE_REFRESH_TOKEN ?? '';
+
   console.log('Lavalink ' + VERSION + ' | heap -Xmx' + heap + ' | konfigurasi lavalink/application.yml');
+  console.log(
+    'OAuth YouTube: ' +
+      (oauthEnabled === 'true'
+        ? refreshToken
+          ? 'menyala, refresh token tersedia'
+          : 'menyala, refresh token belum ada — kode device akan tercetak sebentar lagi'
+        : 'mati'),
+  );
   console.log('Tutup dengan Ctrl+C. Prefix http://localhost:2333 harus ada di .env milik bot.');
   console.log('');
 
   const child = spawn('java', ['-Xms64m', '-Xmx' + heap, '-jar', JAR], {
     cwd: DIR,
-    env: { ...process.env, LAVALINK_SERVER_PASSWORD: password },
+    env: {
+      ...process.env,
+      LAVALINK_SERVER_PASSWORD: password,
+      YOUTUBE_OAUTH_ENABLED: oauthEnabled,
+      YOUTUBE_REFRESH_TOKEN: refreshToken,
+    },
     stdio: 'inherit',
   });
 

@@ -2,9 +2,11 @@
 // apakah video YouTube benar-benar bisa di-stream dari mesin ini.
 //
 // Kenapa file ini ada: error "All clients failed to load the item" tidak bisa
-// dipastikan hanya dari dokumentasi. Neither global (versi 1.18.2 pun masih
-// punya issue #240 yang terbuka) maupun per-video (sebagian video bisa, sebagian
-// tidak). Jadi kandidat perbaikan harus diukur, bukan diperkirakan.
+// dipastikan dari dokumentasi saja -- arti yang sama bisa datang dari klien
+// yang salah, IP yang ditolak, atau video yang memang menuntut login. Ukuran di
+// repo ini (lihat README bagian "Musik tidak bisa dimuat"): video kontrol tetap
+// dapat URL audio dari IP yang sama, jadi blokirnya per-video, bukan per-IP.
+// Semua kandidat perbaikan harus diukur, bukan diperkirakan.
 //
 // Yang diukur memakai endpoint milik plugin sendiri,
 // `GET /youtube/stream/{videoId}?withClient=X`, yang memanggil jalur pemuatan
@@ -35,11 +37,58 @@ function arg(name, fallback) {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const VERSION = arg('version', '1.18.1');
-const CLIENTS = arg('clients', 'WEB,ANDROID_VR,WEBEMBEDDED')
-  .split(',')
+/**
+ * Baca versi plugin dan daftar klien dari config repo.
+ *
+ * Kenapa tidak ditulis sebagai default angka di baris ini: nilai yang ditulis
+ * tangan akan basi begitu application.yml berubah, dan probe lalu melaporkan
+ * keadaan yang sudah tidak ada -- pernah kejadian, `yts=1.18.1` tercetak
+ * padahal disk sudah berisi 1.18.2.
+ */
+function repoDefaults() {
+  const source = fs.readFileSync(REPO_CONFIG, 'utf8');
+  const version = /dependency:\s*"dev\.lavalink\.youtube:youtube-plugin:([^"]+)"/.exec(source)?.[1];
+  if (!version) {
+    throw new Error('versi youtube-plugin tidak ditemukan di lavalink/application.yml');
+  }
+
+  // Daftar klien di repo memuat baris komentar di tengah (TV dijelaskan di
+  // sana), jadi tidak bisa dibaca dengan satu regex daftar yang berurutan:
+  // komentar dan baris kosong harus dilewati, dan blok berakhir di baris
+  // pertama yang bukan keduanya.
+  const lines = source.split(/\r?\n/);
+  const start = lines.findIndex((line) => /^    clients:\s*$/.test(line));
+  if (start === -1) throw new Error('daftar clients: tidak ditemukan di lavalink/application.yml');
+
+  const clients = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === '' || /^\s*#/.test(line)) continue;
+    const item = /^\s+-\s+([A-Z_0-9]+)\s*$/.exec(line);
+    if (item) {
+      clients.push(item[1]);
+      continue;
+    }
+    break;
+  }
+  if (clients.length === 0) throw new Error('daftar clients: kosong di lavalink/application.yml');
+  return { version, clients };
+}
+
+const REPO = repoDefaults();
+const VERSION = arg('version', REPO.version);
+const CLIENTS = (arg('clients', '') ? arg('clients').split(',') : REPO.clients)
   .map((c) => c.trim())
   .filter(Boolean);
+if (CLIENTS.length === 0) {
+  throw new Error(
+    'daftar klien kosong: isi --clients dengan nama yang sah, atau hilangkan flag-nya supaya memakai daftar di lavalink/application.yml',
+  );
+}
+
+// Nama yang dipakai plugin saat melaporkan klien, untuk yang berbeda dari nama
+// config-nya. Hanya berisi pemetaan yang sudah terbukti lewat pengukuran.
+const REPORTED_NAME = { TV: 'TVHTML5' };
 const QUERY = arg('query', 'sama saja rhoma irama');
 const PASSWORD = 'youshallnotpass';
 
@@ -62,20 +111,57 @@ function freePort() {
  */
 function buildConfig(port) {
   const source = fs.readFileSync(REPO_CONFIG, 'utf8');
-  const clients = CLIENTS.map((c) => `      - ${c}`).join('\n');
+  const lines = source.split(/\r?\n/);
 
-  const replaced = source
+  // Blok `clients:` diganti baris demi baris, bukan dengan satu regex daftar.
+  // Alasannya konkret: di config repo ada baris komentar di tengah daftar (TV
+  // dijelaskan di situ), dan regex yang menuntut baris berurutan berhenti di
+  // komentar itu -- TV tertinggal sebagai entri kedua, sehingga plugin
+  // melaporkan "TVHTML5, TVHTML5" dan yang diukur bukan lagi daftar yang
+  // diminta.
+  const start = lines.findIndex((line) => /^    clients:\s*$/.test(line));
+  if (start === -1) throw new Error('daftar clients: tidak ditemukan di lavalink/application.yml');
+
+  let lastItem = -1;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === '' || /^\s*#/.test(line)) continue;
+    if (/^\s+-\s+[A-Z_0-9]+\s*$/.test(line)) {
+      lastItem = i;
+      continue;
+    }
+    break;
+  }
+  if (lastItem === -1) throw new Error('daftar clients: tidak berisi satu pun nama');
+
+  const withClients = [
+    ...lines.slice(0, start),
+    '    clients:',
+    ...CLIENTS.map((c) => `      - ${c}`),
+    ...lines.slice(lastItem + 1),
+  ].join('\n');
+
+  const replaced = withClients
     .replace(/(dependency:\s*"dev\.lavalink\.youtube:youtube-plugin:)[^"]+/, `$1${VERSION}`)
     .replace(/^([ \t]*port:\s*)\$\{SERVER_PORT:\d+\}/m, `$1${port}`)
     // `lavalink.server.port` tidak ada di config repo, jadi WebSocket Lavalink
     // selalu tertaut di 2333. Kalau ada Lavalink lain yang sedang hidup --
     // misalnya milik pengguna yang sedang menjalankan botnya -- probe akan
     // tersambung ke instance itu dan mengukur yang salah.
-    .replace(/(  server:\n)(    password:)/, `$1    port: ${port}\n$2`)
-    .replace(/(    clients:\n)(?:[ \t]*-[ \t]*[A-Z_]+\n)+/, `$1${clients}\n`);
+    .replace(/(  server:\n)(    password:)/, `$1    port: ${port}\n$2`);
 
-  if (replaced === source) {
-    throw new Error('tidak ada satu pun pola yang diganti -- konfigurasi repo berubah bentuk');
+  // Asersi, bukan harapan: kalau salah satu penggantian tidak kena, probe akan
+  // menjalankan konfigurasi yang bukan maksud pemanggilnya.
+  if (!replaced.includes(`youtube-plugin:${VERSION}`)) {
+    throw new Error(`versi plugin ${VERSION} tidak berhasil ditulis ke konfigurasi sementara`);
+  }
+  for (const client of CLIENTS) {
+    if (!replaced.includes(`      - ${client}\n`)) {
+      throw new Error(`klien ${client} tidak berhasil ditulis ke konfigurasi sementara`);
+    }
+  }
+  if ((replaced.match(new RegExp(`port: ${port}\\b`, 'g')) ?? []).length < 2) {
+    throw new Error(`port ${port} tidak tertulis di kedua tempat (server dan lavalink.server)`);
   }
 
   return replaced;
@@ -121,7 +207,7 @@ async function searchIds(query, count) {
   });
   const html = await res.text();
   const ids = [...new Set([...html.matchAll(/"videoId":"([A-Za-z0-9_-]{11})"/g)].map((m) => m[1]))];
-  if (ids.length < count) throw new Error(`penarian hanya menghasilkan ${ids.length} videoId`);
+  if (ids.length < count) throw new Error(`pencarian hanya menghasilkan ${ids.length} videoId`);
   return ids.slice(0, count);
 }
 
@@ -183,6 +269,30 @@ async function main() {
     // config. Nama client yang tidak dikenali akan diam-diam diganti default.
     const initialised = /initialised with clients: ([^\r\n]*)/i.exec(out);
     if (initialised) result.detail += `dipakai=${initialised[1].trim()} | `;
+
+    // Penjaga: plugin diam-diam mengganti nama klien yang tidak dikenali
+    // (MUSIC, WEB_REMIX, dan WEBEMBEDDED semuanya pernah ditelan tanpa suara).
+    // Kalau itu terjadi di sini, angka di bawah bukan tentang config yang
+    // diminta -- lebih baik gagal keras daripada melaporkan hasil yang
+    // menyesatkan.
+    const reported = initialised
+      ? initialised[1]
+          .split(',')
+          .map((c) => c.trim())
+          .filter(Boolean)
+      : [];
+    const wanted = CLIENTS.map((c) => REPORTED_NAME[c] ?? c);
+    const diverged =
+      reported.length === 0 ||
+      wanted.length !== reported.length ||
+      wanted.some((c) => !reported.includes(c));
+    if (diverged) {
+      throw new Error(
+        'plugin memakai klien yang berbeda dari yang diminta, jadi hasilnya tidak bisa dipakai:\n' +
+          `    diminta: ${wanted.join(', ') || '(kosong)'}\n` +
+          `    dipakai: ${reported.join(', ') || '(tidak terbaca)'}`,
+      );
+    }
 
     const perClient = [];
     for (const client of CLIENTS) {

@@ -28,9 +28,11 @@ plugins:
     # tools/yts-probe.mjs mencetak daftar klien yang benar-benar terpakai
     # ("dipakai=..."), jadi perubahan ini bisa dicek, bukan diasumsikan.
     #
-    # Kalau semua klien gagal dengan "All clients failed to load the item" atau
-    # "This video requires login", itu bukan masalah daftar di bawah. Itu YouTube
-    # memblokir IP ini, dan OAuth adalah obat yang resmi:
+    # Kalau semua klien gagal dengan "All clients failed to load the item", itu
+    # bukan soal daftar di bawah. Ukuran 5 Okt 2026 di mesin ini: video kontrol
+    # tetap dapat URL audio dari IP yang sama, sementara lagu musik dijawab
+    # "Sign in to confirm you're not a bot" -- penolakannya per-item, bukan
+    # per-IP. Obatnya karena itu OAuth (login), bukan ganti klien atau ganti IP:
     # https://github.com/lavalink-devs/youtube-source#using-oauth-tokens
     clients:
       - ANDROID_VR

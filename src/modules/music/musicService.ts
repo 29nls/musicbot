@@ -13,6 +13,7 @@ import { DEFAULT_IDLE_TIMEOUT_SEC } from '../config/types.js';
 import { IdleTimer } from './idleTimer.js';
 import { cycleResetOn, planAdvance, type LoopMode } from './loop.js';
 import { filterParamsFor, isWithinSafeBounds, type FilterMode } from './filters.js';
+import { checkLavalinkPlugins, loadExpectedPlugins } from './lavalinkPlugins.js';
 import { lavalinkNodeName, summarizeLavalinkNodes, type LavalinkNodeReport } from './nodes.js';
 import {
   PLAYER_OWNER_RENEW_MS,
@@ -625,12 +626,15 @@ export class MusicService {
   private attachManagerLogging(): void {
     const logger = getLogger();
 
-    this.manager.on('ready', (name) =>
+    this.manager.on('ready', (name) => {
       logger.info(
         { node: name, configured: this.nodeNames.length, connected: this.nodeReport().connected },
         'Node Lavalink terhubung',
-      ),
-    );
+      );
+      // Pemeriksaan menyusul, bukan menghambat log di atas: node yang sudah
+      // tersambung tetap bisa dipakai walau pemeriksaan ini gagal.
+      void this.verifyNodePlugins(name);
+    });
     this.manager.on('error', (name, error) =>
       logger.error({ err: error, node: name }, 'Error pada node Lavalink'),
     );
@@ -640,6 +644,64 @@ export class MusicService {
     this.manager.on('disconnect', (name, players) =>
       logger.warn({ node: name, players }, 'Node Lavalink terputus — menyambung ulang'),
     );
+  }
+
+  /**
+   * Bandingkan plugin yang dimuat node dengan `lavalink/application.yml`.
+   *
+   * Kenapa perlu: log dan angka dari Lavalink hanya berguna kalau prosesnya
+   * memuat config yang sekarang ada di repo. Kasus yang pernah terjadi —
+   * config sudah minta 1.18.2 sementara proses yang hidup masih memuat
+   * 1.18.1 — baru ketahuan setelah satu putaran diagnosis terbuang. Node
+   * melaporkan plugin yang dimuatnya lewat `/v4/info`, jadi selisih itu bisa
+   * disebut bot sendiri tepat saat node tersambung.
+   *
+   * Batasnya: hanya versi plugin yang bisa diperiksa dari luar. Daftar klien
+   * di dalam plugin tidak diekspos rute mana pun, jadi itu diverifikasi
+   * lewat `node tools/yts-probe.mjs` (bagian `dipakai=`).
+   *
+   * Tidak pernah melempar dan tidak menghalangi: config yang tidak terbaca
+   * (image Docker tidak memuat folder `lavalink/`) atau node yang tidak
+   * menjawab hanya masuk log `debug`, lalu bot lanjut seperti biasa.
+   */
+  private async verifyNodePlugins(nodeName: string): Promise<void> {
+    const logger = getLogger();
+
+    try {
+      const expectations = await loadExpectedPlugins();
+      if (expectations.kind !== 'ok') {
+        logger.debug(
+          { node: nodeName, reason: expectations.reason },
+          'Pemeriksaan plugin Lavalink dilewati',
+        );
+        return;
+      }
+
+      const node = this.manager.nodes.get(nodeName);
+      if (!node) return;
+
+      const info = node.info ?? (await node.rest.getLavalinkInfo());
+      if (!info) {
+        logger.debug({ node: nodeName }, 'Node Lavalink tidak melaporkan daftar plugin');
+        return;
+      }
+
+      const check = checkLavalinkPlugins(expectations.plugins, info.plugins ?? []);
+      if (!check.warning) {
+        logger.debug(
+          { node: nodeName, plugins: info.plugins ?? [] },
+          'Plugin Lavalink cocok dengan application.yml',
+        );
+        return;
+      }
+
+      logger.warn(
+        { node: nodeName, selisih: check.mismatches, dimuat: info.plugins ?? [] },
+        check.warning,
+      );
+    } catch (error) {
+      logger.debug({ err: error, node: nodeName }, 'Pemeriksaan plugin Lavalink gagal dijalankan');
+    }
   }
 
   private attachPlayerLogging(player: Player): void {
