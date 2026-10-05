@@ -1164,6 +1164,82 @@ dipindahkan ke node lain **bila ada node lain** (`moveOnDisconnect`).
 Perintah musik memberi pesan jelas “Lavalink belum terhubung” alih-alih gagal
 diam-diam.
 
+### Musik tidak bisa dimuat: “All clients failed to load the item”
+
+Gejalanya di log Lavalink (atau disingkat jadi `Lagu gagal dimuat — lanjut ke
+berikutnya` di log bot), satu baris per lagu:
+
+```
+Client [ANDROID_VR] failed: This video requires login.
+Client [WEB] failed: No supported audio streams available, available types:
+Client [WEB_EMBEDDED_PLAYER] failed: This video is unavailable
+```
+
+**Ini bukan bug di kode bot dan bukan salah konfigurasi.** Itu YouTube menolak
+permintaan dari IP mesin ini.
+
+Buktinya, diukur dengan [tools/yts-probe.mjs](tools/yts-probe.mjs) yang
+menjalankan Lavalink sungguhan lalu meminta satu format audio per video:
+
+| Yang dicoba | Hasil |
+| --- | --- |
+| 1.18.1 + client `MUSIC, ANDROID_VR, WEB, WEBEMBEDDED` (config lama) | 0 dari 3 video |
+| 1.18.2 + client yang sama | 0 dari 3 video |
+| 1.18.1 + 6 client (`WEB, ANDROID_VR, WEBEMBEDDED, MWEB, IOS, ANDROID_MUSIC`) | 0 dari 3 video |
+| 1.18.2 + `ANDROID_VR, WEB, MWEB, ANDROID_MUSIC, IOS, TV` | 0 dari 3 video |
+
+Sebelas video berbeda dicoba, termasuk “Ed Sheeran - Perfect”; semuanya gagal
+kecuali satu video lama yang kebetulan masih punya URL format langsung. Jadi
+naik versi plugin atau menambah client **tidak** menyelesaikannya.
+
+Dua perbaikan yang memang sudah masuk ke [lavalink/application.yml](lavalink/application.yml):
+
+- Plugin dinaikkan ke `1.18.2` (rilis terakhir di
+  `maven.lavalink.dev`, diperiksa 5 Okt 2026). Lavalink sendiri memberi
+  peringatan saat menemukan versi lebih baru.
+- Daftar klien dirapikan. `MUSIC` yang ada sebelumnya **tidak dikenal plugin**:
+  ia diam-diam diganti klien bawaan, sehingga config terlihat punya empat klien
+  padahal tidak. Sekarang daftarnya hanya nama yang benar-benar diterima, dengan
+  `ANDROID_VR` lebih dulu karena itu satu-satunya yang terukur bisa mengirim
+  audio dari mesin ini.
+
+Kalau setelah itu masih gagal, itu blokir IP dan satu-satunya jalan resmi adalah
+**OAuth**:
+
+```env
+YOUTUBE_OAUTH_ENABLED=true
+YOUTUBE_REFRESH_TOKEN=
+```
+
+Isi `YOUTUBE_REFRESH_TOKEN` kosongkan dulu, lalu jalankan sekali:
+
+```bash
+docker compose logs -f lavalink   # plugin mencetak alur OAuth + refresh token
+```
+
+Salin token yang tercetak ke `YOUTUBE_REFRESH_TOKEN`, lalu restart. Rujukan
+lengkapnya ada di [README youtube-source](https://github.com/lavalink-devs/youtube-source#using-oauth-tokens).
+
+Batas yang jujur:
+
+- **Jalur OAuth belum diuji sampai tuntas di lingkungan ini** — menyelesaikannya
+  butuh akun Google seseorang.
+- README upstream memperingatkan OAuth bisa memicu rate limit pada trafik
+  tinggi, dan lebih aman dipakai **akun sekali pakai**, bukan akun utama.
+- Kalau cara di atas belum cukup, ganti IP (VPS, VPN, atau IP residensial)
+  menjadi pilihan lain, tapi TIDAK diuji di sini: issue #240 di
+  youtube-source masih terbuka pada 1.18.2.
+
+Untuk mengukur sendiri setelah perubahan apa pun:
+
+```bash
+node tools/yts-probe.mjs --version 1.18.2 --clients ANDROID_VR,WEB,MWEB,ANDROID_MUSIC,IOS,TV
+```
+
+Bagian `dipakai=` di keluarannya adalah daftar klien yang benar-benar diterima
+plugin — bukan daftar yang ditulis di config. Kalau ada nama yang hilang di sana,
+itu nama yang tidak dikenal.
+
 ### Multi-node Lavalink
 
 NFR §11 menjanjikan “tambah node Lavalink tanpa mengubah kode bot”. Dulu itu
@@ -2318,7 +2394,7 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
 yang tidak di-commit). Angka saat ini: **~70,1% statements** (68,8% branch,
-78,2% fungsi, 70,1% baris) dari **1.993 tes di 111 file** (naik dari ~43%
+78,2% fungsi, 69,8% baris) dari **2.018 tes di 113 file** (naik dari ~43%
 waktu playlist, filter, lirik, health check, statistik, store bersama, metrik,
 state musik bersama, multi-node Lavalink, penulisan atomik, multi-bahasa,
 gerbang sharding beserta lease-nya, pesan error kepemilikan player, penyapuan

@@ -17,13 +17,47 @@ plugins:
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
     # Urutan klien penting: yang pertama dicoba lebih dulu.
-    # Kalau muncul error "sign in to confirm you're not a bot", aktifkan OAuth:
+    #
+    # ANDROID_VR ditaruh pertama karena itu satu-satunya klien yang terukur
+    # benar-benar bisa mengirim audio dari mesin ini (alat ukurnya
+    # tools/yts-probe.mjs, dan lihat bagian "Musik tidak bisa dimuat" di
+    # README.md). Sebelumnya di sini ditulis MUSIC, dan nama itu tidak dikenal
+    # plugin: ia diam-diam menggantinya dengan klien bawaan, jadi config terlihat
+    # punya empat klien padahal hanya tiga yang pernah dimaksud. `WEB_REMIX` juga
+    # ditolak dengan cara yang sama -- itu nama internal, bukan nama config.
+    # tools/yts-probe.mjs mencetak daftar klien yang benar-benar terpakai
+    # ("dipakai=..."), jadi perubahan ini bisa dicek, bukan diasumsikan.
+    #
+    # Kalau semua klien gagal dengan "All clients failed to load the item" atau
+    # "This video requires login", itu bukan masalah daftar di bawah. Itu YouTube
+    # memblokir IP ini, dan OAuth adalah obat yang resmi:
     # https://github.com/lavalink-devs/youtube-source#using-oauth-tokens
     clients:
-      - MUSIC
       - ANDROID_VR
       - WEB
-      - WEBEMBEDDED
+      - MWEB
+      - ANDROID_MUSIC
+      - IOS
+      # TV hanya berguna kalau OAuth menyala: tanpa itu YouTube meminta
+      # "Sign in to confirm you're not a bot". Diletakkan paling akhir supaya
+      # tidak menambah satu percobaan gagal per lagu saat OAuth masih mati.
+      - TV
+
+    # OAuth YouTube. Mati secara bawaan supaya instalasi baru berperilaku sama
+    # seperti sebelumnya; nyalakan YOUTUBE_OAUTH_ENABLED=true saat pemutaran
+    # terblokir.
+    #
+    # Dengan `enabled: true` dan YOUTUBE_REFRESH_TOKEN kosong, plugin menjalankan
+    # alur OAuth sekali lalu mencetak refresh token ke log Lavalink; salin nilai
+    # itu ke YOUTUBE_REFRESH_TOKEN supaya alurnya tidak diulang tiap start.
+    #
+    # Batas yang jujur: ini TIDAK diuji sampai tuntas di sini, karena menyelesaikan
+    # alur itu butuh akun Google seseorang. README youtube-source juga
+    # memperingatkan bahwa OAuth bisa memicu rate limit saat trafik tinggi, dan
+    # lebih baik dipakai akun sekali pakai daripada akun utama.
+    oauth:
+      enabled: ${YOUTUBE_OAUTH_ENABLED:false}
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
 
   # LavaSrc: metadata Spotify/Apple Music + lirik (dipakai mulai Fase 2).
   # Semua sumber dibiarkan false supaya tidak butuh kredensial di M0.
@@ -49,7 +83,7 @@ plugins:
 lavalink:
   # Plugin diunduh otomatis saat container pertama kali start.
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
       snapshot: false
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
       snapshot: false

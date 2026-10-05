@@ -117,6 +117,13 @@ services:
       # yang tanpa tanda kutip akan dibaca YAML sebagai pemisah mapping dan
       # menggagalkan SELURUH berkas, bukan cuma baris ini.
       LAVALINK_SERVER_PASSWORD: '${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env - jalankan: node /DATA/AppData/harmony-bot/preflight.mjs}'
+      # OAuth YouTube, opsional. Kosong secara bawaan supaya instalasi yang
+      # sekarang jalan tidak berubah perilaku. Nyalakan kalau log Lavalink penuh
+      # "All clients failed to load the item" -- itu YouTube memblokir IP NAS,
+      # bukan kesalahan config. Cara memperoleh token ada di bagian
+      # "Musik tidak bisa dimuat" di README.md.
+      YOUTUBE_OAUTH_ENABLED: ${YOUTUBE_OAUTH_ENABLED:-false}
+      YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
       # Heap JVM. Turunkan ke -Xmx512M kalau NAS hanya punya RAM terbatas;
       # naikkan ke -Xmx2G kalau sering memutar lagu panjang.
       JAVA_TOOL_OPTIONS: -Xmx1G
