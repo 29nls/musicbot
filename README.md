@@ -196,6 +196,10 @@ Docker Desktop itu mahal: virtualisasi, image, dan satu daemon yang jalan terus.
 Untuk mesin audio saja, itu berlebihan — Lavalink cuma butuh Java. Botnya
 sendiri memang dirancang untuk jalan dari host, jadi tanpa Docker begini:
 
+> **Panduan lengkap:** lihat [SETUP.md](SETUP.md) untuk *Standard Setup (Node.js)*
+> — panduan langkah-demi-langkah dari awal sampai bisa memutar lagu, lengkap
+> dengan tabel prasyarat, troubleshooting, dan ringkasan perintah.
+
 ```bash
 # 1. Dependency + Prisma Client
 npm install
