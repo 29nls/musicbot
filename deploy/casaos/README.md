@@ -23,6 +23,9 @@ juga berfungsi. Berkas ini ada supaya bot bisa dipasang sebagai "app" CasaOS bia
 - CasaOS atau ZimaOS dengan Docker yang sudah berjalan.
 - Token bot Discord, Client ID, dan `DATABASE_URL` (Supabase) yang sudah siap.
 - Ruang disk ±2 GB: image bot, image Lavalink, dan volume Redis.
+- **Node.js 12.x? Upgrade ke LTS dulu** — lihat
+  [Update Node.js ke LTS](#update-nodejs-ke-lts) di bawah. `preflight.mjs`
+saat ini kompatibel Node 12, tapi versi LTS lebih baru jauh lebih andal.
 
 ## Langkah
 
@@ -131,6 +134,68 @@ pertama keluarannya mencetak versi Node. Kalau Node di NAS tetap lebih tua dari
 > Node host hanya dipakai skrip bantu ini. Bot dan Lavalink berjalan di
 > container masing-masing, jadi versi Node di NAS tidak memengaruhi pemutaran
 > musik.
+
+### Update Node.js ke LTS
+
+Jika NAS masih bawaan Node 12.x (lazim di CasaOS lama), upgrade ke LTS
+terbaru (v22+) supaya semua alat jalan dengan stabil:
+
+```bash
+# Cek versi & arsitektur dulu
+node --version   # contoh: v12.22.12
+uname -m         # aarch64 = ARM64 (Amlogic), x86_64 = Intel
+
+# Pasang `n` (manajer versi Node) lewat npm yang ada
+npm install -g n
+
+# Install Node.js LTS terbaru
+n lts
+
+# Buat shell ini pakai versi baru
+source ~/.profile   # atau: logout lalu login kembali
+node --version      # contoh: v22.11.0
+```
+
+Jika `npm install -g n` gagal (mis. npm juga rusak), pasang `n` langsung dari
+GitHub — tidak perlu npm sama sekali:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tj/n/master/bin/n \
+  -o /usr/local/bin/n
+sudo chmod +x /usr/local/bin/n
+n lts
+
+hash -r
+node --version      # harus ≥ v22 LTS
+```
+
+Atau unduh binary resmi langsung dari nodejs.org (menggunakan direktori LTS,
+**bukan** `/latest/` yang berisi rilis *Current*):
+
+```bash
+ARCH=$(uname -m)
+NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "arm64" || echo "x64")
+
+# Dapatkan versi LTS terbaru dari index.json
+# (filter: properti lts berupa string, bukan false)
+NODE_VER=$(curl -fsSL https://nodejs.org/dist/index.json \
+  | grep '"lts":"[A-Z]' | head -1 \
+  | grep -oP '"version":"\Kv[0-9]+\.[0-9]+\.[0-9]+')
+
+cd /tmp
+curl -O "https://nodejs.org/dist/${NODE_VER}/node-${NODE_VER}-linux-${NODE_ARCH}.tar.xz"
+NODE_DIR=$(tar -tf "node-${NODE_VER}-linux-${NODE_ARCH}.tar.xz" | head -1 | cut -d/ -f1)
+tar -xf "node-${NODE_VER}-linux-${NODE_ARCH}.tar.xz"
+sudo cp -r ${NODE_DIR}/bin/* /usr/local/bin/
+sudo cp -r ${NODE_DIR}/lib/* /usr/local/lib/
+rm -rf ${NODE_DIR} "node-${NODE_VER}-linux-${NODE_ARCH}.tar.xz"
+hash -r
+node --version
+```
+
+Setelah update, `preflight.mjs` tetap jalan — ia ditulis agar tidak
+memakai sintaks yang butuh versi baru. Tapi pesan error
+`SyntaxError: Unexpected token '?'` tidak akan muncul lagi.
 
 ### `permission denied ... unix:///var/run/docker.sock`
 
