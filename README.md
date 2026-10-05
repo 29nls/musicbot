@@ -2591,3 +2591,81 @@ data takedown yang integrasinya pernah diuji.
 
 Lihat juga bagian **Legal, Privasi & Kepatuhan** di PRD — sumber audio dan
 kewajiban takedown bukan detail teknis yang bisa ditunda.
+
+---
+
+## Jalur audio langsung di dalam bot (menggantikan Lavalink)
+
+Bot sekarang punya jalur audio sendiri yang tidak memakai Lavalink sama sekali:
+proses bot menjalankan `yt-dlp` untuk mengambil audio, lalu `ffmpeg` mengubahnya
+jadi PCM 48 kHz stereo, lalu paket opus 20 ms dikirim ke voice gateway Discord.
+Pola ini diambil dari [stegripe/rawon](https://github.com/stegripe/rawon), bot musik
+yang juga tidak memakai Lavalink.
+
+Alasannya persis masalah lama: plugin YouTube Lavalink 1.18.2 tidak punya klien
+visionOS yang dipakai yt-dlp, jadi semua klien ditolak YouTube. Di jalur ini tidak
+ada plugin sama sekali — yang bicara dengan YouTube adalah program yt-dlp.
+
+### Bukti terukur
+
+| Yang diukur | Angka |
+|---|---|
+| Video uji `dQw4w9WgXcQ`, 69 paket opus pertama | 17.290 byte total, paket terbesar **398 byte** |
+| Batas Discord per paket | 1.275 byte |
+| Keluaran opus langsung dari ffmpeg (cara rawon) | rata-rata **11.686 byte**, terbesar 13.748 byte |
+| Stream PCM sebelum di-encode | 40.904.276 byte |
+| Biner yt-dlp | versi 2026.08.19 |
+
+Baris ketiga itu alasan kenapa jalur ini berbeda dari rawon: kalau ffmpeg
+menghasilkan opus langsung lalu dikirim apa adanya, **tidak ada satu pun paket
+yang sampai**, karena semuanya melebihi batas Discord. Karena itu ffmpeg berhenti
+di PCM dan paket 20 ms dibuat encoder opus di Node (`frameSize: 960`).
+
+Dua temuan lain yang hanya muncul saat diukur, bukan saat membaca kode:
+
+- yt-dlp menolak ekstraksi YouTube tanpa runtime JavaScript. Tanpa
+  `--js-runtimes node` sebagian video gagal; bendera itu ikut dipakai di sini.
+- Video `wsEkktRGZ18` (yang dulu dipakai sebagai uji) sekarang membalas
+  `HTTP Error 403: Forbidden`, sementara `dQw4w9WgXcQ` normal. Cookie Google
+  adalah jalan yang memang disediakan YouTube untuk kasus seperti ini.
+
+### Membuktikan sendiri
+
+```bash
+npm run probe:direct -- "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 60
+```
+
+Perintah itu menjalankan pipeline sungguhan lalu mencetak jumlah paket, ukuran
+paket terbesar, dan waktunya, jadi keluarannya bisa dibandingkan langsung dengan
+tabel di atas. Kalau jumlah paketnya 0, jalur audio belum siap.
+
+### Konfigurasi
+
+| Variabel | Wajib | Isi |
+|---|---|---|
+| `YTDLP_PATH` | Tidak | Lokasi biner yt-dlp. Kosong = pakai biner unduhan bot sendiri, lalu `yt-dlp` di PATH |
+| `YTDLP_COOKIES_FILE` | Tidak | Berkas cookie format Netscape. Satu-satunya jalan menembus "Sign in to confirm you are not a bot" dari IP pusat data |
+| `FFMPEG_PATH` | Tidak | Lokasi biner ffmpeg. Kosong = biarkan bot mencarinya sendiri |
+
+Berkas cookie tidak pernah disentuh langsung: bot menyalinnya dulu ke
+`<nama>.ytdlp-tmp` lalu salinan itu yang diberikan ke yt-dlp, supaya penulisan
+cookie diperbarui tidak merusak berkas asli. Kalau penyalinan gagal, berkas
+asli tetap dipakai.
+
+Image Docker sudah memasang `ffmpeg` dan `yt-dlp` di dalam container bot
+([Dockerfile](Dockerfile)), jadi tidak ada langkah manual di server.
+
+### Batas yang perlu jujur diketahui
+
+- **Perintah belum diganti.** `/play`, `/queue`, `/filter`, `/loop`, dan `/seek`
+  masih lewat Lavalink. Modul di `src/modules/music/stream/` sudah terbukti
+  menghasilkan audio yang layak kirim, tetapi belum disambungkan ke lapisan
+  perintah, jadi Lavalink tetap ada di `docker-compose.yml`.
+- **Belum ada uji otomatis untuk pemutaran.** Tes yang ada membuktikan argumen,
+  klasifikasi galat, cookie, dan biner — semuanya murni. Yang butuh voice
+  channel nyata baru terbukti lewat `npm run probe:direct` dan `/play` manual.
+- **Filter audio berubah bentuk.** `bassboost`, `nightcore`, `vaporwave`, dan
+  `8d` sekarang adalah filter ffmpeg (`-af`), bukan equalizer Lavalink, jadi
+  karakternya tidak identik dengan versi sebelumnya.
+- **Multi-node tidak ada artinya.** Tidak ada lagi perpindahan node, dan
+  bagian health/metrics yang menyebut Lavalink perlu ditinjau ulang.

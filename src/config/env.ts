@@ -48,6 +48,14 @@ const envSchema = z.object({
   LAVALINK_NODES: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   LAVALINK_PASSWORD: z.string().min(1, 'wajib diisi dan harus sama dengan LAVALINK_SERVER_PASSWORD di container'),
 
+  // Audio langsung (pengganti Lavalink, lihat src/modules/music/stream/).
+  // Ketiganya opsional: tanpa YTDLP_PATH bot memakai biner hasil unduhan sendiri
+  // atau yt-dlp di PATH; tanpa cookie YouTube bisa menolak dengan "Sign in to
+  // confirm you're not a bot"; tanpa FFMPEG_PATH prism-media mencari sendiri.
+  YTDLP_PATH: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  YTDLP_COOKIES_FILE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  FFMPEG_PATH: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+
   // Health check (PRD 5.1): port untuk GET /health dan /ready.
   // 0 = matikan endpoint (mis. saat menjalankan lokal tanpa monitoring).
   HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(8080),

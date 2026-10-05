@@ -21,6 +21,14 @@ FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
+# Jalur audio langsung (src/modules/music/stream/) menjalankan dua biner di dalam
+# container: yt-dlp untuk mengambil audio dari YouTube, ffmpeg untuk mengubahnya
+# jadi PCM 48 kHz stereo sebelum di-encode jadi opus 20 ms. Keduanya wajib ada
+# di image; tanpa salah satu, bot start tapi tidak ada suara sama sekali.
+RUN apk add --no-cache ffmpeg yt-dlp \
+ && mkdir -p /app/cache/scripts \
+ && chown -R node:node /app/cache
+
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/package.json ./package.json
