@@ -23,6 +23,7 @@
     "allowJs": true,
     "plugins": [{ "name": "next" }],
     "paths": {
+      "@/*": ["./*"],
       "@bot/*": ["../src/*"]
     }
   },

@@ -478,11 +478,20 @@ export async function createKeyValueStore(): Promise<KeyValueStoreHandle> {
   let client: Redis | undefined;
 
   try {
-    const module = await import('ioredis');
+    const module = (await import('ioredis')) as unknown as {
+      default?: { default?: new (url?: string, options?: RedisOptions) => Redis } & Redis;
+    };
     // ioredis diekspor sebagai CommonJS; bentuk modul di Node bisa berupa
     // { default: { default: Ctor } } atau { default: Ctor }, jadi keduanya
     // diperiksa alih-alih menebak.
-    const RedisCtor = module.default.default ?? module.default;
+    //
+    // Bentuk modulnya ditulis tangan karena tipe `ioredis` hanya menyebut satu
+    // dari keduanya, dan berkas ini dikompilasi dengan dua resolusi modul yang
+    // berbeda (bot memakai NodeNext, dashboard memakai bundler). Tanpa coretan
+    // ini, properti `.default` di dalam `.default` tidak ada di salah satunya —
+    // padahal bentuk itu benar-benar terjadi di Node.
+    const RedisCtor = module.default?.default ?? module.default;
+    if (typeof RedisCtor !== 'function') throw new Error('konstruktor ioredis tidak ditemukan');
     client = new RedisCtor(getEnv().REDIS_URL, REDIS_OPTIONS) as Redis;
 
     // Tanpa listener 'error', ioredis mencetak sendiri

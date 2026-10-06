@@ -1,4 +1,10 @@
-import { defaultTranslator, type MessageKey, type Translator } from '../i18n/index.js';
+// Dari `catalog.js`, bukan barrel `i18n/index.js`. Barrel itu memuat service
+// bahasa yang membaca konfigurasi, dan konfigurasi memuat embed, dan embed
+// memuat `discord.js` — jadi mengimpor satu konstanta lewat barrel itu menarik
+// seluruh pustaka Discord ke berkas mana pun yang memakainya. Dashboard
+// membutuhkannya di route API tanpa gateway, dan bundel itu akan memuat
+// discord.js beserta `zlib-sync` yang tidak ada di environment edge.
+import { defaultTranslator, type MessageKey, type Translator } from '../i18n/catalog.js';
 
 /** Enam kategori log sesuai PRD §7.3. */
 export const LOG_CATEGORIES = ['member', 'message', 'channel', 'role', 'voice', 'server'] as const;

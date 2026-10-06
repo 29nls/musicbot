@@ -36,6 +36,9 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
+# Env verifikasi lokal dashboard (isinya kredensial, jangan ikut ter-commit)
+.dash-verify.env
+
 # Tooling metadata
 .freebuff/
 .agents/
