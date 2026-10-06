@@ -314,6 +314,60 @@ describe('RedisKeyValueStore', () => {
     vi.useRealTimers();
   });
 
+  /**
+   * Penjaga struktur skrip Lua `compareAndSet`.
+   *
+   * Kenapa hanya strukturnya: tidak ada kompiler Lua di suite ini — `MiniRedis`
+   * (tests/support/miniRedis.ts) tidak mengimplementasikan EVAL sama sekali, jadi
+   * skrip ini belum pernah dilihat Lua sungguhan saat tes berjalan. Versi pertama
+   * skrip ini lolos semua tes padahal tidak bisa dikompilasi ("'end' expected to
+   * close 'if' at line 2, near '<eof>'") dan baru ketahuan saat dijalankan ke
+   * Redis sungguhan. Hitungan token if/end di bawah menangkap kelas kesalahan itu
+   * tanpa butuh Redis; perilakunya sendiri hanya bisa dibuktikan dengan Redis
+   * hidup (empat kasus: key kosong, key ada, expectedValue cocok, expectedValue
+   * basi).
+   *
+   * Token, bukan pola teks: `if` dihitung sebagai token utuh, jadi `elseif` tidak
+   * ikut terhitung sebagai pembuka blok.
+   */
+  it('skrip compareAndSet punya blok Lua yang seimbang dan kedua cabang hasil', async () => {
+    const client = new FakeRedisWithEval();
+    const store = new RedisKeyValueStore(client);
+
+    await store.compareAndSet('kunci', 'nilai', { expectedValue: 'lama' });
+
+    const skrip = client.evalCalls[0]?.script ?? '';
+    const token = skrip.split(/[^A-Za-z_]+/);
+    const jumlahIf = token.filter((t) => t === 'if').length;
+    const jumlahEnd = token.filter((t) => t === 'end').length;
+
+    expect(jumlahIf).toBeGreaterThan(0);
+    expect(jumlahEnd).toBe(jumlahIf);
+    expect(skrip.trimEnd().endsWith('return 1')).toBe(true);
+    // Dua jalur gagal: key yang seharusnya belum ada, dan nilai yang sudah berubah.
+    expect(skrip.split('return 0').length - 1).toBe(2);
+  });
+
+  /** Bentuk argumen EVAL yang disepakati dengan skrip di src/services/kvStore.ts. */
+  it('argumen EVAL membawa expectedValue, nilai, TTL, dan penanda key-harus-baru', async () => {
+    const client = new FakeRedisWithEval();
+    const store = new RedisKeyValueStore(client);
+
+    await store.compareAndSet('kunci', 'baru', { expectedValue: 'lama', ttlMs: 5_000 });
+    expect(client.evalCalls[0]).toEqual({
+      script: expect.any(String),
+      numberOfKeys: 1,
+      args: ['kunci', 'lama', 'baru', '5000', '0'],
+    });
+
+    await store.compareAndSet('kunci', 'baru', { expectedValue: null });
+    expect(client.evalCalls[1]).toEqual({
+      script: expect.any(String),
+      numberOfKeys: 1,
+      args: ['kunci', '', 'baru', '0', '1'],
+    });
+  });
+
   it('TTL dikirim sebagai PX dalam milidetik, bukan detik', async () => {
     const client = new FakeRedis();
     const store = new RedisKeyValueStore(client);

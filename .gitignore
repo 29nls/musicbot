@@ -3,6 +3,10 @@ node_modules/
 dist/
 coverage/
 
+# Dashboard Next.js (build cache + berkas tipe yang dibuat Next sendiri)
+.next/
+dashboard/next-env.d.ts
+
 # Prisma Client hasil generate (dibuat ulang oleh `prisma generate`)
 src/generated/
 
@@ -10,6 +14,9 @@ src/generated/
 .env
 .env.*
 !.env.example
+
+# Cookie YouTube (format Netscape) — berisi sesi akun asli, jangan ter-commit
+cookies.txt
 
 # Log
 *.log

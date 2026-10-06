@@ -7,6 +7,11 @@ import { startHealthServer, type HealthServerHandle } from './modules/health/ind
 import { getMusicService, initMusic, isMusicConnected } from './modules/music/index.js';
 import { clearCaseLinks } from './modules/moderation/index.js';
 import { connectDatabase, disconnectDatabase, pingDatabase } from './services/database.js';
+import {
+  createConfigChangedHandler,
+  subscribeConfigChanged,
+} from './modules/config/invalidation.js';
+import { createServiceInvalidationTargets } from './modules/config/invalidationWiring.js';
 import { getLogger } from './services/logger.js';
 import { createKeyValueStore, getKeyValueStore, setKeyValueStore, type KeyValueStoreHandle } from './services/kvStore.js';
 import { processInstanceId } from './services/instanceId.js';
@@ -36,6 +41,8 @@ let metricsProbe: MetricsProbe | undefined;
 let fleetReporter: FleetReporter | undefined;
 let healthServer: HealthServerHandle | null = null;
 let keyValueStore: KeyValueStoreHandle | undefined;
+/** Fungsi berhenti langganan invalidasi konfigurasi; null = store tanpa pub/sub. */
+let configInvalidationStop: (() => Promise<void>) | null = null;
 
 /** Kapan proses ini start — dipakai health check untuk menghitung uptime. */
 const startedAt = Date.now();
@@ -67,6 +74,36 @@ async function main(): Promise<void> {
   keyValueStore = await createKeyValueStore();
   setKeyValueStore(keyValueStore);
   setCooldownStore(keyValueStore.store);
+
+  // Invalidasi konfigurasi lintas proses (PRD-DASHBOARD D2): dashboard web
+  // menulis langsung ke database, jadi proses bot ini harus diberi tahu kalau
+  // baris guild berubah — kalau tidak, cache 60 detik membuat perubahan orang
+  // terlihat seperti tidak tersimpan.
+  //
+  // Kegagalan berlangganan TIDAK menghentikan bot: `null` dari fungsi ini
+  // berarti store memori (tidak ada kanal lintas proses), dan error dilewatkan
+  // sebagai peringatan. Konsekuensinya harus jelas, jadi disebut di log:
+  // perubahan dari dashboard baru berlaku setelah cache kedaluwarsa.
+  try {
+    configInvalidationStop = await subscribeConfigChanged(
+      keyValueStore.store,
+      createConfigChangedHandler(createServiceInvalidationTargets(), {
+        onError: (target, error) =>
+          logger.warn({ err: error, target }, 'Cache gagal dibuang setelah perubahan konfigurasi'),
+        onIgnored: (raw) =>
+          logger.warn({ panjang: raw.length }, 'Pesan invalidasi konfigurasi ditolak'),
+      }),
+    );
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      'Langganan invalidasi konfigurasi gagal — perubahan dari dashboard baru berlaku setelah cache kedaluwarsa',
+    );
+  }
+
+  if (configInvalidationStop) {
+    logger.info('Langganan invalidasi konfigurasi aktif');
+  }
 
   client = new BotClient();
 
@@ -205,6 +242,7 @@ function registerProcessHandlers(bot: BotClient): void {
 
     void Promise.allSettled([
       healthServer?.close() ?? Promise.resolve(),
+      configInvalidationStop?.() ?? Promise.resolve(),
       keyValueStore?.store.close() ?? Promise.resolve(),
       disconnectDatabase(),
       stopMusic(),

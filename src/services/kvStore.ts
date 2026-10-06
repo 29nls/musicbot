@@ -74,6 +74,24 @@ export interface KeyValueStore {
    * harus tahu bahwa itu tidak dijamin dan tidak boleh mengarang jaminan.
    */
   compareAndSet?(key: string, value: string, options: CompareAndSetOptions): Promise<boolean>;
+  /**
+   * Terbitkan pesan ke kanal lintas proses.
+   *
+   * Opsional karena hanya store Redis yang bisa: store memori hidup di satu
+   * proses, jadi tidak ada proses lain yang bisa diberi tahu. `false` berarti
+   * store ini tidak mendukung — pemanggil tidak boleh menganggap pesannya
+   * sudah sampai, dan itu keputusan yang harus diambil pemanggil, bukan
+   * disembunyikan di sini.
+   */
+  publish?(channel: string, message: string): Promise<boolean>;
+  /**
+   * Berlangganan satu kanal; mengembalikan fungsi untuk berhenti.
+   *
+   * Koneksinya harus terpisah dari koneksi perintah (Redis menolak perintah
+   * biasa di koneksi yang sedang berlangganan), jadi store tidak bisa
+   * memakai kliennya sendiri. `subscriberFactory` yang menyediakannya.
+   */
+  subscribe?(channel: string, handler: (message: string) => void): Promise<() => Promise<void>>;
   /** Tutup koneksi (dipanggil saat shutdown). Aman dipanggil berulang. */
   close(): Promise<void>;
 }
@@ -97,6 +115,17 @@ interface MemoryRecord {
  */
 export class MemoryKeyValueStore implements KeyValueStore {
   private readonly records = new Map<string, MemoryRecord>();
+
+  /**
+   * Store memori tidak bisa memberi tahu proses lain: selalu `false`.
+   *
+   * Sengaja tetap ada alih-alih dibiarkan undefined supaya pemanggil yang
+   * memeriksa `typeof store.publish === 'function'` dan yang memanggilnya
+   * mendapat jawaban yang sama.
+   */
+  async publish(_channel: string, _message: string): Promise<boolean> {
+    return false;
+  }
 
   async get(key: string): Promise<string | null> {
     const record = this.records.get(key);
@@ -217,7 +246,11 @@ export interface RedisLike {
   incr(key: string): Promise<number>;
   pttl(key: string): Promise<number>;
   quit(): Promise<unknown>;
-  on(event: string, listener: (error: Error) => void): unknown;
+  on(event: string, listener: (...args: unknown[]) => void): unknown;
+  /** PUBLISH; jumlah penerima yang menerima pesan. */
+  publish?(channel: string, message: string): Promise<number>;
+  /** SUBSCRIBE; hanya di koneksi khusus langganan. */
+  subscribe?(channel: string): Promise<unknown>;
 }
 
 /**
@@ -234,6 +267,8 @@ const COMPARE_AND_SET_SCRIPT = [
   "if ARGV[4] == '1' then",
   "  if current then return 0 end",
   "elseif current ~= ARGV[1] then",
+  "  return 0",
+  "end",
   "if tonumber(ARGV[3]) > 0 then",
   "  redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])",
   "else",
@@ -250,7 +285,10 @@ const COMPARE_AND_SET_SCRIPT = [
  * yang paling sering membuat orang mengira rate limitnya tidak berlaku.
  */
 export class RedisKeyValueStore implements KeyValueStore {
-  constructor(private readonly client: RedisLike) {}
+  constructor(
+    private readonly client: RedisLike,
+    private readonly options: RedisKeyValueStoreOptions = {},
+  ) {}
 
   async get(key: string): Promise<string | null> {
     return this.client.get(key);
@@ -331,9 +369,61 @@ export class RedisKeyValueStore implements KeyValueStore {
     return Number(result) === 1;
   }
 
+  /**
+   * Terbitkan satu pesan. `false` kalau klien tidak punya PUBLISH.
+   *
+   * Jumlah penerima tidak dipakai sebagai bukti: nol penerima itu sah (bot
+   * tidak jalan), sedangkan `false` berarti dashboard tidak bisa menjamin
+   * apa pun dan harus menolak menulis.
+   */
+  async publish(channel: string, message: string): Promise<boolean> {
+    if (!this.client.publish) return false;
+
+    await this.client.publish(channel, message);
+    return true;
+  }
+
+  /**
+   * Berlangganan lewat koneksi terpisah.
+   *
+   * Fungsi berhenti menutup koneksi langganannya sendiri — kalau tidak,
+   * ioredis yang ditinggal tetap memegang socket dan timer reconnect.
+   */
+  async subscribe(
+    channel: string,
+    handler: (message: string) => void,
+  ): Promise<() => Promise<void>> {
+    const factory = this.options.subscriberFactory;
+    if (!factory) throw new Error('store ini tidak punya koneksi langganan');
+
+    const subscriber = factory();
+    subscriber.on('message', (...args: unknown[]) => {
+      const [receivedChannel, receivedMessage] = args;
+      if (receivedChannel !== channel) return;
+      if (typeof receivedMessage !== 'string') return;
+      handler(receivedMessage);
+    });
+
+    if (!subscriber.subscribe) throw new Error('klien langganan tidak punya SUBSCRIBE');
+    await subscriber.subscribe(channel);
+
+    return async () => {
+      await subscriber.quit();
+    };
+  }
+
   async close(): Promise<void> {
     await this.client.quit();
   }
+}
+
+/** Opsi store Redis. Subscriber sengaja terpisah dari koneksi perintah. */
+export interface RedisKeyValueStoreOptions {
+  /**
+   * Pabrik koneksi langganan. Dipanggil hanya saat `subscribe()` dipakai,
+   * jadi store yang tidak berlangganan tidak menambah koneksi.
+   */
+  subscriberFactory?: () => RedisLike;
 }
 
 export interface KeyValueStoreHandle {
@@ -405,7 +495,11 @@ export async function createKeyValueStore(): Promise<KeyValueStoreHandle> {
       logger.debug({ err: error }, 'Koneksi Redis bermasalah');
     });
 
-    const store = new RedisKeyValueStore(client as unknown as RedisLike);
+    const store = new RedisKeyValueStore(client as unknown as RedisLike, {
+      // `duplicate()` menyalin opsi koneksi tanpa ikut berlangganan di
+      // koneksi perintah, jadi publikasi dan langganan bisa hidup bersama.
+      subscriberFactory: () => (client as Redis).duplicate() as unknown as RedisLike,
+    });
 
     await client.connect();
     await store.increment('harmony:kvstore:probe', { ttlMs: 60_000 });
