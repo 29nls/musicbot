@@ -75,7 +75,7 @@ describe('kosong berarti mengosongkan, bukan tidak berubah', () => {
 
   it('nilai kosong yang sama sekali tidak dikirim', () => {
     // Kalau `''` terkirim untuk field yang tadinya juga kosong, setiap
-    // penyimpanan akan memb看成 perubahan pada semua field kosong.
+    // penyimpanan akan terlihat seperti perubahan pada semua field kosong.
     expect(buildRequestBody(draft(), draft())).toEqual({});
   });
 });

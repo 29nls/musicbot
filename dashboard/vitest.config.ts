@@ -35,6 +35,9 @@ export default defineConfig({
         'lib/rateLimit.ts',
         'lib/fieldCatalog.ts',
         'lib/audit.ts',
+        // Logger ikut diukur karena ia satu-satunya jalan nilai dari server
+        // ke syslog, dan kebocoran di sana tidak terlihat dari mana pun.
+        'lib/log.ts',
       ],
       reporter: ['text', 'html'],
       reportsDirectory: 'coverage',

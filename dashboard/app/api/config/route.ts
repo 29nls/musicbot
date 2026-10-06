@@ -6,6 +6,7 @@ import { getEnv } from '@/lib/env.js';
 import { configWriteDeps, readGuildConfig } from '@/lib/serverDeps.js';
 import { checkManageGuild } from '@/lib/permissions.js';
 import { readSessionOrDev } from '@/lib/sessionRoute.js';
+import { log } from '@/lib/log.js';
 
 /**
  * Baca dan tulis konfigurasi guild.
@@ -136,11 +137,28 @@ export async function PATCH(request: Request): Promise<NextResponse> {
     const headers: Record<string, string> = {};
     if (result.retryAfterSeconds) headers['retry-after'] = String(result.retryAfterSeconds);
 
-      return NextResponse.json(
-      { error: result.reason, issues: result.issues },
-      { status, headers },
-    );
+    // Penolakan karena kanal bersama atau database mati adalah masalah
+    // infrastruktur, bukan salah pengguna. Keduanya harus terlihat di log dengan
+    // level berbeda supaya operator bisa membedakan "sesi tidak berlaku" dari
+    // "layanan sedang turun" — dua masalah yang perbaikannya tidak sama.
+    const level = result.reason === 'shared-store-down' || result.reason === 'database-down' ? 'error' : 'warn';
+    log[level]('config.write.rejected', {
+      guildId,
+      userId: session.userId,
+      reason: result.reason,
+      issues: result.issues,
+      retryAfterSeconds: result.retryAfterSeconds,
+    });
+
+    return NextResponse.json({ error: result.reason, issues: result.issues }, { status, headers });
   }
+
+  log.info('config.write.ok', {
+    guildId,
+    userId: session.userId,
+    fields: result.changes.map((change) => change.field),
+    auditRecorded: result.auditRecorded,
+  });
 
   return NextResponse.json({
     ok: true,

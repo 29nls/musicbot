@@ -34,7 +34,7 @@ export const DEV_CHANNELS: GuildChannel[] = [
   { id: '1234567890123456791', name: 'sampah', type: 0, parent_id: null },
   { id: '1234567890123456792', name: 'pengumuman', type: 5, parent_id: null },
   { id: '1234567890123456793', name: 'Musik', type: 2, parent_id: null },
-  { id: '1234567890123456794', name: 'Stage延时', type: 13, parent_id: null },
+  { id: '1234567890123456794', name: 'Panggung', type: 13, parent_id: null },
   { id: '1234567890123456795', name: 'Channel dihapus', type: 0, parent_id: null },
 ];
 
