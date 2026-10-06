@@ -1,0 +1,35 @@
+# Template systemd untuk jalur tanpa Docker. JANGAN dipakai langsung dari sini:
+# nilai @...@ diganti oleh deploy/casaos/install-systemd.sh lalu disalin ke
+# /etc/systemd/system.
+#
+# Kenapa dipisah dari harmony.service: Lavalink harus hidup sebelum bot
+# menyambung, dan kalau keduanya jadi satu unit, satu JVM yang start-nya lambat
+# (terukur ~20 detik) membuat systemd menganggap seluruh layanan gagal lalu
+# merestart bot berulang-ulang.
+[Unit]
+Description=Harmony Lavalink (mesin audio)
+After=network-online.target
+Wants=network-online.target
+# Crash-loop tidak boleh membuat systemd menyerah. Bawaannya: 5 percobaan dalam
+# 10 detik, lalu unit berstatus "failed" dan BERHENTI mencoba — kebalikan dari
+# "tidak pernah mati". 0 = tanpa batas.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@HARMONY_USER@
+WorkingDirectory=@HARMONY_DIR@
+# `npm run infra:lavalink` memanggil `java` dari PATH, jadi direktori JRE-nya
+# harus ada di sini — jalur "JRE diunduh ke $HOME" tidak masuk PATH sendiri.
+#
+# Nilainya diapit tanda kutip: `Environment=` dan `ExecStart=` memisah kata di
+# spasi, jadi jalur yang mengandung spasi (mis. direktori JRE di bawah folder
+# bernama dua kata) akan terpotong tanpa itu.
+Environment="PATH=@PATH_VALUE@"
+ExecStart="@NPM_BIN@" run infra:lavalink
+# Selalu dihidupkan lagi, termasuk kalau prosesnya keluar dengan 0.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,33 @@
+# Template systemd untuk jalur tanpa Docker. Nilai @...@ diganti oleh
+# deploy/casaos/install-systemd.sh lalu disalin ke /etc/systemd/system.
+[Unit]
+Description=Harmony bot
+After=network-online.target harmony-lavalink.service
+Wants=network-online.target
+Requires=harmony-lavalink.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@HARMONY_USER@
+WorkingDirectory=@HARMONY_DIR@
+# Rahasia dari .env. Tidak wajib — tanpa NODE_ENV=production bot memuat .env
+# sendiri dari WorkingDirectory — tapi eksplisit lebih aman dan tidak
+# bergantung pada perilaku itu.
+EnvironmentFile="@HARMONY_DIR@/.env"
+# `npm run build` dulu sekali. `npm run dev` (tsx watch) bukan untuk service:
+# ia menonton berkas dan menambah satu proses transpiler yang tidak dibutuhkan.
+#
+# Dua kata dikutip terpisah: `ExecStart=` memisah kata di spasi, jadi jalur yang
+# mengandung spasi akan terpotong jadi argumen yang salah tanpa kutipan itu.
+# Script-nya absolut karena systemd tidak mencari relatif ke WorkingDirectory.
+ExecStart="@NODE_BIN@" "@HARMONY_DIR@/dist/index.js"
+Restart=always
+RestartSec=5
+# Bot menutup job, database, dan mesin musiknya sendiri; ia memaksa keluar
+# paling lambat 10 detik. Beri ruang lebih dari itu sebelum systemd memaksa
+# SIGKILL dan meninggalkan sambungan database yang menggantung.
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

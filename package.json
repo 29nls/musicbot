@@ -28,6 +28,8 @@
     "db:studio": "prisma studio",
     "db:prune": "tsx src/prune-retention.ts",
     "postinstall": "prisma generate",
+    "dev:all": "node tools/dev-all.mjs",
+    "dev:stop": "node tools/dev-all.mjs --stop",
     "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d",
     "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
     "infra:lavalink": "node tools/start-lavalink.mjs",

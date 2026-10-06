@@ -1,0 +1,13 @@
+# Template systemd untuk jalur tanpa Docker. Dipasang oleh
+# deploy/casaos/install-systemd.sh bersama harmony-health.timer.
+#
+# Kenapa ada: `Restart=always` hanya menangani proses yang KELUAR. Bot yang
+# masih hidup tetapi tidak membalas apa pun (mis. socket Discord macet) tidak
+# akan pernah direstart, karena systemd tidak tahu apa-apa soal HTTP di
+# dalamnya. Unit ini yang memeriksa, timer yang menjadwalkannya.
+[Unit]
+Description=Periksa /health Harmony sekali
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/harmony-check
