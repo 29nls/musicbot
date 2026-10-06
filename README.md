@@ -837,7 +837,7 @@ sisanya adalah kebocoran modul playlists itu.
 
 | Perintah | Fungsi | Izin |
 | --- | --- | --- |
-| `/play <query>` | Cari lalu putar, atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya; tautan Spotify → metadata resmi lalu audio dicari ulang | Semua (harus di voice channel) |
+| `/play <query>` | Cari lalu putar **tepat satu lagu** (hasil terbaik; PRD US-01), atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya — URL playlist atau radio (`&list=`) juga diambil **lagu pertamanya saja**; memilih dari hasil pencarian lewat `/search`, memutar playlist penuh lewat `/playlist add` lalu `/playlist play`; tautan Spotify → metadata resmi lalu audio dicari ulang | Semua (harus di voice channel) |
 | `/search <query>` | Cari 5 hasil teratas, pilih satu lewat select menu untuk langsung diputar | Semua (harus di voice channel) |
 | `/queue` | Lagu yang sedang diputar + antrean berhalaman (10 lagu/halaman, tombol navigasi) | Semua |
 | `/nowplaying` | Embed lagu aktif: progress bar, volume, sisa antrean | Semua |

@@ -308,13 +308,25 @@ export class MusicService {
     if (found.kind === 'error') return { kind: 'error', message: found.message };
     if (found.kind === 'unavailable') return { kind: 'unavailable' };
 
+    // `/play` menambahkan TEPAT SATU lagu: hasil terbaik (PRD US-01 —
+    // "memutar hasil terbaik"). `ytsearch:` kembali dengan ±25 hasil, dan
+    // URL YouTube yang memuat `&list=` (radio/mix) kembali sebagai playlist;
+    // memasukkan semuanya membuat `/play` memutar banyak lagu
+    // berturut-turut. Memilih dari hasil pencarian adalah tugas `/search`,
+    // dan satu playlist penuh adalah `/playlist add` lalu
+    // `/playlist play` — keduanya memanggil `resolve` langsung, jadi
+    // `resolve` sengaja TIDAK dipotong di sini.
+    const [best] = found.tracks;
+    if (!best) return { kind: 'empty' };
+
     return this.enqueue({
       guildId,
-      tracks: found.tracks.map((track) => toTrackInfo(track, requesterId)),
+      tracks: [toTrackInfo(best, requesterId)],
       voiceChannelId: request.voiceChannelId,
       shardId: request.shardId,
       canControl: request.canControl,
-      playlistName: found.playlistName,
+      // playlistName tidak diteruskan: hasilnya kini selalu satu lagu dan
+      // judul embednya judul lagu itu sendiri (US-01), bukan nama playlist.
     });
   }
 

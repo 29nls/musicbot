@@ -3,10 +3,11 @@ import { toLocale } from '@bot/modules/i18n/types.js';
 import { applyConfigPatch, type WriteFailureReason } from '@/lib/configWrite.js';
 import { botPermissionDeps } from '@/lib/discord.js';
 import { getEnv } from '@/lib/env.js';
-import { configWriteDeps, readGuildConfig } from '@/lib/serverDeps.js';
+import { configWriteDeps, getStore, readGuildConfig } from '@/lib/serverDeps.js';
 import { checkManageGuild } from '@/lib/permissions.js';
 import { readSessionOrDev } from '@/lib/sessionRoute.js';
 import { log } from '@/lib/log.js';
+import { recordDashboardWrite, recordDashboardWriteDenied } from '@/lib/metrics.js';
 
 /**
  * Baca dan tulis konfigurasi guild.
@@ -109,7 +110,15 @@ export async function GET(request: Request): Promise<NextResponse> {
 }
 
 export async function PATCH(request: Request): Promise<NextResponse> {
-  if (!originAllowed(request)) return NextResponse.json({ error: 'bad-origin' }, { status: 403 });
+  if (!originAllowed(request)) {
+    // Penolakan origin ikut dihitung (§4.5): di operasi normal
+    // jumlahnya nol, jadi angka yang bukan nol berarti ada yang
+    // salah — DASHBOARD_URL tidak cocok atau ada yang mengeksplorasi
+    // CSRF. Berbeda dari `no-session`, yang rutin terjadi karena
+    // sesi memang kedaluwarsa dan bukan pertanda insiden.
+    await recordDashboardWriteDenied(getStore());
+    return NextResponse.json({ error: 'bad-origin' }, { status: 403 });
+  }
 
   const session = await readSessionOrDev();
   if (!session) return NextResponse.json({ error: 'no-session' }, { status: 401 });
@@ -150,6 +159,11 @@ export async function PATCH(request: Request): Promise<NextResponse> {
       retryAfterSeconds: result.retryAfterSeconds,
     });
 
+    // Penolakan dihitung apa pun alasannya: kegagalan otorisasi adalah
+    // indikator paling awal bahwa ada yang salah (§4.5). Pencacahan
+    // terbaik-usaha — tidak pernah menghalangi penolakan itu sendiri.
+    await recordDashboardWriteDenied(getStore());
+
     return NextResponse.json({ error: result.reason, issues: result.issues }, { status, headers });
   }
 
@@ -159,6 +173,11 @@ export async function PATCH(request: Request): Promise<NextResponse> {
     fields: result.changes.map((change) => change.field),
     auditRecorded: result.auditRecorded,
   });
+
+  // Penulisan berhasil dihitung sesudah log, supaya dua sumber
+  // observasi menceritakan peristiwa yang sama dalam urutan yang
+  // sama. Terbaik-usaha, seperti pencacahan penolakan.
+  await recordDashboardWrite(getStore());
 
   return NextResponse.json({
     ok: true,

@@ -458,12 +458,14 @@ Berkasnya sudah ada di repo ini, jadi tidak ada unit yang perlu diketik ulang:
 | [`systemd/harmony.service`](systemd/harmony.service) | `/etc/systemd/system/` | bot |
 | [`systemd/harmony-health.service`](systemd/harmony-health.service) + [`systemd/harmony-health.timer`](systemd/harmony-health.timer) | `/etc/systemd/system/` | pemeriksa `/health` tiap 5 menit |
 | [`systemd/harmony-check.sh`](systemd/harmony-check.sh) | `/usr/local/bin/harmony-check` | skrip yang dipanggil timer itu |
+| [`systemd/harmony-dashboard.service`](systemd/harmony-dashboard.service) | `/etc/systemd/system/` | dashboard web (opsional, lewat `--dashboard`) |
 | [`install-systemd.sh`](install-systemd.sh) | — | pengganti nilainya, lalu pemasangnya |
 
 Yang perlu sudah ada: repo ter-clone, Node LTS, Java 17+, `yt-dlp`, `.env` yang
 terisi, dan skema database sudah diterapkan
 ([jalur tanpa Docker](#jalankan-lavalink-dan-npm-run-dev-tanpa-docker)), plus
-akses root.
+akses root. Untuk `--dashboard`, `dashboard/` juga harus sudah di-build
+(`cd dashboard && npm ci && npm run build`).
 
 ```bash
 systemctl --version | head -1     # kalau ini menjawab, systemd tersedia
@@ -498,6 +500,7 @@ HARMONY_USER=flow JAVA_BIN_DIR=/home/flow/jdk/jdk-21.0.5+11-jre/bin \
 | `--dry-run` | cetak hasil render; tidak menulis ke `/etc`, tidak memanggil `systemctl` |
 | `--verify` | bunuh paksa bot yang sedang hidup, lalu buktikan systemd menghidupkannya lagi (keluar 0 kalau terbukti, 1 kalau tidak) |
 | `--no-health-timer` | lewati timer pemeriksa `/health` |
+| `--dashboard` | pasang juga `harmony-dashboard.service` (dashboard web; port dari `DASHBOARD_PORT` di `.env`) |
 | `--uninstall` | hentikan, nonaktifkan, dan hapus unitnya (`.env` dan repo tidak disentuh) |
 
 Kalau `dist/index.js` belum ada atau Node-nya di bawah 22, pemasangnya memberi
@@ -570,6 +573,54 @@ bawaannya sudah seperti `restart: always`, bukan `unless-stopped`. Satu-satunya
 yang menghentikannya adalah `systemctl stop` (dan `systemctl disable` kalau kamu
 tidak ingin ia kembali saat boot).
 
+### Dashboard di host yang sama (opsional)
+
+Dashboard boleh hidup di mesin yang sama dengan bot, tanpa Docker. Unit-nya
+dipasang dengan flag `--dashboard` — instalasi bot-only tidak berubah:
+
+```bash
+# Build dulu (sekali). Dashboard mengimpor modul bot lewat alias
+# `@bot/*`, jadi ia butuh checkout repo utuh — bukan salinan:
+npm ci                                  # akar repo: deps + client Prisma
+(cd dashboard && npm ci && npm run build)
+
+bash deploy/casaos/install-systemd.sh --dry-run --dashboard   # lihat dulu
+sudo bash deploy/casaos/install-systemd.sh --dashboard
+```
+
+Yang berbeda dari unit bot:
+
+- **Port dari `DASHBOARD_PORT`** di `.env` (bawaan 3000), dirender ke
+  `ExecStart` — satu variabel yang mengatur port di mana pun dashboard
+  dijalankan, persis seperti di Docker.
+- **`EnvironmentFile` ke `.env` yang sama** dengan bot, dan
+  `NODE_ENV=production` dipatok *setelahnya* (directive terakhir yang
+  menang), supaya `DASHBOARD_DEV_FAKE_SESSION` tidak mungkin aktif
+  di produksi walau variabel itu tertinggal di `.env`.
+- **`MemoryMax=256M`** — sama dengan `mem_limit` service `dashboard`
+  di `docker-compose.yml`.
+- **Hardening dasar**: `NoNewPrivileges`, `PrivateTmp`,
+  `ProtectSystem=strict` (seluruh sistem berkas hanya-baca, kecuali
+  `dashboard/` tempat Next.js menulis cache), `CapabilityBoundingSet=`
+  kosong, `RestrictAddressFamilies`, dan `ProtectKernel*`.
+
+Dua perbedaan dari compose yang perlu diketahui:
+
+- **`next start` mendengarkan di semua antarmuka** — compose
+  mem-publish port hanya ke `127.0.0.1`. Kalau dashboard hanya untuk
+  peramban di mesin ini, tambahkan `-H 127.0.0.1` ke `ExecStart=` di
+  `/etc/systemd/system/harmony-dashboard.service`, lalu
+  `systemctl daemon-reload && systemctl restart harmony-dashboard`.
+- **Tidak ada timer pemeriksa `/api/health`.** Endpoint itu menjawab
+  503 saat database mati, dan me-restart dashboard tidak membetulkan
+  database — Prisma menyambung lagi sendiri begitu database pulih.
+  `Restart=always` sudah menangani proses yang keluar; timer ala bot
+  justru membuat dashboard restart-loop tiap 5 menit sepanjang
+  outage database.
+
+Setelah itu: `systemctl status harmony-dashboard`, dan log di
+`journalctl -u harmony-dashboard -f`.
+
 ### Bot yang menggantung: satu hal yang tidak ditangani systemd
 
 `Restart=always` hanya menangani proses yang **keluar**. Bot yang masih hidup
@@ -586,8 +637,9 @@ kegagalan itu tinggal di berkasnya, bukan diketik ulang di sini.
 
 - **Belum pernah dijalankan di systemd sungguhan.** Tidak ada NAS dan tidak ada
   systemd di lingkungan pengembangan repo ini. Yang benar-benar diuji: pemasangnya
-  (`bash -n`; `--dry-run` merender kelima berkas tanpa satu pun placeholder
-  tersisa; menolak dijalankan tanpa root; menolak kalau `.env` tidak ada). Mode
+  (`bash -n`; `--dry-run` merender berkas unit tanpa satu pun placeholder
+  tersisa — termasuk `harmony-dashboard.service` dengan `--dashboard`;
+  menolak dijalankan tanpa root; menolak kalau `.env` tidak ada). Mode
   `--verify` diuji dengan `systemctl` tiruan (harness stub): kasus pulih,
   tidak-pulih, dan pid-berubah-tapi-`NRestarts`-tetap — ketiganya memberi hasil
   dan kode keluar yang benar. Isi unit-nya sendiri baru diperiksa dengan membaca.
@@ -607,7 +659,8 @@ kegagalan itu tinggal di berkasnya, bukan diketik ulang di sini.
 - **Update Node LTS atau JRE ikut memutus unit.** Service memakai PATH dan biner
   yang dipatok di berkas unit, jadi setelah upgrade jalankan ulang
   `install-systemd.sh` (nilainya dideteksi ulang), lalu
-  `systemctl daemon-reload` dan `systemctl restart harmony-lavalink harmony`.
+  `systemctl daemon-reload` dan `systemctl restart harmony-lavalink harmony`
+  (tambah `harmony-dashboard` kalau unit dashboard terpasang).
 - **Bot lama bisa berjalan bersama bot baru.** Kalau app CasaOS (versi Docker)
   masih hidup dengan token yang sama, kamu punya dua bot yang menyambung ke
   gateway yang sama dan saling menimpa state player. Hentikan salah satunya:

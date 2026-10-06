@@ -95,6 +95,53 @@ services:
       retries: 3
       start_period: 30s
 
+  # Dashboard web (PRD-DASHBOARD.md, keputusan D7). Layanan
+  # terpisah di compose yang sama: build sendiri dari Dockerfile
+  # dashboard, tidak pernah menjalankan migrasi (migrasi milik
+  # service `migrate`), dan port hanya di-bind ke loopback.
+  #
+  # Variabel yang harus ada di .env (selain milik bot):
+  #   OAUTH_CLIENT_SECRET, DASHBOARD_SECRET, DASHBOARD_URL
+  # Lihat dashboard/.env.example untuk keterangan tiap variabel.
+  dashboard:
+    build:
+      context: ${HARMONY_REPO:-https://github.com/29nls/musicbot.git}#${HARMONY_REF:-main}
+      dockerfile: dashboard/Dockerfile
+    image: harmony-dashboard:local
+    container_name: harmony-dashboard
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file:
+      - ${HARMONY_DATA:-/DATA/AppData/harmony-bot}/.env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      # Dipaksa ke 3000 supaya health check di bawah memprobe
+      # port yang benar — pola yang sama dengan HEALTH_PORT di
+      # service bot. Nilai DASHBOARD_PORT lain di .env diabaikan
+      # di stack ini.
+      DASHBOARD_PORT: "3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    mem_limit: 256m
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   # Image turunan: config Lavalink sudah dibakar ke dalam image, jadi tidak
   # ada bind mount yang bisa hilang saat folder build dibersihkan.
   lavalink:
@@ -197,5 +244,5 @@ x-casaos:
     - arm64
   version: "0.1.0"
   tips:
-    en_US: Fill in DISCORD_TOKEN and LAVALINK_PASSWORD in the .env file before starting.
-    id_ID: Isi DISCORD_TOKEN dan LAVALINK_PASSWORD di berkas .env sebelum memulai.
+    en_US: Fill in DISCORD_TOKEN and LAVALINK_PASSWORD in the .env file before starting. The web dashboard additionally needs OAUTH_CLIENT_SECRET and DASHBOARD_SECRET (see dashboard/.env.example).
+    id_ID: Isi DISCORD_TOKEN dan LAVALINK_PASSWORD di berkas .env sebelum memulai. Dashboard web juga butuh OAUTH_CLIENT_SECRET dan DASHBOARD_SECRET (lihat dashboard/.env.example).

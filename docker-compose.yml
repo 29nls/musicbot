@@ -3,6 +3,7 @@
 #   docker compose up -d --build      # semua service
 #   docker compose up -d lavalink     # mesin audio saja (untuk `npm run dev` dari host)
 #   docker compose logs -f bot        # lihat log bot
+#   docker compose logs -f dashboard  # lihat log dashboard web (PRD-DASHBOARD.md)
 #
 # Nilai rahasia dibaca dari file .env di folder ini (lihat .env.example).
 #
@@ -68,6 +69,53 @@ services:
           "node",
           "-e",
           "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Dashboard web (PRD-DASHBOARD.md, keputusan D7): layanan
+  # terpisah di compose yang sama. Build sendiri, TIDAK PERNAH
+  # menjalankan migrasi (migrasi milik repo bot — lihat service
+  # `migrate`), dan port hanya di-bind ke loopback: dashboard
+  # tidak perlu dijangkau dari jaringan lain, dan membatasi
+  # paparan permukaan OAuth.
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    image: harmony-dashboard:local
+    container_name: harmony-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      # Hostname service, supaya dashboard menemukan Redis.
+      REDIS_URL: redis://redis:6379
+      # Dipaksa ke 3000 dan port yang dipublish juga 3000 supaya
+      # keduanya tidak bisa melenceng — persis seperti HEALTH_PORT
+      # di service bot. Nilai DASHBOARD_PORT lain di .env diabaikan
+      # di stack ini; kalau diisi berbeda, health check di bawah
+      # memprobe port yang salah.
+      DASHBOARD_PORT: "3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    # Hanya loopback: tidak ada alasan peramban di host lain
+    # mengakses dashboard langsung dari mesin ini.
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 30s
       timeout: 5s

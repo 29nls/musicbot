@@ -5,6 +5,7 @@
 #   bash deploy/casaos/install-systemd.sh --dry-run    # lihat hasilnya saja, tanpa menyentuh /etc
 #   bash deploy/casaos/install-systemd.sh --verify     # buktikan bot hidup lagi setelah dibunuh
 #   bash deploy/casaos/install-systemd.sh --no-health-timer
+#   bash deploy/casaos/install-systemd.sh --dashboard
 #   bash deploy/casaos/install-systemd.sh --uninstall
 #
 # Cukup satu berkas yang disunting kalau perlu: berkas ini sendiri, lewat
@@ -20,6 +21,9 @@
 #   /etc/systemd/system/harmony.service               bot
 #   /etc/systemd/system/harmony-health.service|.timer pemeriksa /health tiap 5 menit
 #   /usr/local/bin/harmony-check                      skrip yang dipanggil timer itu
+#
+# Dengan --dashboard, ditambah:
+#   /etc/systemd/system/harmony-dashboard.service      dashboard web (Next.js)
 
 set -euo pipefail
 
@@ -32,6 +36,7 @@ DRY_RUN=0
 UNINSTALL=0
 HEALTH_TIMER=1
 VERIFY=0
+DASHBOARD=0
 
 usage() {
   # Seluruh blok komentar di kepala berkas, apa pun panjangnya.
@@ -44,6 +49,7 @@ for arg in "$@"; do
     --uninstall) UNINSTALL=1 ;;
     --verify) VERIFY=1 ;;
     --no-health-timer) HEALTH_TIMER=0 ;;
+    --dashboard) DASHBOARD=1 ;;
     --help|-h) usage; exit 0 ;;
     *) printf 'Gagal: argumen tidak dikenal: %s\n\n' "$arg" >&2; usage >&2; exit 1 ;;
   esac
@@ -105,9 +111,25 @@ fi
 HEALTH_PORT="${HEALTH_PORT:-8080}"
 case "$HEALTH_PORT" in ''|*[!0-9]*) die "HEALTH_PORT tidak masuk akal: ${HEALTH_PORT}" ;; esac
 
+# Port dashboard: dari .env, persis seperti HEALTH_PORT. Hanya
+# dipakai kalau --dashboard, supaya instalasi bot-only tidak pernah
+# gagal karena nilai yang bukan urusannya.
+if [ "$DASHBOARD" = 1 ]; then
+  DASHBOARD_PORT="${DASHBOARD_PORT:-}"
+  if [ -z "$DASHBOARD_PORT" ] && [ -f "${HARMONY_DIR}/.env" ]; then
+    DASHBOARD_PORT="$(sed -n 's/^[[:space:]]*DASHBOARD_PORT[[:space:]]*=[[:space:]]*//p' "${HARMONY_DIR}/.env" \
+      | tail -1 | tr -d '"'"'"'[:space:]')"
+  fi
+  DASHBOARD_PORT="${DASHBOARD_PORT:-3000}"
+  case "$DASHBOARD_PORT" in ''|*[!0-9]*) die "DASHBOARD_PORT tidak masuk akal: ${DASHBOARD_PORT}" ;; esac
+fi
+
 # ── pemeriksaan sebelum menyentuh apa pun ───────────────────────────────────
 
 [ -f "${TEMPLATE_DIR}/harmony.service" ] || die "template tidak ditemukan di ${TEMPLATE_DIR}"
+if [ "$DASHBOARD" = 1 ]; then
+  [ -f "${TEMPLATE_DIR}/harmony-dashboard.service" ] || die "template tidak ditemukan: ${TEMPLATE_DIR}/harmony-dashboard.service"
+fi
 [ -d "$HARMONY_DIR" ] || die "HARMONY_DIR tidak ada: ${HARMONY_DIR}"
 [ -f "${HARMONY_DIR}/package.json" ] || die "${HARMONY_DIR} bukan checkout repo (package.json tidak ada)"
 [ -n "$NODE_BIN" ] || die "node tidak ditemukan. Set NODE_BIN=/path/ke/node."
@@ -128,6 +150,16 @@ fi
 if [ ! -f "${HARMONY_DIR}/dist/index.js" ]; then
   say "PERINGATAN: ${HARMONY_DIR}/dist/index.js belum ada."
   say "            Jalankan 'npm run build' sebelum start, atau unit bot akan gagal."
+fi
+if [ "$DASHBOARD" = 1 ]; then
+  if [ ! -d "${HARMONY_DIR}/dashboard/node_modules" ]; then
+    say "PERINGATAN: ${HARMONY_DIR}/dashboard/node_modules belum ada."
+    say "            Jalankan 'cd dashboard && npm ci' sebelum start."
+  fi
+  if [ ! -d "${HARMONY_DIR}/dashboard/.next" ]; then
+    say "PERINGATAN: ${HARMONY_DIR}/dashboard/.next belum ada."
+    say "            Jalankan 'cd dashboard && npm run build' sebelum start, atau unit dashboard akan gagal."
+  fi
 fi
 NODE_MAJOR="$("$NODE_BIN" --version 2>/dev/null | sed 's/^v\([0-9]*\).*/\1/')"
 case "$NODE_MAJOR" in ''|*[!0-9]*) : ;; *)
@@ -156,6 +188,12 @@ render() {
   text="${text//@NPM_BIN@/$NPM_BIN}"
   text="${text//@PATH_VALUE@/$PATH_VALUE}"
   text="${text//@HEALTH_PORT@/$HEALTH_PORT}"
+  # ${...:-}: DASHBOARD_PORT memang belum di-set pada instalasi bot-only
+  # (nilai itu hanya dihitung saat --dashboard), dan set -u akan membuat
+  # render() gagal untuk SEMUA unit kalau baris ini tanpa guard. Template
+  # non-dashboard tidak memuat placeholder ini, jadi penggantian dengan
+  # string kosong tidak berarti apa-apa di sana.
+  text="${text//@DASHBOARD_PORT@/${DASHBOARD_PORT:-}}"
   printf '%s\n' "$text" > "$output"
   # Asersi, bukan harapan: placeholder yang lolos berarti unit-nya menunjuk
   # path yang tidak ada, dan gagalnya baru terlihat saat boot.
@@ -173,6 +211,9 @@ install_units() {
     render "${TEMPLATE_DIR}/harmony-health.timer" "${DEST}/harmony-health.timer"
     render "${TEMPLATE_DIR}/harmony-check.sh" "$CHECK_DEST"
     chmod 755 "$CHECK_DEST"
+  fi
+  if [ "$DASHBOARD" = 1 ]; then
+    render "${TEMPLATE_DIR}/harmony-dashboard.service" "${DEST}/harmony-dashboard.service"
   fi
 }
 
@@ -296,8 +337,12 @@ if [ "$UNINSTALL" = 1 ]; then
     systemctl disable --now harmony-health.timer >/dev/null 2>&1 || true
     systemctl disable --now harmony harmony-lavalink >/dev/null 2>&1 || true
   fi
+  # Selalu coba hapus unit dashboard, walau --dashboard tidak diberi:
+  # instalasi lama yang memakainya tidak boleh menyisakan unit yatim.
+  systemctl disable --now harmony-dashboard >/dev/null 2>&1 || true
   rm -f "${DEST}/harmony.service" "${DEST}/harmony-lavalink.service" \
-    "${DEST}/harmony-health.service" "${DEST}/harmony-health.timer" "$CHECK_DEST"
+    "${DEST}/harmony-health.service" "${DEST}/harmony-health.timer" \
+    "${DEST}/harmony-dashboard.service" "$CHECK_DEST"
   command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload || true
   say "Unit dihapus. Folder repo dan .env tidak disentuh."
   exit 0
@@ -314,6 +359,9 @@ say "  NODE_BIN     = ${NODE_BIN}"
 say "  NPM_BIN      = ${NPM_BIN}"
 say "  PATH (unit)  = ${PATH_VALUE}"
 say "  HEALTH_PORT  = ${HEALTH_PORT}   (timer: $([ "$HEALTH_TIMER" = 1 ] && echo ya || echo tidak))"
+if [ "$DASHBOARD" = 1 ]; then
+  say "  DASHBOARD_PORT = ${DASHBOARD_PORT}   (unit: harmony-dashboard.service)"
+fi
 say "  JRE          = ${JAVA_BIN_DIR:-(tidak terdeteksi — 'java' harus ada di PATH unit)}"
 say ""
 
@@ -342,6 +390,9 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl enable --now harmony-lavalink.service harmony.service
   if [ "$HEALTH_TIMER" = 1 ]; then
     systemctl enable --now harmony-health.timer
+  fi
+  if [ "$DASHBOARD" = 1 ]; then
+    systemctl enable --now harmony-dashboard.service
   fi
   say "Status:"
   systemctl status harmony-lavalink.service harmony.service --no-pager || true

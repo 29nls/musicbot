@@ -1,0 +1,61 @@
+name: Dashboard
+
+# Terpisah dari ci.yml supaya kegagalan dashboard terlihat sendiri di check PR:
+# ci.yml hanya mengetes akar repo (tsc dan vitest akar), padahal dashboard/
+# adalah paket Node mandiri dengan typecheck, vitest, dan lockfile sendiri.
+on:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          # Dua lockfile: akar repo dan dashboard/ diinstal terpisah
+          # (tanpa workspaces), jadi keduanya ikut di-cache.
+          cache-dependency-path: |
+            package-lock.json
+            dashboard/package-lock.json
+
+      # Instal akar WAJIB, bukan sekadar pemanasan: modul bot di src/ diimpor
+      # dashboard lewat alias @bot/*, dan client Prisma lahir dari postinstall
+      # `prisma generate` di paket akar. Tanpa langkah ini, typecheck dan tes
+      # gagal pada resolusi modul — bukan pada kesalahan kode dashboard.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install dependencies (dashboard)
+        run: npm ci
+        working-directory: dashboard
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: dashboard
+
+      - name: Test
+        run: npm test
+        working-directory: dashboard
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Validasi parse YAML saja (bukan `docker compose config`): cukup untuk
+      # menangkap berkas rusak/indentasi salah di PR, tanpa perlu daemon Docker
+      # maupun nilai .env. js-yaml dipanggil via npx supaya tidak ada dependensi
+      # baru yang harus dikunci di repo.
+      - name: Validate docker-compose.yml
+        run: npx --yes js-yaml@4.1.0 docker-compose.yml > /dev/null
+
+      - name: Validate deploy/casaos/docker-compose.yml
+        run: npx --yes js-yaml@4.1.0 deploy/casaos/docker-compose.yml > /dev/null

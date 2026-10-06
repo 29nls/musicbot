@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pingDatabase } from '@/lib/prisma.js';
 import { getStore } from '@/lib/serverDeps.js';
+import { readDashboardMetrics } from '@/lib/metrics.js';
 
 /**
  * Health check dashboard: 200 saat bisa dipakai, 503 saat tidak.
@@ -37,6 +38,14 @@ export async function GET(): Promise<NextResponse> {
   }
 
   const healthy = database === 'ok';
+
+  // Metrik (§4.5): hitungan kumulatif tanpa data pribadi, jadi
+  // aman ditampilkan tanpa autentikasi — sama seperti status
+  // di sekelilingnya. Baca yang gagal menjawab nol, bukan error,
+  // supaya monitoring yang memakai endpoint ini tidak ikut mati
+  // ketika penyimpanan bersama sedang tidak stabil.
+  const metrics = await readDashboardMetrics(getStore());
+
   const body = {
     status: healthy ? 'ok' : 'degraded',
     database,
@@ -44,6 +53,7 @@ export async function GET(): Promise<NextResponse> {
     // Kemampuan dashboard sekarang: membaca selalu bisa selama database hidup,
     // menulis butuh database dan kanal bersama keduanya hidup.
     readWrite: healthy && sharedStore === 'ok',
+    metrics,
     checkedInMs: Date.now() - startedAt,
   };
 

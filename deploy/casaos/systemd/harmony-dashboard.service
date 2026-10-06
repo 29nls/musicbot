@@ -1,0 +1,84 @@
+# Template systemd untuk jalur tanpa Docker. Nilai @...@ diganti oleh
+# deploy/casaos/install-systemd.sh (--dashboard) lalu disalin ke
+# /etc/systemd/system. JANGAN dipakai langsung dari sini.
+#
+# Kenapa unit terpisah dari harmony.service: dashboard tidak perlu
+# bot berjalan untuk melayani halaman (database dan Redis adalah
+# layanan luar), tidak pernah menjalankan migrasi, dan butuh
+# WorkingDirectory serta port sendiri.
+#
+# Sengaja TIDAK ada timer pemeriksa /api/health seperti milik bot:
+# endpoint itu menjawab 503 saat database mati, dan me-restart
+# dashboard tidak membetulkan database — Prisma menyambung lagi
+# sendiri begitu database pulih. Restart=always di bawah sudah
+# menangani proses yang keluar; itu pekerjaan systemd, bukan timer.
+[Unit]
+Description=Harmony dashboard web (Next.js)
+After=network-online.target
+Wants=network-online.target
+# Crash-loop tidak boleh membuat systemd menyerah: bawaannya (5
+# percobaan dalam 10 detik) membuat unit berstatus "failed" lalu
+# BERHENTI mencoba — kebalikan dari "tidak pernah mati".
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@HARMONY_USER@
+# `next start` mencari `.next/` dan `next.config.mjs` relatif
+# terhadap direktori ini — bukan terhadap WorkingDirectory bot.
+WorkingDirectory=@HARMONY_DIR@/dashboard
+# Satu `.env` dipakai bot dan dashboard, persis seperti compose.
+# Berkas ini WAJIB ada: systemd menolak start unit kalau tidak.
+EnvironmentFile="@HARMONY_DIR@/.env"
+# Directive systemd yang terakhir menang, jadi baris Environment=
+# diletakkan di belakang EnvironmentFile: `NODE_ENV=production`
+# mematikan jalur DASHBOARD_DEV_FAKE_SESSION di lib/env.ts walau
+# variabel itu tertinggal di .env.
+Environment=NODE_ENV=production
+# Telemetry Next.js menulis ke ~/.cache; tidak ada yang memakainya
+# di sini, dan tulisannya bisa gagal di bawah ProtectSystem=strict.
+Environment=NEXT_TELEMETRY_DISABLED=1
+# PATH milik unit bot dipakai ulang supaya `npx` menemukan `next`
+# yang terpasang lokal di dashboard/node_modules — tanpa mengunduh
+# apa pun dari registry.
+Environment="PATH=@PATH_VALUE@"
+# Wrapper yang sama dengan dashboard/Dockerfile: satu variabel yang
+# mengatur port di mana pun dashboard dijalankan. `exec` supaya
+# proses yang dilacak systemd adalah node, bukan sh — sinyal berhenti
+# sampai ke server HTTP tanpa perantara.
+ExecStart=/bin/sh -c 'exec npx next start -p @DASHBOARD_PORT@'
+Restart=always
+RestartSec=5
+# next start menutup server HTTP-nya dengan rapi saat SIGTERM;
+# beri ruang sebelum systemd memaksa SIGKILL.
+TimeoutStopSec=30
+
+# Hardening dasar. Dashboard hanya melayani HTTP dan berbicara ke
+# Supabase serta Redis lewat TCP, jadi tidak ada satu pun dari
+# berikut ini yang seharusnya dibutuhkannya:
+#   NoNewPrivileges          tidak ada proses anak yang minta hak istimewa
+#   PrivateTmp               /tmp pribadi, tidak berbagi dengan proses lain
+#   ProtectSystem=strict     seluruh sistem berkas hanya-baca, kecuali
+#                            dashboard/ (Next.js menulis cache-nya di .next/)
+#   RestrictAddressFamilies  soket Unix dan TCP saja, tanpa paket mentah
+#   CapabilityBoundingSet=   semua capability Linux dilepas
+#   ProtectKernel*           tidak bisa mengutak-atik kernel, modul, cgroup
+#   SystemCallArchitectures  syscall arsitektur lain ditolak
+#   MemoryMax                sama dengan mem_limit service dashboard di
+#                            docker-compose.yml
+# ProtectHome sengaja tidak dipakai: checkout repo bisa berada di /home,
+# dan unit ini harus bisa membacanya.
+MemoryMax=256M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=@HARMONY_DIR@/dashboard
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

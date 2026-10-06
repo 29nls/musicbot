@@ -214,19 +214,23 @@ wajib mendapat bagian evaluasi tersendiri.
 
 #### 4.1.1 Keadaan repo yang relevan
 
-Lima fakta dari kode yang menentukan bentuk rancangan ini:
+Lima fakta dari kode yang menentukan bentuk rancangan ini. Dua di
+antaranya diperbarui setelah implementasi (baris tanpa tanda adalah
+fakta asli saat dokumen ditulis) — lihat Lampiran C:
 
 | Fakta | Lokasi | Kenapa menentukan |
 | --- | --- | --- |
 | Cache konfigurasi bertahan 60 detik per proses | [guildConfigService.ts:48](src/modules/config/guildConfigService.ts#L48) | Perubahan dari luar proses baru terlihat paling lama 60 detik |
-| `invalidate(guildId?)` sudah ada tapi tidak punya pemanggil di `src/` | [guildConfigService.ts:106](src/modules/config/guildConfigService.ts#L106) | Hook-nya sudah disiapkan tepat untuk kasus ini, tapi belum pernah dipakai |
-| `KeyValueStore` tidak punya publish atau subscribe | [kvStore.ts](src/services/kvStore.ts) | Tidak ada kanal invalidasi lintas proses yang sudah ada |
+| `invalidate(guildId?)` sudah ada; kini dipanggil lintas proses untuk kelima cache lewat `invalidationWiring.ts` | [guildConfigService.ts:106](src/modules/config/guildConfigService.ts#L106), [invalidationWiring.ts](src/modules/config/invalidationWiring.ts) | Hook-nya sudah disiapkan tepat untuk kasus ini; pemanggilnya dipasang bersama dashboard (D2) |
+| `KeyValueStore` punya `publish` dan `subscribe` **opsional**; `RedisKeyValueStore` mengimplementasikan keduanya dengan koneksi langganan terpisah | [kvStore.ts:86](src/services/kvStore.ts#L86) | Kanal invalidasi lintas proses sudah ada, dan bot memakainya sejak D2 terimplementasi |
 | Bot tidak punya permukaan HTTP sama sekali, hanya health check tanpa autentikasi | [health/server.ts](src/modules/health/server.ts) | Dashboard harus membuat jalur komunikasinya sendiri |
 | Database adalah Supabase, bukan container di stack ini; `DATABASE_URL` plus `DIRECT_URL` | [docker-compose.yml](docker-compose.yml) | Dashboard butuh kredensial database, dan itu kredensial produksi |
 
 Ada satu titik positif yang layak dicatat: `GuildConfigService` sudah punya
 `invalidate(guildId?)` dengan komentar "dipakai setelah perubahan dari luar
-proses ini". Prasyarat untuk dashboard sudah setengah ada.
+proses ini". Saat PRD ini ditulis itu baru prasyarat; kini hook itu benar-benar
+dipakai — kelima cache dibuang lewat `invalidationWiring.ts` setiap kali pesan
+`harmony:config:changed` datang (D2).
 
 #### 4.1.2 Cache yang akan menjadi basi
 
@@ -275,7 +279,7 @@ pendek. Keduanya punya harga, dan harganya berbeda (§4.2, D2).
                     +----------------+              +----------------+
 ```
 
-Bot **tidak** berubah sama sekali selain tambahan satu langganan pada `RedisKeyValueStore`. Tidak ada HTTP API di bot, tidak ada endpoint baru di proses bot, tidak ada cara dashboard memanggil bot.
+Bot **tidak** berubah sama sekali selain tambahan satu langganan pada `RedisKeyValueStore` — dan itu sudah terimplementasi: `src/index.ts` berlangganan kanal `harmony:config:changed` saat start dan berhenti berlangganan saat shutdown. Tidak ada HTTP API di bot, tidak ada endpoint baru di proses bot, tidak ada cara dashboard memanggil bot.
 
 ### 4.2 Keputusan arsitektur yang harus diambil sebelum menulis kode
 
@@ -475,6 +479,29 @@ OAUTH_CLIENT_SECRET=
 OAUTH_REDIRECT_URI=                  # bawaan: DASHBOARD_URL/api/auth/callback
 ```
 
+**Terimplementasi (improv v1).** Bentuknya persis seperti rekomendasi:
+
+- [dashboard/Dockerfile](dashboard/Dockerfile): build multi-stage
+  (`deps` → `build` → `runtime`). **Konteks build adalah akar repo**, bukan
+  `dashboard/` — dashboard mengimpor modul bot lewat alias `@bot/*`
+  (validasi, tipe, katalog bahasa, kanal invalidasi) dan memakai client
+  Prisma hasil generate milik bot. Membangun dari `dashboard/` saja berarti
+  harus menyalin modul-modul itu, dan salinan adalah cara paling pasti untuk
+  membuat paritas `/config` basi tanpa ada tes yang gagal.
+- `prisma generate` dijalankan eksplisit di dua tahap (bukan diserahkan ke
+  postinstall), supaya client pasti sesuai schema yang disalin. Tahap
+  `runtime` membuang devDependencies dan berjalan sebagai user `node`
+  bawaan image (non-root, uid 1000).
+- Port dibaca dari `DASHBOARD_PORT` lewat wrapper `CMD`, supaya satu
+  variabel mengatur port di mana pun dashboard dijalankan (compose,
+  systemd, manual).
+- `docker-compose.yml` (akar) dan `deploy/casaos/docker-compose.yml`
+  sama-sama memuat layanan `dashboard`: `depends_on` migrate selesai +
+  Redis sehat, port hanya di-bind ke `127.0.0.1:3000`, `mem_limit: 256m`,
+  dan healthcheck yang memprobe `/api/health`. Compose memaksa
+  `DASHBOARD_PORT=3000` supaya tidak bisa melenceng dari port yang
+  dipublish — pola yang sama dengan `HEALTH_PORT` milik bot.
+
 ---
 
 #### D8. Rate limit dan audit
@@ -533,13 +560,42 @@ dihindari meski terlihat kecil.
 
 - `GET /api/health` di dashboard: 200 saat database terjangkau, 503 saat tidak.
   Tanpa autentikasi, karena isinya hanya status, sama seperti `/health` bot.
+  `HEAD` dijawab sama dengan `GET` untuk monitor yang hanya memakai HEAD.
+  Route wajib `force-dynamic` dan `cache-control: no-store`: health check
+  yang ter-cache melaporkan keadaan lama.
+- Endpoint itu memeriksa **dua hal, bukan satu**: database (ping Prisma) dan
+  kanal bersama (increment di Redis). Keduanya bisa mati sendiri-sendiri, dan
+  hanya memeriksa database akan melaporkan "sehat" saat setiap penulisan
+  sedang ditolak (D3). Badan respons memuat `database`, `sharedStore`, dan
+  `readWrite` (konjungsi keduanya) supaya operator bisa membedakannya.
 - Metrik: `harmony_dashboard_writes_total` dan
   `harmony_dashboard_write_denied_total`. Yang kedua penting, karena
   kegagalan otorisasi adalah indikator paling awal bahwa ada yang salah.
+  **Terimplementasi sebagai penghitung di penyimpanan bersama** (kunci
+  `harmony:dashboard:writes:total` dan `harmony:dashboard:writeDenied:total`,
+  tanpa TTL — lihat D9), bukan penghitung in-process: angka di memori hilang
+saat restart dan tidak terlihat instance lain. Empat kebijakan, semuanya
+disengaja:
+  - Pencacahan **terbaik-usaha**. `increment` yang gagal hanya mencatat
+    `warn` di log (`metrics.increment.failed`); ia tidak pernah menolak atau
+    menunda penulisan. Metrik adalah pelengkap, bukan bagian kontrak tulis.
+  - Pembacaan **tidak pernah melempar**: kunci belum ada atau Redis mati
+    menjawab nol, dengan `warn` di log. Monitoring yang memakai endpoint
+    ini tidak boleh ikut mati saat penyimpanannya tidak stabil.
+  - Tidak ada data pribadi di kedua kunci — global, bukan per guild atau
+    per user — jadi aman ditampilkan tanpa autentikasi.
+  - Penolakan dihitung **apa pun alasannya** (izin, rate limit, nilai tidak
+    valid, origin salah, infrastruktur), termasuk penolakan origin yang
+    terjadi sebelum jalur tulis dipanggil. Di operasi normal jumlahnya nol,
+    jadi angka yang bukan nol berarti ada yang salah.
 - Log terstruktur lewat pola yang sama dengan bot: JSON ke stdout, tanpa nilai
   rahasia, tanpa isi `welcomeMessage`.
 - D3 harus menghasilkan **peringatan** saat menulis ditolak karena Redis mati,
-  supaya operator tidak mengira dashboard rusak.
+  supaya operator tidak mengira dashboard rusak. Penolakan infrastruktur
+  (`shared-store-down`, `database-down`) dilog `error`; penolakan yang memang
+  tidak layak dilayani (sesi hilang, izin dicabut) dilog `warn` — operator
+  tidak perlu membaca isi permintaan untuk membedakan dua masalah yang
+  perbaikannya tidak sama.
 
 ---
 
@@ -622,14 +678,23 @@ bahasa server. **Tidak ada satu pun penulisan.**
 Selesai ketika: semua AC US-D1 terpenuhi, dan SC-3 sudah diuji untuk jalur
 baca juga (membaca `guild_config` guild lain ditolak 403).
 
+**Status: selesai.** OAuth, daftar server, dan halaman konfigurasi multibahasa
+terimplementasi dan teruji.
+
 **F2 — Tulis dan invalidasi.**
 Keluaran: semua AC US-D2 dan US-D3, plus publish-subscribe.
 Selesai ketika: SC-1 terpenuhi 100% dalam 100 percobaan, dan SC-2 terpenuhi.
+
+**Status: selesai.** Tulis, publish-subscribe invalidasi, dan audit semuanya
+terimplementasi; bot membuang kelima cache saat menerima pesan kanal.
 
 **F3 — Jejak dan ketahanan.**
 Keluaran: US-D4, rate limit, `/api/health`, metrik.
 Selesai ketika: setiap perubahan muncul di `/logs` dengan executor=user yang
 benar, dan D3 berperilaku seperti yang ditulis.
+
+**Status: selesai.** Rate limit, `/api/health`, dan metrik §4.5 semuanya
+terimplementasi; metrik ditampilkan di `/api/health` tanpa autentikasi.
 
 **F4 — Pelitura tambahan. Tidak termasuk v1.**
 Kandidat, semuanya di luar non-goal §2.5 dan butuh revisi dokumen:
@@ -646,9 +711,11 @@ membaca statistik `/stats`, reaction roles, tiket, perintah custom.
   juga. Yang ada sekarang hanya `/privacy` di dalam bot, yang bukan halaman
   web. Dashboard tidak menambah kewajiban ini, dan juga tidak menghapus
   satu pun kewajiban yang sudah ada.
-- **Belum ada satu baris kode dashboard.** Tidak ada `next` di
-  [package.json](package.json), tidak ada folder `dashboard/`, tidak ada
-  baris di compose untuk layanannya.
+- **v1 sudah terimplementasi** (improv): OAuth, baca/tulis konfigurasi dengan
+  paritas `/config`, invalidasi pub/sub, audit, rate limit, metrik §4.5, dan
+  deployment (Dockerfile + dua berkas compose). 144 tes di `dashboard/`
+  hijau. Yang tersisa bukan pekerjaan kode: dua butir di bawah, plus
+  verifikasi manual alur OAuth dengan akun Discord sungguhan.
 
 ---
 
@@ -664,10 +731,12 @@ membaca statistik `/stats`, reaction roles, tiket, perintah custom.
 | D6 | Struktur repo | Repo terpisah, validasi diimpor, dijaga tes | tidak |
 | D7 | Deployment | Layanan terpisah di compose yang sama | tidak |
 | D8 | Rate limit dan audit | `KeyValueStore`, 30 tulis per menit | tidak |
+| D9 | Penyimpanan metrik (§4.5) | Penghitung di `KeyValueStore` bersama, tanpa TTL, terbaik-usaha | tidak |
+| D10 | Bentuk build dashboard (D7) | Dockerfile multi-stage, konteks build = akar repo | tidak |
 
-Lima dari delapan keputusan menghambat. Itu banyak, dan itu sendiri adalah
+Lima dari sepuluh keputusan menghambat. Itu banyak, dan itu sendiri adalah
 jawaban: dashboard ini **tidak bisa dimulai dari baris kode pertama**. Ia dimulai
-dari delapan jawaban.
+dari jawaban-jawaban itu.
 
 ## Lampiran B — Rujukan
 
@@ -675,9 +744,37 @@ dari delapan jawaban.
   §12 privasi, §18.2 MoSCoW.
 - [guildConfigService.ts](src/modules/config/guildConfigService.ts) — cache dan
   `invalidate`.
-- [kvStore.ts](src/services/kvStore.ts) — `KeyValueStore`, tanpa publish-subscribe.
+- [kvStore.ts](src/services/kvStore.ts) — `KeyValueStore`, dengan `publish`/`subscribe` opsional.
 - [types.ts](src/modules/config/types.ts) — `GuildConfig` dan `GuildConfigPatch`.
 - [config.ts](src/commands/core/config.ts) — daftar setelan `/config`.
 - [validation.ts](src/modules/config/validation.ts) — aturan yang harus disalin
   persis.
 - [docker-compose.yml](docker-compose.yml) — layanan yang ada sekarang.
+- [src/index.ts](src/index.ts) — langganan invalidasi saat bot start (D2).
+- [dashboard/Dockerfile](dashboard/Dockerfile) — build multi-stage dashboard (D7).
+- [dashboard/lib/metrics.ts](dashboard/lib/metrics.ts) — metrik §4.5 (D9).
+
+## Lampiran C — Catatan improv (implementasi v1)
+
+Dokumen ini ditulis sebelum ada kode. Saat implementasi, dua celah dan
+beberapa klaim basi ditemukan; keduanya diperbaiki di dokumen ini:
+
+- **§4.5 belum menyebut bentuk metriknya** (hanya menyebut nama). Diperluas:
+  kunci penyimpanan, kebijakan terbaik-usaha, jaminan "baca tidak pernah
+  melempar", dan aturan bahwa penolakan dihitung apa pun alasannya.
+  Terimplementasi di [dashboard/lib/metrics.ts](dashboard/lib/metrics.ts),
+  dikabel di `PATCH /api/config`, dan ditampilkan di `/api/health`.
+- **D7 belum menyebut berkas buildnya.** Diperluas dengan strategi
+  `dashboard/Dockerfile` dan alasan konteks build = akar repo.
+- **§4.1.1 basi sebelum implementasi selesai.** Dua fakta sudah tidak benar
+  saat kode ditulis: `KeyValueStore` **sudah** punya `publish`/`subscribe`
+  opsional (diimplementasikan `RedisKeyValueStore` dengan koneksi langganan
+  terpisah), dan `invalidate` **sudah** punya pemanggil (kelima cache, lewat
+  `invalidationWiring.ts`). Tabel diperbaiki. Klaim aslinya adalah alasan
+  D2 dirumungkan, bukan deskripsi kode yang harus dipertahankan.
+- **§5.3 "belum ada satu baris kode" basi.** F1–F3 terimplementasi: OAuth,
+  baca/tulis konfigurasi dengan paritas `/config`, invalidasi pub/sub, audit,
+  rate limit, metrik, dan deployment. 144 tes hijau.
+- Yang masih terbuka tetap terbuka: alamat kontak takedown dan halaman
+  kebijakan privasi publik (§5.3), serta uji manual alur OAuth dengan akun
+  Discord sungguhan (lihat README dashboard).

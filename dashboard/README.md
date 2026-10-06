@@ -42,6 +42,14 @@ Bot **tidak** perlu berjalan untuk dashboard membaca. Ia perlu hidup untuk
 dashboard bisa memverifikasi Manage Server, karena itu yang menentukan boleh
 tidaknya seseorang menulis.
 
+Untuk produksi di host tanpa Docker, jangan pakai `npm run dev`: pasang unit
+systemd-nya lewat `bash deploy/casaos/install-systemd.sh --dashboard`, yang
+menjalankan `next start` dengan `EnvironmentFile` ke `.env` di **akar repo** —
+bukan `.env` di folder ini — supaya bot dan dashboard membaca satu berkas yang
+sama. Keterangan lengkap ada di bagian
+[Tanpa Docker](../deploy/casaos/README.md#tanpa-docker-bot-start-sendiri-dan-tidak-pernah-mati)
+di `deploy/casaos/README.md`.
+
 ### Melihat UI tanpa akun Discord
 
 ```bash
@@ -51,6 +59,59 @@ DASHBOARD_DEV_FAKE_SESSION=true DEV_GUILD_ID=<id server milikmu> npm run dev
 Sesi uji diganti dengan login Discord. `DEV_GUILD_ID` tetap dibaca dari database
 sungguhan, jadi yang tampil adalah data asli — bukan fixture. Opsi ini ditolak
 keras di `NODE_ENV=production`.
+
+## Menjalankan dengan Docker
+
+Dashboard punya image sendiri ([Dockerfile](Dockerfile)) — build
+multi-stage dengan konteks **akar repo**, bukan `dashboard/`, karena
+dashboard mengimpor modul bot lewat alias `@bot/*` dan memakai client
+Prisma hasil generate milik bot. Menyalin modul ke dalam image adalah
+cara paling pasti membuat paritas `/config` basi tanpa ada tes yang
+gagal. Tahap `runtime` hanya membawa `node_modules` produksi dan
+berjalan sebagai user `node` (non-root).
+
+```bash
+docker compose up -d dashboard     # dari akar repo, butuh .env terisi
+```
+
+Port hanya di-bind ke `127.0.0.1:3000` (keputusan D7): peramban di
+mesin lain tidak perlu mengakses dashboard langsung dari host. Layanan
+menunggu migrasi selesai dan Redis sehat sebelum start, dan **tidak
+pernah** menjalankan migrasi sendiri — itu milik service `migrate`.
+
+Untuk CasaOS/ZimaOS, `deploy/casaos/docker-compose.yml` memuat layanan
+yang sama dengan build langsung dari GitHub. Variabel dashboard yang
+harus ada di `.env` (selain milik bot): `OAUTH_CLIENT_SECRET`,
+`DASHBOARD_SECRET`, `DASHBOARD_URL` — keterangan tiap variabel ada di
+`dashboard/.env.example`.
+
+## Health check dan metrik
+
+`GET /api/health` (dan `HEAD`) menjawab tanpa autentikasi:
+
+```json
+{
+  "status": "ok",
+  "database": "ok",
+  "sharedStore": "ok",
+  "readWrite": true,
+  "metrics": { "writesTotal": 12, "writeDeniedTotal": 0 },
+  "checkedInMs": 3
+}
+```
+
+`status` 200 selama database terjangkau. `sharedStore` melaporkan Redis
+secara terpisah: dashboard tetap bisa membaca saat Redis mati, tapi
+menolak menulis (D3), jadi dua status itu harus bisa dibedakan.
+`readWrite` adalah konjungsi keduanya.
+
+`metrics` adalah dua penghitung §4.5, disimpan di Redis tanpa TTL agar
+bertahan melewati restart dan dijumlahkan lintas instance. Pencacahan
+terbaik-usaha: kegagalan mencatat tidak pernah menolak permintaan, dan
+kegagalan membaca menjawab nol (dengan peringatan di log). Penolakan
+dihitung apa pun alasannya — izin, rate limit, nilai tidak valid, origin
+salah, infrastruktur — jadi di operasi normal angkanya nol, dan angka
+yang bukan nol berarti ada yang salah.
 
 ## Kredensial OAuth
 
