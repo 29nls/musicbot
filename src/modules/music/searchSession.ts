@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { getLogger } from '../../services/logger.js';
 import { getKeyValueStore, type KeyValueStore } from '../../services/kvStore.js';
+import { SEARCH_RESULT_LIMIT } from './selection.js';
 import { decodeSearchSession, encodeSearchSession } from './searchSessionCodec.js';
 import type { TrackInfo } from './types.js';
 
@@ -24,8 +25,9 @@ import type { TrackInfo } from './types.js';
 /** Awalan customId select menu pencarian — dipakai router komponen. */
 export const SEARCH_SELECT_PREFIX = 'musicsearch:';
 
-/** Berapa hasil yang ditawarkan ke user (PRD §6.1: "Cari 5 hasil"). */
-export const SEARCH_RESULT_LIMIT = 5;
+// `SEARCH_RESULT_LIMIT` tinggal di `selection.ts` bersama aturan jumlah lagu
+// yang lain: angka yang sama dipakai embed dan select menu, dan dua definisi
+// berarti dua tempat yang bisa berubah sendiri-sendiri.
 
 /**
  * Umur session pencarian.
@@ -147,8 +149,9 @@ export class SearchSessionStore {
    * `null` berarti session tidak bisa disimpan — pemanggil harus memberi tahu
    * user untuk mengulang, bukan mengirim select menu yang pasti tidak berlaku.
    *
-   * `tracks` dipotong jadi `SEARCH_RESULT_LIMIT` supaya sesuai PRD dan supaya
-   * select menu tidak mungkin melewati batas 25 opsi Discord.
+   * `tracks` dipotong lagi jadi `SEARCH_RESULT_LIMIT` di sini: pemanggil sudah
+   * memakai batas yang sama, tapi store ini juga bisa ditulis jalur lain, dan
+   * select menu tidak boleh melewati batas 25 opsi Discord apa pun yang terjadi.
    */
   async put(input: {
     guildId: string;

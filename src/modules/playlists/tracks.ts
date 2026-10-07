@@ -1,3 +1,4 @@
+import { pickTracks } from '../music/selection.js';
 import { toTrackInfo } from '../music/track.js';
 import type { SearchOutcome, TrackInfo } from '../music/types.js';
 import { MAX_PLAYLIST_NAME_LENGTH, MAX_PLAYLIST_TRACKS, type StoredTrack } from './types.js';
@@ -112,7 +113,9 @@ export async function resolveStoredTracks(
   const results = await mapInOrder(entries, RESOLVE_CHUNK_SIZE, async (entry) => {
     if (entry.uri) {
       const outcome = await resolve(entry.uri);
-      const raw = firstRawTrack(outcome);
+      // Satu lagu per entri — aturannya sama dengan `/play`, dan sengaja diambil
+      // dari `selection.ts` supaya jumlah lagu hanya dijawab di satu tempat.
+      const [raw] = pickTracks(outcome, 'single', entry.uri);
       return raw ? toTrackInfo(raw, requesterId) : null;
     }
 
@@ -135,14 +138,6 @@ export async function resolveStoredTracks(
   const tracks = results.filter((track): track is TrackInfo => track !== null);
 
   return { tracks, failed: entries.length - tracks.length };
-}
-
-/** Ambil satu track dari hasil resolusi Lavalink (URL playlist jadi track pertamanya). */
-function firstRawTrack(outcome: SearchOutcome) {
-  if (outcome.kind !== 'tracks') return null;
-
-  const [first] = outcome.tracks;
-  return first ?? null;
 }
 
 /** `Promise.all` per potongan: paralel tapi urutan hasil tetap sama. */

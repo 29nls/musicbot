@@ -861,7 +861,9 @@ sisanya adalah kebocoran modul playlists itu.
 
 `/playlist create <nama>` lalu `/playlist add <nama> <judul atau URL>` — atau
 `/playlist add <nama>` tanpa query untuk **menyimpan lagu yang sedang diputar**.
-Delapan subcommand: `create` `add` `remove` `list` `show` `play` `delete` `public`.
+Judul atau kata kunci menyimpan **satu lagu terbaik** (aturan yang sama dengan
+`/play`), sedangkan URL playlist menyimpan **seluruh isinya**. Delapan
+subcommand: `create` `add` `remove` `list` `show` `play` `delete` `public`.
 
 Empat hal yang perlu diketahui:
 
@@ -2251,6 +2253,7 @@ src/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
+│  │                        # selection.ts = satu aturan jumlah lagu dari hasil pencarian (play/search/playlist)
 │  │                        # searchSession.ts = state /search di store bersama, searchSelect.ts = pilihannya
 │  │                        # searchSessionCodec.ts = serialisasi session (toleran terhadap data rusak)
 │  │                        # limits.ts = batas durasi track §6.2 (6 jam & >30 menit butuh DJ)

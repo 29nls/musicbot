@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import {
   canControlMusic,
+  pickTracks,
   renderPlayOutcome,
   toTrackInfo,
   type MusicService,
@@ -417,13 +418,6 @@ async function resolveForAdd(
 
   const found = await music.resolve(trimmed);
 
-  if (found.kind === 'empty') {
-    await interaction.editReply({
-      embeds: [errorEmbed(t('playlist.notFoundQuery', { query: trimmed }), t('embed.title.error'))],
-    });
-    return null;
-  }
-
   if (found.kind === 'error') {
     await interaction.editReply({
       embeds: [errorEmbed(t('playlist.loadFailed', { message: found.message }), t('embed.title.error'))],
@@ -438,7 +432,23 @@ async function resolveForAdd(
     return null;
   }
 
-  return found.tracks.map((track) => toTrackInfo(track, interaction.user.id));
+  // Kata kunci → satu lagu terbaik, URL playlist → utuh; aturannya tinggal di
+  // `selection.ts` bersama aturan `/play` dan `/search`, jadi tiga perintah itu
+  // tidak bisa lagi menjawab jumlah yang berbeda untuk pertanyaan yang sama.
+  const picked = pickTracks(found, 'save', trimmed);
+
+  // `LoadType.SEARCH` tanpa hasil kembali sebagai daftar kosong, bukan
+  // `kind: 'empty'` — tanpa cek ini, playlist yang sudah berisi akan menjawab
+  // "**0** lagu ditambahkan" dan yang masih kosong menjawab "playlist masih
+  // kosong", dua-duanya tidak menjelaskan bahwa pencariannya yang nihil.
+  if (picked.length === 0) {
+    await interaction.editReply({
+      embeds: [errorEmbed(t('playlist.notFoundQuery', { query: trimmed }), t('embed.title.error'))],
+    });
+    return null;
+  }
+
+  return picked.map((track) => toTrackInfo(track, interaction.user.id));
 }
 
 /** Pesan kegagalan yang menjelaskan penyebabnya, bukan kode internal. */

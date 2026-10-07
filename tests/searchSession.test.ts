@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_OPTION_DESCRIPTION_LENGTH,
   MAX_OPTION_LABEL_LENGTH,
-  SEARCH_RESULT_LIMIT,
   SEARCH_SESSION_TTL_MS,
   SearchSessionStore,
   clampOptionText,
@@ -16,6 +15,7 @@ import {
   sessionKey,
   SEARCH_SELECT_PREFIX,
 } from '../src/modules/music/searchSession.js';
+import { SEARCH_RESULT_LIMIT } from '../src/modules/music/selection.js';
 import { decodeSearchSession } from '../src/modules/music/searchSessionCodec.js';
 import { MemoryKeyValueStore, type KeyValueStore } from '../src/services/kvStore.js';
 import type { TrackInfo } from '../src/modules/music/types.js';

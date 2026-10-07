@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import {
   getSearchSessionStore,
+  pickTracks,
   searchResultsEmbed,
   searchSelectRow,
   toTrackInfo,
@@ -62,7 +63,15 @@ export default {
         return;
       }
 
-      if (found.kind === 'empty' || found.tracks.length === 0) {
+      // Berapa hasil yang ditawarkan diatur satu tempat (`selection.ts`),
+      // sehingga select menu dan daftar di embed tidak mungkin berbeda jumlah.
+      // "Tidak ada hasil" di sini berarti `pickTracks` tidak memilih apa pun —
+      // bukan pembacaan kedua atas hasil pencariannya.
+      const tracks = pickTracks(found, 'choices', query).map((track) =>
+        toTrackInfo(track, interaction.user.id),
+      );
+
+      if (tracks.length === 0) {
         await interaction.editReply({
           embeds: [
             infoEmbed(
@@ -73,8 +82,6 @@ export default {
         });
         return;
       }
-
-      const tracks = found.tracks.map((track) => toTrackInfo(track, interaction.user.id));
 
       // Session disimpan supaya select menu di pesan ephemeral ini masih bisa
       // dibaca di interaksi berikutnya, termasuk kalau select menu-nya sampai

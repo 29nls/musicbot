@@ -6,12 +6,10 @@ import { filterModeLabel } from './filters.js';
 import { trackLimitReason } from './limits.js';
 import { buildQueuePage, type QueuePage } from './queuePage.js';
 import { loopModeLabel } from './loop.js';
+import { SEARCH_RESULT_LIMIT } from './selection.js';
 import { formatSeconds } from './searchSession.js';
 import { describeTrack, formatTrackDuration, progressBar } from './track.js';
 import type { PlayOutcome, QueueSnapshot, TrackInfo } from './types.js';
-
-/** Batas baris hasil pencarian pada satu embed. */
-const MAX_SEARCH_LINES = 5;
 
 type AddedOutcome = Extract<PlayOutcome, { kind: 'added' }>;
 
@@ -251,7 +249,9 @@ export function searchResultsEmbed(
     query ? t('music.search.forQuery', { query }) : t('music.search.pickOne'),
   );
 
-  const shown = input.tracks.slice(0, MAX_SEARCH_LINES);
+  // Batas baris di sini adalah batas yang sama dengan isi select menu — satu
+  // definisi di `selection.ts`, supaya keduanya tidak pernah berbeda jumlah.
+  const shown = input.tracks.slice(0, SEARCH_RESULT_LIMIT);
 
   if (shown.length > 0) {
     embed.addFields({

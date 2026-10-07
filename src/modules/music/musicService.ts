@@ -24,6 +24,7 @@ import { splitByTrackLimits } from './limits.js';
 import { clampVolume } from './permissions.js';
 import type { FilterOptions } from 'shoukaku';
 import { buildSearchIdentifier } from './search.js';
+import { pickTracks } from './selection.js';
 import { SharedMusicState } from './sharedState.js';
 import type { RandomSource } from './shuffle.js';
 import { toTrackInfo } from './track.js';
@@ -309,14 +310,14 @@ export class MusicService {
     if (found.kind === 'unavailable') return { kind: 'unavailable' };
 
     // `/play` menambahkan TEPAT SATU lagu: hasil terbaik (PRD US-01 —
-    // "memutar hasil terbaik"). `ytsearch:` kembali dengan ±25 hasil, dan
-    // URL YouTube yang memuat `&list=` (radio/mix) kembali sebagai playlist;
-    // memasukkan semuanya membuat `/play` memutar banyak lagu
-    // berturut-turut. Memilih dari hasil pencarian adalah tugas `/search`,
-    // dan satu playlist penuh adalah `/playlist add` lalu
-    // `/playlist play` — keduanya memanggil `resolve` langsung, jadi
-    // `resolve` sengaja TIDAK dipotong di sini.
-    const [best] = found.tracks;
+    // "memutar hasil terbaik"). `ytsearch:` kembali dengan ±25 hasil, dan URL
+    // YouTube yang memuat `&list=` (radio/mix) kembali sebagai playlist;
+    // memasukkan semuanya membuat `/play` memutar banyak lagu berturut-turut.
+    // Aturannya sendiri tinggal di `selection.ts` supaya `/search` dan
+    // `/playlist add` tidak menulis ulang jawaban yang berbeda untuk pertanyaan
+    // yang sama — `resolve()` tetap tidak dipotong, karena pemanggil lain butuh
+    // daftar penuhnya.
+    const [best] = pickTracks(found, 'single', query);
     if (!best) return { kind: 'empty' };
 
     return this.enqueue({
