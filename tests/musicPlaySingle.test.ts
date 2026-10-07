@@ -3,10 +3,10 @@ import type { Client } from 'discord.js';
 import type { GuildConfig } from '../src/modules/config/index.js';
 import {
   MusicService,
+  foundTracks,
   type MusicNodeOptions,
   type PlayOutcome,
   type RawTrack,
-  type SearchOutcome,
 } from '../src/modules/music/index.js';
 
 // Store state musik default (`getKeyValueStore()`) adalah singleton per
@@ -121,10 +121,7 @@ describe('/play selalu tepat satu lagu (PRD US-01)', () => {
     const GUILD = 'guild-play-search';
     const service = buildService();
     const players = stubVoice(service);
-    const outcome: SearchOutcome = {
-      kind: 'tracks',
-      tracks: [rawTrack(1), rawTrack(2), rawTrack(3), rawTrack(4), rawTrack(5)],
-    };
+    const outcome = foundTracks([rawTrack(1), rawTrack(2), rawTrack(3), rawTrack(4), rawTrack(5)]);
     service.resolve = async () => outcome;
 
     const result = added(
@@ -155,7 +152,7 @@ describe('/play selalu tepat satu lagu (PRD US-01)', () => {
     const GUILD = 'guild-play-queue';
     const service = buildService();
     stubVoice(service);
-    service.resolve = async () => ({ kind: 'tracks', tracks: [rawTrack(1), rawTrack(2), rawTrack(3)] });
+    service.resolve = async () => foundTracks([rawTrack(1), rawTrack(2), rawTrack(3)]);
 
     const playRequest = {
       guildId: GUILD,
@@ -183,11 +180,8 @@ describe('/play selalu tepat satu lagu (PRD US-01)', () => {
     const players = stubVoice(service);
     // LoadType.PLAYLIST: `watch?v=...&list=RD...` (radio) dan URL playlist
     // biasa kembali dengan seluruh isi playlist + namanya.
-    service.resolve = async () => ({
-      kind: 'tracks',
-      tracks: [rawTrack(1), rawTrack(2), rawTrack(3), rawTrack(4), rawTrack(5)],
-      playlistName: 'Radio MIX',
-    });
+    service.resolve = async () =>
+      foundTracks([rawTrack(1), rawTrack(2), rawTrack(3), rawTrack(4), rawTrack(5)], 'Radio MIX');
 
     const result = added(
       await service.play({
@@ -213,7 +207,7 @@ describe('/play selalu tepat satu lagu (PRD US-01)', () => {
     const GUILD = 'guild-play-empty';
     const service = buildService();
     stubVoice(service);
-    service.resolve = async () => ({ kind: 'tracks', tracks: [] });
+    service.resolve = async () => foundTracks([]);
 
     await expect(
       service.play({

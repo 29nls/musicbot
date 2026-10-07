@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { isUrl } from '../src/modules/music/search.js';
-import { SEARCH_RESULT_LIMIT, pickTracks, type TrackPickPurpose } from '../src/modules/music/selection.js';
+import {
+  SEARCH_RESULT_LIMIT,
+  foundTracks,
+  pickTracks,
+  type TrackPickPurpose,
+} from '../src/modules/music/selection.js';
 import type { RawTrack, SearchOutcome } from '../src/modules/music/types.js';
 
 /**
@@ -36,11 +41,9 @@ function rawTrack(id: number): RawTrack {
 }
 
 function resolved(count: number, playlistName?: string): SearchOutcome {
-  return {
-    kind: 'tracks',
-    tracks: Array.from({ length: count }, (_, index) => rawTrack(index + 1)),
-    ...(playlistName ? { playlistName } : {}),
-  };
+  const tracks = Array.from({ length: count }, (_, index) => rawTrack(index + 1));
+
+  return foundTracks(tracks, playlistName);
 }
 
 /** Judul lagu yang dipilih, supaya urutannya ikut terperiksa. */

@@ -15,6 +15,7 @@ import {
 } from '../src/modules/playlists/tracks.js';
 import { isSamePlaylistName, parsePlaylistName, PlaylistNameError } from '../src/modules/playlists/validation.js';
 import { playlistDetailEmbed, playlistListEmbed, playlistSummary } from '../src/modules/playlists/embeds.js';
+import { foundTracks } from '../src/modules/music/selection.js';
 import type { SearchOutcome, TrackInfo } from '../src/modules/music/types.js';
 
 const GUILD = '111111111111111111';
@@ -263,7 +264,7 @@ describe('resolveStoredTracks', () => {
     const seen: string[] = [];
     const resolve = async (uri: string): Promise<SearchOutcome> => {
       seen.push(uri);
-      return { kind: 'tracks', tracks: [raw('fresh', 'Judul Baru')] };
+      return foundTracks([raw('fresh', 'Judul Baru')]);
     };
 
     const result = await resolveStoredTracks([stored({ encoded: 'lama' })], resolve, OWNER);
@@ -274,10 +275,8 @@ describe('resolveStoredTracks', () => {
   });
 
   it('encoded basi tidak membuat playlist gagal — urioloads ulang metadata', async () => {
-    const resolve = async (): Promise<SearchOutcome> => ({
-      kind: 'tracks',
-      tracks: [raw('encoded-baru', 'Judul dari Lavalink')],
-    });
+    const resolve = async (): Promise<SearchOutcome> =>
+      foundTracks([raw('encoded-baru', 'Judul dari Lavalink')]);
 
     const result = await resolveStoredTracks(
       [stored({ uri: 'https://youtu.be/one', encoded: 'encoded-basi' })],
@@ -306,7 +305,7 @@ describe('resolveStoredTracks', () => {
   it('entri tanpa uri dan tanpa encoded dihitung gagal', async () => {
     const result = await resolveStoredTracks(
       [stored({ uri: null, encoded: null })],
-      async () => ({ kind: 'tracks', tracks: [raw('x', 'x')] }),
+      async () => foundTracks([raw('x', 'x')]),
       OWNER,
     );
 
@@ -316,7 +315,7 @@ describe('resolveStoredTracks', () => {
 
   it('menghitung lagu yang ditolak Lavalink sebagai gagal, bukan memutar diam-diam', async () => {
     const resolve = async (uri: string): Promise<SearchOutcome> =>
-      uri.includes('gagal') ? { kind: 'error', message: 'dibatasi sumber' } : { kind: 'tracks', tracks: [raw('ok', 'Lagu')] };
+      uri.includes('gagal') ? { kind: 'error', message: 'dibatasi sumber' } : foundTracks([raw('ok', 'Lagu')]);
 
     const result = await resolveStoredTracks(
       [stored({ uri: 'https://youtu.be/oke' }), stored({ uri: 'https://youtu.be/gagal' })],
@@ -335,7 +334,7 @@ describe('resolveStoredTracks', () => {
 
     const resolve = async (uri: string): Promise<SearchOutcome> => {
       await new Promise((done) => setTimeout(done, uri.endsWith('0') ? 8 : 0));
-      return { kind: 'tracks', tracks: [raw(`e-${uri}`, uri)] };
+      return foundTracks([raw(`e-${uri}`, uri)]);
     };
 
     const result = await resolveStoredTracks(entries, resolve, OWNER);
@@ -346,10 +345,8 @@ describe('resolveStoredTracks', () => {
   });
 
   it('URL playlist hanya mengambil track pertamanya — satu entri = satu lagu', async () => {
-    const resolve = async (): Promise<SearchOutcome> => ({
-      kind: 'tracks',
-      tracks: [raw('pertama', 'Satu'), raw('kedua', 'Dua')],
-    });
+    const resolve = async (): Promise<SearchOutcome> =>
+      foundTracks([raw('pertama', 'Satu'), raw('kedua', 'Dua')]);
 
     const result = await resolveStoredTracks([stored()], resolve, OWNER);
 
@@ -625,7 +622,11 @@ describe('PlaylistService.loadForPlay', () => {
     });
 
     const resolve = async (uri: string): Promise<SearchOutcome> =>
-      uri.includes('hilang') ? { kind: 'empty' } : { kind: 'tracks', tracks: [{ encoded: 'ok', info: { title: 'Oke', author: 'A', length: 1000, isStream: false } }] };
+      uri.includes('hilang')
+        ? { kind: 'empty' }
+        : foundTracks([
+            { encoded: 'ok', info: { title: 'Oke', author: 'A', length: 1000, isStream: false } },
+          ]);
 
     const result = await playlists.loadForPlay(list, resolve, OWNER);
 

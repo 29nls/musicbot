@@ -67,7 +67,7 @@ export {
   seekErrorMessage,
 } from './position.js';
 export type { PositionFailure, PositionResult } from './position.js';
-export { SEARCH_RESULT_LIMIT, pickTracks } from './selection.js';
+export { SEARCH_RESULT_LIMIT, foundTracks, pickTracks } from './selection.js';
 export type { TrackPickPurpose } from './selection.js';
 export {
   MAX_OPTION_DESCRIPTION_LENGTH,

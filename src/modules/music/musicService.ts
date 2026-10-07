@@ -24,7 +24,7 @@ import { splitByTrackLimits } from './limits.js';
 import { clampVolume } from './permissions.js';
 import type { FilterOptions } from 'shoukaku';
 import { buildSearchIdentifier } from './search.js';
-import { pickTracks } from './selection.js';
+import { foundTracks, pickTracks } from './selection.js';
 import { SharedMusicState } from './sharedState.js';
 import type { RandomSource } from './shuffle.js';
 import { toTrackInfo } from './track.js';
@@ -278,15 +278,11 @@ export class MusicService {
 
       switch (result.loadType) {
         case LoadType.TRACK:
-          return { kind: 'tracks', tracks: [result.data] };
+          return foundTracks([result.data]);
         case LoadType.PLAYLIST:
-          return {
-            kind: 'tracks',
-            tracks: result.data.tracks,
-            playlistName: result.data.info.name,
-          };
+          return foundTracks(result.data.tracks, result.data.info.name);
         case LoadType.SEARCH:
-          return { kind: 'tracks', tracks: result.data };
+          return foundTracks(result.data);
         case LoadType.EMPTY:
           return { kind: 'empty' };
         case LoadType.ERROR:

@@ -16,7 +16,7 @@ import {
   type SpotifyTrackMeta,
 } from '../src/modules/spotify/index.js';
 import { addedToQueueEmbed } from '../src/modules/music/index.js';
-import type { RawTrack, SearchOutcome } from '../src/modules/music/index.js';
+import { foundTracks, type RawTrack, type SearchOutcome } from '../src/modules/music/index.js';
 
 const TRACK_ID = '4cOdK2wGLETKBW3PvgPWqT';
 
@@ -289,7 +289,7 @@ describe('resolveSpotifyPlay', () => {
     search: (query: string) => Promise<SearchOutcome>;
   }> = {}) => ({
     meta: overrides.meta ?? (async () => ({ kind: 'found' as const, track: META })),
-    search: overrides.search ?? (async () => ({ kind: 'tracks' as const, tracks: [rawTrack({ title: 'Indonesia Raya' })] })),
+    search: overrides.search ?? (async () => foundTracks([rawTrack({ title: 'Indonesia Raya' })])),
     requesterId: 'user-1',
   });
 
@@ -361,10 +361,7 @@ describe('resolveSpotifyPlay', () => {
     const result = await resolveSpotifyPlay(
       `https://open.spotify.com/track/${TRACK_ID}`,
       deps({
-        search: async () => ({
-          kind: 'tracks',
-          tracks: [rawTrack({ title: 'Reaksi Video', length: 60_000 })],
-        }),
+        search: async () => foundTracks([rawTrack({ title: 'Reaksi Video', length: 60_000 })]),
       }),
     );
 

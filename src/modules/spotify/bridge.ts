@@ -1,4 +1,10 @@
-import { toTrackInfo, type SearchOutcome, type SpotifySourceInfo, type TrackInfo } from '../music/index.js';
+import {
+  pickTracks,
+  toTrackInfo,
+  type SearchOutcome,
+  type SpotifySourceInfo,
+  type TrackInfo,
+} from '../music/index.js';
 import { matchNote, pickSpotifyMatch, type SpotifyMatch } from './match.js';
 import { parseSpotifyLink, unsupportedLinkMessage, type SpotifyLink } from './parse.js';
 import type { SpotifyResult, SpotifyTrackMeta } from './types.js';
@@ -59,13 +65,19 @@ export async function resolveSpotifyPlay(
   if (search.kind === 'unavailable') {
     return { kind: 'search-failed', message: 'Lavalink belum terhubung, jadi audio tidak bisa dicari.' };
   }
-  if (search.kind === 'empty' || search.tracks.length === 0) {
+  // Kolam kandidat diminta lewat kosakata `selection.ts` yang sama: daftar
+  // lagunya tidak bisa dibaca dari sini, dan justru itu yang diinginkan — di
+  // sini yang memilih adalah pencocokan metadata, bukan aturan jumlah lagu.
+  const candidates: TrackInfo[] = pickTracks(
+    search,
+    'candidates',
+    searchQueryFor(meta),
+  ).map((track) => toTrackInfo(track, deps.requesterId));
+
+  if (candidates.length === 0) {
     return { kind: 'no-match', meta, tried: 0 };
   }
 
-  const candidates: TrackInfo[] = search.tracks.map((track) =>
-    toTrackInfo(track, deps.requesterId),
-  );
   const match = pickSpotifyMatch({ meta, candidates });
 
   if (!match) {

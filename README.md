@@ -2253,7 +2253,8 @@ src/
 │  ├─ config/               # konfigurasi per-server (M1 ✅)
 │  ├─ music/                # antrean, pemutar Lavalink, izin musik (M2 ✅)
 │  │                        # queue.ts, idleTimer.ts, musicService.ts, track.ts
-│  │                        # selection.ts = satu aturan jumlah lagu dari hasil pencarian (play/search/playlist)
+│  │                        # selection.ts = aturan jumlah lagu (play/search/playlist) + tipe SearchOutcome opaque
+│  │                        #   payload daftar lagu di balik Symbol yang tidak diekspor; `foundTracks()` pembuatnya
 │  │                        # searchSession.ts = state /search di store bersama, searchSelect.ts = pilihannya
 │  │                        # searchSessionCodec.ts = serialisasi session (toleran terhadap data rusak)
 │  │                        # limits.ts = batas durasi track §6.2 (6 jam & >30 menit butuh DJ)

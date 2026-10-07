@@ -3,78 +3,59 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { beforeAll, describe, expect, it } from 'vitest';
+import type { SearchOutcome } from '../src/modules/music/selection.js';
 
 /**
- * Penjaga **semantik** (compiler API): hasil `resolve()` hanya boleh dibaca
- * lewat `pickTracks`.
+ * Penjaga untuk `SearchOutcome` yang **opaque**: daftar lagunya tidak bisa
+ * dibaca dari luar `selection.ts`.
  *
- * Versi sebelumnya memindai teks: berkas sumber dibaca sebagai string, lalu
- * dicari `tracks.slice(0, 1)`, `SEARCH_RESULT_LIMIT = <angka>`, atau
- * `MAX_SEARCH_LINES`. Cara itu punya dua lubang yang keduanya nyata:
+ * Dua lapis, dan sengaja dua-duanya ada karena keduanya menutup lubang yang
+ * berbeda:
  *
- * 1. **Tidak bisa membedakan dua tipe yang punya field bernama sama.**
- *    `PlayOutcome` juga punya `tracks`, jadi `outcome.tracks` di renderer embed
- *    adalah pembacaan yang sah — pemindaian teks harus memilih antara ikut
- *    melarangnya (salah) atau membiarkan pola yang sama lolos (lubang).
- *    Pemakai keenam yang sekarang ketahuan, `spotify/bridge.ts`, memakai
- *    variabel bernama `search` yang sama sekali tidak mengandung kata
- *    "tracks.slice(0, 1)" — pemindaian teks tidak punya cara melihatnya.
- * 2. **Terikat tulisan, bukan makna.** Bentuk yang setara tapi ditulis berbeda
- *    (`const { tracks } = found`, `found['tracks']`, variabel bernama lain)
- *    lolos begitu saja, dan penggantian nama variabel bisa mematikan penjaganya
- *    tanpa satu pun tes gagal.
+ * 1. **Brand:** payload daftar lagu disimpan di balik kunci Symbol yang tidak
+ *    diekspor, jadi `outcome.tracks` bukan "dilarang" melainkan **tidak ada**.
+ *    Ini menutup jalur yang dulu tidak bisa ditutup aturan apa pun: menghapus
+ *    tipe (`as any`) dan tipe yang menyempit sendiri. Konsekuensinya terlihat
+ *    di sini — saat migrasi, compiler menolak **25 tempat** yang merakit cabang
+ *    `tracks` dengan tangan (semuanya di tes), karena penyusunnya sekarang cuma
+ *    `foundTracks()`.
+ * 2. **Penjaga statis ini:** brand tidak menutup **refleksi**. `Object.values(outcome)`
+ *    mengembalikan daftar lagunya tanpa perlu menyebut simbolnya — itu bukan
+ *    kesalahan tipe, jadi tidak ada yang bisa menolaknya selain pemindaian
+ *    seperti ini. Pemindaiannya tetap memakai tipe (TypeChecker), bukan tulisan,
+ *    supaya `Object.values` pada `PlayOutcome` atau antrean tidak ikut tertangkap.
  *
- * Di sini pertanyaannya dijawab tipe, bukan tulisan: untuk setiap pembacaan
- * `.tracks` (juga `['tracks']` dan destructuring), tipe **yang dideklarasikan**
- * untuk ekspresinya diperiksa dengan TypeChecker — apakah tipe itu `SearchOutcome`
- * (sama dalam dua arah assignability). Tipe yang menyempit dipakai lewat
- * deklarasi simbolnya, karena di dalam `if (found.kind === 'tracks')` tipe di
- * lokasi itu sudah menyempit dan pertanyaannya jadi berbeda dari yang dimaksud.
- *
- * Invarian yang dijaga: **daftar berkas yang membaca `SearchOutcome.tracks`
- * langsung sama persis dengan daftar izin di bawah.** Berkas baru yang membaca
- * hasil pencarian tanpa lewat `pickTracks` akan muncul sebagai pelanggaran —
- * dan izin yang tidak dipakai lagi akan gagal juga, supaya daftar ini tidak
- * berubah jadi kebiasaan yang tidak menjelaskan apa pun.
- *
- * Batas yang jujur: ini analisis statis atas `src/`, bukan bukti runtime — yang
- * dijaga adalah bentuk kode, bukan jalur yang dieksekusi. Dua sisinya diuji apa
- * adanya di bawah: tipe yang dihapus jadi `any` tetap ditandai (karena `any`
- * assignable dua arah, penjaganya sengaja memilih ketat), sedangkan nilai yang
- * tipe deklarasinya sudah **menyempit sendiri** — mis. parameter bertipe
- * `Extract<SearchOutcome, { kind: 'tracks' }>` — tidak ditandai. Yang membuat
- * celah terakhir tidak jadi lubang: setiap nilai seperti itu tetap harus berasal
- * dari pembacaan `SearchOutcome.tracks` yang ditandai, jadi ongkosnya dibayar
- * sekali secara terlihat (satu entri di daftar izin), bukan disembunyikan.
+ * Invariant yang dijaga: **tidak ada berkas di `src/` selain `selection.ts` yang
+ * membaca daftar lagu hasil pencarian, langsung maupun lewat refleksi.** Daftar
+ * izinnya kosong — sebelumnya `spotify/bridge.ts` ada di sana, dan sekarang ia
+ * meminta kolam kandidat lewat `pickTracks(outcome, 'candidates', …)` seperti
+ * pemakai lain. Jadi tidak ada lagi pengecualian yang harus diingat.
  */
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-/**
- * Berkas yang boleh membaca `SearchOutcome.tracks` langsung, beserta alasannya.
- *
- * Dua-duanya bukan pengecualian "karena sulit diubah": `selection.ts` adalah
- * rumah aturannya, dan `spotify/bridge.ts` memakai daftar hasil sebagai **kolam
- * kandidat** untuk mencocokkan metadata Spotify — yang akhirnya dipakai tetap
- * satu lagu lewat `pickSpotifyMatch`, jadi pertanyaannya berbeda ("kandidat mana
- * yang paling cocok", bukan "berapa lagu yang layak dipakai").
- */
-const ALLOWED_DIRECT_READS: Record<string, string> = {
-  'src/modules/music/selection.ts': 'rumah aturannya sendiri',
-  'src/modules/spotify/bridge.ts': 'kolam kandidat untuk pencocokan metadata Spotify',
-};
+/** Rumah aturannya, sekaligus satu-satunya berkas yang boleh membaca daftarnya. */
+const SELECTION_FILE = 'src/modules/music/selection.ts';
 
 /** Berkas yang wajib memakai `pickTracks` — satu untuk tiap cara hasil dipakai. */
 const REQUIRED_CALLERS = [
-  'src/modules/music/musicService.ts', // /play
+  'src/modules/music/musicService.ts', // /play, dan producer hasil pencarian
   'src/commands/music/search.ts', // /search
   'src/commands/music/playlist.ts', // /playlist add
   'src/modules/playlists/tracks.ts', // pemuatan playlist ke antrean
+  'src/modules/spotify/bridge.ts', // kolam kandidat pencocokan Spotify
 ];
 
-const SEARCH_OUTCOME_FILE = 'src/modules/music/types.ts';
+/** Pemanggilan yang bisa membuka payload tanpa menyebut simbolnya. */
+const REFLECTION_CALLS = new Set([
+  'Object.values',
+  'Object.entries',
+  'Object.assign',
+  'Object.getOwnPropertySymbols',
+  'Reflect.ownKeys',
+]);
 
-interface DirectRead {
+interface TrackListRead {
   file: string;
   line: number;
   text: string;
@@ -117,8 +98,7 @@ function sketchProgram(files: Record<string, string>): ts.Program {
   const baseFileExists = host.fileExists.bind(host);
   const baseGetSourceFile = host.getSourceFile.bind(host);
 
-  host.readFile = (file) =>
-    virtual.get(file.split(path.sep).join('/')) ?? baseReadFile(file);
+  host.readFile = (file) => virtual.get(file.split(path.sep).join('/')) ?? baseReadFile(file);
   host.fileExists = (file) =>
     virtual.has(file.split(path.sep).join('/')) || baseFileExists(file);
   host.getSourceFile = (file, languageVersion, onError, shouldCreateNewSourceFile) => {
@@ -137,7 +117,11 @@ function sketchProgram(files: Record<string, string>): ts.Program {
  * Dua deklarasi berarti ada definisi kedua hasil pencarian — hal yang sama
  * berbahayanya dengan definisi kedua jumlah lagu.
  */
-function searchOutcomeType(program: ts.Program): { type: ts.Type; declaredIn: string[] } {
+function searchOutcomeType(program: ts.Program): {
+  type: ts.Type;
+  declaration: ts.TypeAliasDeclaration;
+  declaredIn: string[];
+} {
   const checker = program.getTypeChecker();
   const declaredIn: string[] = [];
   let declaration: ts.TypeAliasDeclaration | undefined;
@@ -158,31 +142,29 @@ function searchOutcomeType(program: ts.Program): { type: ts.Type; declaredIn: st
 
   if (!declaration) throw new Error('Tipe `SearchOutcome` tidak ditemukan di src/');
 
-  return { type: checker.getTypeAtLocation(declaration), declaredIn };
+  return { type: checker.getTypeAtLocation(declaration), declaration, declaredIn };
 }
 
 /**
- * Semua pembacaan `tracks` dari sebuah `SearchOutcome`, di seluruh berkas program.
+ * Pembacaan daftar lagu hasil pencarian, langsung maupun lewat refleksi.
  *
- * Tiga bentuk yang ditangkap: `found.tracks`, `found['tracks']`, dan
- * `const { tracks } = found`. Bentuk pertama dan kedua diperiksa lewat tipe
- * yang dideklarasikan untuk ekspresinya; destructuring diperiksa lewat
- * initializer deklarasinya, karena tipe di lokasi pola bisa sudah menyempit.
+ * Tipe yang dipakai adalah tipe **yang dideklarasikan** untuk ekspresinya,
+ * bukan tipe di lokasi: di dalam `if (found.kind === 'tracks')` tipe di situ
+ * sudah menyempit, dan pertanyaannya jadi berbeda dari yang dimaksud.
  */
-function findDirectTrackReads(
+function trackListReads(
   program: ts.Program,
   outcomeType: ts.Type,
   files?: readonly string[],
-): DirectRead[] {
+): TrackListRead[] {
   const checker = program.getTypeChecker();
-  const reads: DirectRead[] = [];
+  const reads: TrackListRead[] = [];
 
   const isSearchOutcome = (type: ts.Type | undefined): boolean =>
     type !== undefined &&
     checker.isTypeAssignableTo(type, outcomeType) &&
     checker.isTypeAssignableTo(outcomeType, type);
 
-  /** Tipe yang **dideklarasikan** untuk ekspresi, bukan tipe yang menyempit di sini. */
   const declaredTypeOf = (node: ts.Node): ts.Type | undefined => {
     if (ts.isIdentifier(node)) {
       const symbol = checker.getSymbolAtLocation(node);
@@ -193,9 +175,7 @@ function findDirectTrackReads(
     return checker.getTypeAtLocation(node);
   };
 
-  const record = (node: ts.Node, source: ts.Node): void => {
-    if (!isSearchOutcome(declaredTypeOf(source))) return;
-
+  const record = (node: ts.Node): void => {
     reads.push({
       file: relative(node.getSourceFile().fileName),
       line: lineOf(node),
@@ -208,15 +188,17 @@ function findDirectTrackReads(
     if (files && !files.includes(relative(file.fileName))) continue;
 
     const visit = (node: ts.Node): void => {
+      // 1. Pembacaan langsung: `found.tracks`, `found['tracks']`, `{ tracks } = found`.
       if (ts.isPropertyAccessExpression(node) && node.name.text === 'tracks') {
-        record(node, node.expression);
+        if (isSearchOutcome(declaredTypeOf(node.expression))) record(node);
       } else if (
         ts.isElementAccessExpression(node) &&
         node.argumentExpression !== undefined &&
         ts.isStringLiteralLike(node.argumentExpression) &&
-        node.argumentExpression.text === 'tracks'
+        node.argumentExpression.text === 'tracks' &&
+        isSearchOutcome(declaredTypeOf(node.expression))
       ) {
-        record(node, node.expression);
+        record(node);
       } else if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
         const key = node.propertyName ?? node.name;
         const declaration = node.parent.parent;
@@ -225,7 +207,16 @@ function findDirectTrackReads(
             ? declaration.initializer
             : node.parent;
 
-        if (ts.isIdentifier(key) && key.text === 'tracks') record(node, source);
+        if (ts.isIdentifier(key) && key.text === 'tracks' && isSearchOutcome(declaredTypeOf(source))) {
+          record(node);
+        }
+      }
+
+      // 2. Refleksi: payload ikut terambil tanpa menyebut simbolnya.
+      if (ts.isCallExpression(node) && REFLECTION_CALLS.has(node.expression.getText())) {
+        if (node.arguments.some((argument) => isSearchOutcome(declaredTypeOf(argument)))) {
+          record(node);
+        }
       }
 
       ts.forEachChild(node, visit);
@@ -237,19 +228,89 @@ function findDirectTrackReads(
   return reads;
 }
 
+/** Apakah sebuah node dinyatakan `export`. */
+function hasExportKeyword(node: ts.HasModifiers): boolean {
+  return (ts.getModifiers(node) ?? []).some(
+    (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+  );
+}
+
+/** Apakah payload daftar lagu disembunyikan di balik Symbol yang tidak diekspor. */
+function hiddenBehindSymbol(declaration: ts.TypeAliasDeclaration): {
+  symbolName: string | null;
+  exported: boolean;
+  leakedStringKey: boolean;
+} {
+  let symbolName: string | null = null;
+  let exported = false;
+  let leakedStringKey = false;
+
+  const type = declaration.type;
+
+  if (ts.isUnionTypeNode(type)) {
+    for (const member of type.types) {
+      if (!ts.isTypeLiteralNode(member)) continue;
+
+      const isTracksMember = member.members.some(
+        (property) =>
+          ts.isPropertySignature(property) &&
+          ts.isIdentifier(property.name) &&
+          property.name.text === 'kind' &&
+          property.type !== undefined &&
+          ts.isLiteralTypeNode(property.type) &&
+          property.type.literal.getText() === "'tracks'",
+      );
+      if (!isTracksMember) continue;
+
+      for (const property of member.members) {
+        if (!ts.isPropertySignature(property)) continue;
+
+        if (ts.isIdentifier(property.name) && property.name.text === 'tracks') {
+          leakedStringKey = true;
+        }
+
+        if (ts.isComputedPropertyName(property.name)) {
+          symbolName = property.name.expression.getText();
+        }
+      }
+    }
+  }
+
+  if (symbolName) {
+    // `export` duduk di `VariableStatement`, bukan di deklarasinya: keduanya
+    // diperiksa supaya `export const TRACK_LIST = …` tidak pernah lolos.
+    for (const statement of declaration.getSourceFile().statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+
+      const match = statement.declarationList.declarations.find(
+        (item) => ts.isIdentifier(item.name) && item.name.text === symbolName,
+      );
+      if (!match) continue;
+
+      exported = hasExportKeyword(statement);
+    }
+  }
+
+  return { symbolName, exported, leakedStringKey };
+}
+
 /** Deklarasi variabel yang namanya cocok, di seluruh berkas program. */
 function declaredConstants(
   program: ts.Program,
   pattern: RegExp,
-): Array<{ file: string; name: string; line: number }> {
-  const found: Array<{ file: string; name: string; line: number }> = [];
+): Array<{ file: string; name: string }> {
+  const found: Array<{ file: string; name: string }> = [];
 
   for (const file of program.getSourceFiles()) {
     if (file.isDeclarationFile) continue;
 
     const visit = (node: ts.Node): void => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && pattern.test(node.name.text)) {
-        found.push({ file: relative(file.fileName), name: node.name.text, line: lineOf(node) });
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        pattern.test(node.name.text)
+      ) {
+        found.push({ file: relative(file.fileName), name: node.name.text });
       }
       ts.forEachChild(node, visit);
     };
@@ -286,49 +347,57 @@ function callLines(program: ts.Program, wanted: string, calleeName: string): num
   return lines;
 }
 
-describe('penjaga AST: hasil resolve() hanya dibaca lewat pickTracks', () => {
+/**
+ * Dijaga pada level tipe: kalau payload kembali bernama `tracks`, tipe ini jadi
+ * `'terbuka'` dan baris di bawahnya gagal typecheck — jadi pembalikan brand
+ * tidak bisa lolos hanya karena tesnya tidak dijalankan.
+ */
+type PayloadShape = Extract<SearchOutcome, { kind: 'tracks' }> extends { tracks: unknown }
+  ? 'terbuka'
+  : 'opaque';
+
+const payloadShape: PayloadShape = 'opaque';
+
+describe('tidak ada yang bisa membaca daftar lagu di luar selection.ts', () => {
   let program: ts.Program;
   let outcomeType: ts.Type;
-  let reads: DirectRead[];
+  let declaration: ts.TypeAliasDeclaration;
+  let reads: TrackListRead[];
 
   beforeAll(() => {
     program = projectProgram();
     const outcome = searchOutcomeType(program);
     outcomeType = outcome.type;
-    reads = findDirectTrackReads(program, outcomeType);
+    declaration = outcome.declaration;
+    reads = trackListReads(program, outcomeType);
   }, 120_000);
 
-  it('`SearchOutcome` dideklarasikan tepat sekali', () => {
-    expect(searchOutcomeType(program).declaredIn).toEqual([SEARCH_OUTCOME_FILE]);
+  it('`SearchOutcome` dideklarasikan tepat sekali, di selection.ts', () => {
+    expect(searchOutcomeType(program).declaredIn).toEqual([SELECTION_FILE]);
   });
 
-  it('tidak ada berkas di luar daftar izin yang membaca SearchOutcome.tracks', () => {
+  it('payload daftar lagu berkunci Symbol yang tidak diekspor', () => {
+    const brand = hiddenBehindSymbol(declaration);
+
+    expect(brand.symbolName).toBe('TRACK_LIST');
+    expect(brand.exported).toBe(false);
+    // Kunci string `tracks` tidak boleh muncul lagi di union-nya.
+    expect(brand.leakedStringKey).toBe(false);
+  });
+
+  it('bentuk payload dijaga level tipe, bukan cuma di tes ini', () => {
+    expect(payloadShape).toBe('opaque');
+  });
+
+  it('tidak ada berkas lain yang membaca daftarnya — langsung maupun lewat refleksi', () => {
     const offenders = reads
-      .filter((read) => !Object.hasOwn(ALLOWED_DIRECT_READS, read.file))
-      .map((read) => `${read.file}:${read.line} → ${read.text}`);
+      .map((read) => `${read.file}:${read.line} → ${read.text}`)
+      .filter((line) => !line.startsWith(`${SELECTION_FILE}:`));
 
     expect(offenders).toEqual([]);
   });
 
-  it('daftar izin tidak menyimpan entri basi', () => {
-    const filesWithReads = new Set(reads.map((read) => read.file));
-
-    // Izin yang tidak dipakai lagi berarti pengecualian yang bertahan tanpa
-    // alasan — persis yang membuat daftar izin berhenti menjelaskan apa pun.
-    for (const file of Object.keys(ALLOWED_DIRECT_READS)) {
-      expect(filesWithReads, `${file} tidak lagi membaca langsung`).toContain(file);
-    }
-  });
-
-  it('pembacaan `PlayOutcome.tracks` tidak ikut tertangkap (tipe, bukan tulisan)', () => {
-    const renderers = reads.filter((read) => read.file.startsWith('src/modules/music/embeds.ts'));
-
-    // `renderPlayOutcome` membaca `outcome.tracks` dengan nama yang sama persis,
-    // tapi tipenya `PlayOutcome` — bukan hasil pencarian.
-    expect(renderers).toEqual([]);
-  });
-
-  it('keempat pemakai hasil pencarian memanggil pickTracks', () => {
+  it('kelima pemakai hasil pencarian memanggil pickTracks', () => {
     for (const file of REQUIRED_CALLERS) {
       expect(callLines(program, file, 'pickTracks'), file).not.toEqual([]);
     }
@@ -337,7 +406,7 @@ describe('penjaga AST: hasil resolve() hanya dibaca lewat pickTracks', () => {
   it('jumlah hasil pencarian tetap satu definisi', () => {
     const limit = declaredConstants(program, /^SEARCH_RESULT_LIMIT$/);
     expect(limit.map((entry) => `${entry.file}:${entry.name}`)).toEqual([
-      'src/modules/music/selection.ts:SEARCH_RESULT_LIMIT',
+      `${SELECTION_FILE}:SEARCH_RESULT_LIMIT`,
     ]);
 
     // Nama lama yang dulu jadi definisi kedua di embed.
@@ -345,30 +414,26 @@ describe('penjaga AST: hasil resolve() hanya dibaca lewat pickTracks', () => {
   });
 });
 
-describe('penjaga AST itu sendiri bergigi', () => {
-  const KNOWN_OUTCOME = `
-type SearchOutcome =
-  | { kind: 'tracks'; tracks: { title: string }[] }
-  | { kind: 'empty' };
+describe('penjaga itu sendiri bergigi', () => {
+  const SKETCH = `
+type SearchOutcome = { kind: 'tracks'; tracks: { title: string }[] } | { kind: 'empty' };
+type Queue = { tracks: { title: string }[] };
 declare function resolve(query: string): Promise<SearchOutcome>;
+declare function queue(): Queue;
 
-export async function langsung(query: string): Promise<number> {
-  const found = await resolve(query);
+export async function langsung(): Promise<number> {
+  const found = await resolve('x');
   if (found.kind !== 'tracks') return 0;
   return found.tracks.length;
 }
 
-export async function lewatKurung(query: string): Promise<number> {
-  const found = await resolve(query);
-  if (found.kind !== 'tracks') return 0;
-  return found['tracks'].length;
+export async function refleksi(): Promise<number> {
+  const found = await resolve('x');
+  return Object.values(found).length;
 }
 
-export async function bongkar(query: string): Promise<string> {
-  const found = await resolve(query);
-  if (found.kind !== 'tracks') return 'kosong';
-  const { tracks } = found;
-  return tracks[0]?.title ?? 'kosong';
+export async function salahSasaran(): Promise<number> {
+  return Object.values(queue()).length;
 }
 `;
 
@@ -387,33 +452,38 @@ export async function patuh(query: string): Promise<string> {
 }
 `;
 
-  function readsIn(text: string): DirectRead[] {
+  function readsIn(text: string): TrackListRead[] {
     const program = sketchProgram({ [path.join(ROOT, 'sketsa', 'berkas.ts')]: text });
     const outcome = searchOutcomeType(program);
 
-    return findDirectTrackReads(program, outcome.type);
+    return trackListReads(program, outcome.type);
   }
 
-  it('menandai .tracks, [\'tracks\'], dan destructuring', () => {
-    expect(readsIn(KNOWN_OUTCOME).map((read) => read.line)).toEqual([10, 16, 22]);
+  it('menandai pembacaan langsung DAN jalan refleksi', () => {
+    expect(readsIn(SKETCH).map((read) => read.line)).toEqual([10, 15]);
+  });
+
+  it('`Object.values` pada tipe lain tidak ikut ditandai', () => {
+    // Antrean juga punya `tracks`; yang membedakan hanya tipenya.
+    const lines = readsIn(SKETCH).map((read) => read.line);
+    expect(lines).not.toContain(19);
   });
 
   it('tidak menandai pemakaian yang sudah lewat pickTracks', () => {
     expect(readsIn(COMPLIANT)).toEqual([]);
   });
 
-  it('tipe yang dihapus jadi `any` tetap ditandai: penjaganya sengaja ketat', () => {
-    // `any` assignable dua arah ke tipe apa pun, jadi nilai yang tipenya dihapus
-    // tetap ikut ditandai. Menghapus tipe lalu membaca `.tracks` adalah cara
-    // melewati aturannya, bukan cara menjawab pertanyaan yang berbeda — kalau ada
-    // jalur yang benar-benar perlu, ongkosnya satu entri di daftar izin.
+  it('tipe yang dihapus jadi `any` tetap ditandai: refleksi bukan izin', () => {
+    // Di runtime `(found as any).tracks` memang bernilai `undefined` — brand-nya
+    // bekerja — tapi `Object.values` tetap bisa membuka payload-nya, jadi jalur
+    // itu harus ditandai, bukan dibiarkan karena tipenya sudah hilang.
     const denganAny = `
 type SearchOutcome = { kind: 'tracks'; tracks: { title: string }[] };
 declare function resolve(query: string): Promise<SearchOutcome>;
 
 export async function dilewati(): Promise<number> {
   const found = (await resolve('x')) as any;
-  return found.tracks.length;
+  return Object.values(found).length;
 }
 `;
 
@@ -421,9 +491,8 @@ export async function dilewati(): Promise<number> {
   });
 
   it('batas yang jujur: tipe yang sudah menyempit sendiri tidak ditandai', () => {
-    // Nilai seperti ini tidak bisa lahir dari udara: ia harus datang dari
-    // pembacaan `SearchOutcome.tracks` yang ditandai, jadi celahnya terlihat
-    // sebagai satu entri izin, bukan sebagai pintu belakang yang tak terpakai.
+    // Nilai seperti ini tidak bisa lahir dari udara: ia harus berasal dari
+    // pembacaan `SearchOutcome` yang ditandai, jadi celahnya terlihat.
     const menyempit = `
 type SearchOutcome = { kind: 'tracks'; tracks: { title: string }[] } | { kind: 'empty' };
 type SudahSempit = Extract<SearchOutcome, { kind: 'tracks' }>;

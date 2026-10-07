@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RawTrack, SearchOutcome, TrackInfo } from '../src/modules/music/index.js';
+import { foundTracks, type RawTrack, type TrackInfo } from '../src/modules/music/index.js';
 import { defaultTranslator } from '../src/modules/i18n/index.js';
 
 /**
@@ -151,10 +151,7 @@ describe('/playlist add menyimpan tepat satu lagu untuk kata kunci', () => {
   it('kata kunci: hanya hasil terbaik yang masuk playlist', async () => {
     const playlist = (await import('../src/commands/music/playlist.js')).default;
     // `ytsearch:` kembali dengan ±25 hasil.
-    const outcome: SearchOutcome = {
-      kind: 'tracks',
-      tracks: [1, 2, 3, 4, 5, 6, 7].map(rawTrack),
-    };
+    const outcome = foundTracks([1, 2, 3, 4, 5, 6, 7].map(rawTrack));
     mocks.resolve.mockResolvedValue(outcome);
     const { interaction, edits } = fakeInteraction('hujan nadin');
 
@@ -169,11 +166,7 @@ describe('/playlist add menyimpan tepat satu lagu untuk kata kunci', () => {
 
   it('URL playlist tetap disimpan utuh: itu memang tujuan /playlist add', async () => {
     const playlist = (await import('../src/commands/music/playlist.js')).default;
-    mocks.resolve.mockResolvedValue({
-      kind: 'tracks',
-      tracks: [1, 2, 3].map(rawTrack),
-      playlistName: 'Album Lengkap',
-    } satisfies SearchOutcome);
+    mocks.resolve.mockResolvedValue(foundTracks([1, 2, 3].map(rawTrack), 'Album Lengkap'));
     const { interaction, edits } = fakeInteraction('https://www.youtube.com/playlist?list=PL1');
 
     await playlist.execute(interaction, {} as never);
@@ -197,7 +190,7 @@ describe('/playlist add menyimpan tepat satu lagu untuk kata kunci', () => {
   it('kata kunci tanpa hasil: tidak menyimpan apa pun dan menjelaskannya', async () => {
     const playlist = (await import('../src/commands/music/playlist.js')).default;
     // `LoadType.SEARCH` kosong: daftar kosong, bukan `kind: 'empty'`.
-    mocks.resolve.mockResolvedValue({ kind: 'tracks', tracks: [] } satisfies SearchOutcome);
+    mocks.resolve.mockResolvedValue(foundTracks([]));
     const { interaction, edits } = fakeInteraction('lagu yang tidak ada');
 
     await playlist.execute(interaction, {} as never);

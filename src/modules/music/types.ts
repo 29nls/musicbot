@@ -31,12 +31,15 @@ export interface QueueSnapshot {
   filterMode: FilterMode;
 }
 
-/** Hasil pencarian ke Lavalink — sengaja tidak membocorkan tipe internal library. */
-export type SearchOutcome =
-  | { kind: 'tracks'; tracks: RawTrack[]; playlistName?: string }
-  | { kind: 'empty' }
-  | { kind: 'error'; message: string }
-  | { kind: 'unavailable' };
+/**
+ * Hasil pencarian ke Lavalink — sengaja tidak membocorkan tipe internal library.
+ *
+ * Tipenya tinggal di `selection.ts` karena di sanalah daftar lagunya bisa
+ * dibaca (payload-nya di balik kunci Symbol yang tidak diekspor). Re-ekspor ini
+ * menjaga pemanggil lama tetap bisa menyebut nama tipenya tanpa ikut membuka
+ * datanya.
+ */
+export type { SearchOutcome } from './selection.js';
 
 /** Bentuk track Lavalink yang dibutuhkan (subset dari `Track` shoukaku). */
 export interface RawTrack {
