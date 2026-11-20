@@ -40,6 +40,17 @@ Thumbs.db
 # Env verifikasi lokal dashboard (isinya kredensial, jangan ikut ter-commit)
 .dash-verify.env
 
+# Kunci API lokal: jangan pernah masuk repo
+apikey.txt
+
 # Tooling metadata
 .freebuff/
-.agents/
+
+# Skill dan agen spesialis proyek ikut di-commit; state agen lain tetap diabaikan
+.agents/*
+!.agents/skills/
+!.agents/skills/**
+!.agents/agents/
+!.agents/agents/**
+# MCP server proyek: alamat saja, tanpa token (OAuth saat dipakai)
+!.agents/mcp.json

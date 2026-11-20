@@ -3,19 +3,18 @@
 | Field | Value |
 | --- | --- |
 | Dokumen induk | [PRD.md](PRD.md) §5.3 Fase 3 |
-| Versi | v0.1 (rancangan, belum ada kode) |
+| Versi | v1.0 (terimplementasi) |
 | Tanggal | 4 Oktober 2026 |
-| Status | Menunggu keputusan §4.2 |
+| Status | v1 terimplementasi; verifikasi OAuth manual belum dilakukan |
 | Penulis | Buffy |
 
-> **Batas dokumen ini, ditulis lebih dulu supaya tidak disalahartikan.**
-> Ini rancangan, bukan laporan. Tidak ada Next.js yang terpasang, tidak ada
-> container yang dibangun, tidak ada baris kode dashboard yang ditulis. Isinya
-> pemetaan kebutuhan terhadap kode yang benar-benar ada di repo ini, ditambah
-> delapan keputusan arsitektur yang harus dijawab sebelum implementasi dimulai.
-> Semua temuan di §4.1 berasal dari membaca kode, bukan menjalankannya. Tidak ada
-> Redis, PostgreSQL, Lavalink, maupun token Discord yang pernah hidup di
-> lingkungan penulisan dokumen ini.
+> **Status dokumen.** Dokumen ini dimulai sebagai rancangan sebelum dashboard
+> ditulis, jadi §1–§4 sebagian besar menjelaskan alasan desain, bukan keadaan
+> kode. v1 sudah terimplementasi: OAuth, baca/tulis konfigurasi dengan paritas
+> `/config`, invalidasi cache lewat Redis pub/sub, audit, rate limit, metrik,
+> dan deployment Docker/CasaOS. Status per fase dan batas yang tersisa ada di
+> §5.3 dan Lampiran C. Yang masih belum diverifikasi secara manual: alur OAuth
+> dengan akun Discord sungguhan.
 
 ---
 
@@ -281,11 +280,12 @@ pendek. Keduanya punya harga, dan harganya berbeda (§4.2, D2).
 
 Bot **tidak** berubah sama sekali selain tambahan satu langganan pada `RedisKeyValueStore` — dan itu sudah terimplementasi: `src/index.ts` berlangganan kanal `harmony:config:changed` saat start dan berhenti berlangganan saat shutdown. Tidak ada HTTP API di bot, tidak ada endpoint baru di proses bot, tidak ada cara dashboard memanggil bot.
 
-### 4.2 Keputusan arsitektur yang harus diambil sebelum menulis kode
+### 4.2 Keputusan arsitektur yang diambil sebelum menulis kode
 
-Delapan keputusan. Yang ditandai **MENGHAMBAT** tidak boleh mulai ditulis
+Sepuluh keputusan. Yang ditandai **MENGHAMBAT** tidak boleh mulai ditulis
 kodenya sebelum dijawab, karena membangun ulang setelah salah jawaban jauh lebih
-mahal daripada menjawab sekarang.
+mahal daripada menjawab sekarang. Semuanya sudah dijawab dan dipakai di kode
+(Lampiran A).
 
 ---
 
@@ -433,7 +433,7 @@ Tiga pilihan:
 Alasannya: menyatukan build Next.js dengan proses bot berarti satu
 `npm install` bisa gagal karena konflik dependensi, dan kegagalan itu akan
 didiagnosis sebagai bot rusak ketika botnya baik saja. Mengubah repo bot
-menjadi monorepo demi fitur Fase 3 yang belum ada sama sekali adalah
+menjadi monorepo demi fitur Fase 3 yang saat itu belum ada sama sekali adalah
 perombakan besar yang belum ada yang menanggung biayanya.
 
 Pengecualiannya: validasi tidak disalin bebas. Modul validasi dashboard harus
@@ -668,8 +668,8 @@ di luar ruang lingkup dokumen ini.
 Tiap tahap punya kriteria selesai yang bisa diperiksa. Tidak ada tahap yang
 dimulai sebelum kriteria tahap sebelumnya terpenuhi.
 
-**F0 — Keputusan arsitektur. Status: dokumen ini.**
-Keluaran: delapan keputusan di §4.2 terjawab dan tercatat.
+**F0 — Keputusan arsitektur. Status: selesai.**
+Keluaran: sepuluh keputusan di §4.2 terjawab dan tercatat.
 Selesai ketika: tidak ada keputusan berlabel MENGHAMBAT yang belum terjawab.
 
 **F1 — Fondasi dan baca.**
@@ -700,10 +700,11 @@ terimplementasi; metrik ditampilkan di `/api/health` tanpa autentikasi.
 Kandidat, semuanya di luar non-goal §2.5 dan butuh revisi dokumen:
 membaca statistik `/stats`, reaction roles, tiket, perintah custom.
 
-### 5.3 Yang belum selesai dan tidak bisa diselesaikan di dokumen ini
+### 5.3 Status implementasi dan yang belum selesai
 
-- **Keputusan §4.2 belum dijawab.** Ini disengaja. Menulis asumsi di tempat yang
-  salah jauh lebih lambat daripada menjawabnya di sini.
+- **Keputusan §4.2 sudah dijawab dan diimplementasikan.** Kesepuluh keputusan
+  (D1–D10) dipakai di kode; tidak ada yang masih menghambat. Ringkasannya ada
+  di Lampiran A.
 - **Alamat kontak takedown.** PRD §12 mewajibkannya sebelum bot publik.
   Tidak ada di repo ini, dan tidak bisa dibuat tanpa keputusan soal domain dan
   email mana yang dipakai.
@@ -713,9 +714,10 @@ membaca statistik `/stats`, reaction roles, tiket, perintah custom.
   satu pun kewajiban yang sudah ada.
 - **v1 sudah terimplementasi** (improv): OAuth, baca/tulis konfigurasi dengan
   paritas `/config`, invalidasi pub/sub, audit, rate limit, metrik §4.5, dan
-  deployment (Dockerfile + dua berkas compose). 144 tes di `dashboard/`
-  hijau. Yang tersisa bukan pekerjaan kode: dua butir di bawah, plus
-  verifikasi manual alur OAuth dengan akun Discord sungguhan.
+  deployment (Dockerfile + dua berkas compose). 144 tes di 10 file
+  `dashboard/`. Yang tersisa bukan pekerjaan kode: dua butir takedown dan
+  privasi di atas, plus verifikasi manual alur OAuth dengan akun Discord
+  sungguhan.
 
 ---
 
@@ -735,8 +737,8 @@ membaca statistik `/stats`, reaction roles, tiket, perintah custom.
 | D10 | Bentuk build dashboard (D7) | Dockerfile multi-stage, konteks build = akar repo | tidak |
 
 Lima dari sepuluh keputusan menghambat. Itu banyak, dan itu sendiri adalah
-jawaban: dashboard ini **tidak bisa dimulai dari baris kode pertama**. Ia dimulai
-dari jawaban-jawaban itu.
+jawaban: dashboard ini **tidak bisa dimulai dari baris kode pertama**.
+Implementasinya memang dimulai setelah kesepuluh keputusan dijawab.
 
 ## Lampiran B — Rujukan
 
@@ -774,7 +776,7 @@ beberapa klaim basi ditemukan; keduanya diperbaiki di dokumen ini:
   D2 dirumungkan, bukan deskripsi kode yang harus dipertahankan.
 - **§5.3 "belum ada satu baris kode" basi.** F1–F3 terimplementasi: OAuth,
   baca/tulis konfigurasi dengan paritas `/config`, invalidasi pub/sub, audit,
-  rate limit, metrik, dan deployment. 144 tes hijau.
+  rate limit, metrik, dan deployment. 144 tes di 10 file.
 - Yang masih terbuka tetap terbuka: alamat kontak takedown dan halaman
   kebijakan privasi publik (§5.3), serta uji manual alur OAuth dengan akun
   Discord sungguhan (lihat README dashboard).
