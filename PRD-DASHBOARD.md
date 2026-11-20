@@ -54,7 +54,7 @@ PRD §12, dan itu tidak layak ditambahkan sebelum dasarnya benar.
 | SC-1 | Perubahan dari dashboard berlaku tanpa restart bot | Ubah `defaultVolume` dari 100 ke 40, lalu jalankan `/volume` di Discord | Nilai baru berlaku ≤ 2 detik, p95 ≤ 5 detik, pada 100% percobaan |
 | SC-2 | Paritas field dengan `/config` | Daftar field di §4.6 dibandingkan dengan [config.ts](src/commands/core/config.ts) | Selisih 0 field, dijaga tes yang membandingkan kedua daftar |
 | SC-3 | Tidak ada tulis tanpa izin yang sah | 3 skenario negatif di §2.4 | 0 penulisan berhasil tanpa Manage Server yang masih berlaku saat permintaan dilayani |
-| SC-4 | Waktu muat halaman konfigurasi | p95 di VPS 2 vCPU / 2 GB, Supabase seberang | ≤ 800 ms server-render, LCP ≤ 2,0 detik |
+| SC-4 | Waktu muat halaman konfigurasi | p95 di VPS 2 vCPU / 2 GB, Postgres di mesin yang sama | ≤ 800 ms server-render, LCP ≤ 2,0 detik |
 | SC-5 | Tidak ada kebocoran antar server | 2 akun di 2 guild, satu mencoba akses silang | 0 data lintas-guild terbaca, 100% ditolak 403 |
 | SC-6 | Cakupan tes modul dashboard | `vitest run --coverage` untuk `dashboard/` | Modul validasi dan otorisasi ≥ 90% statements |
 
@@ -224,7 +224,7 @@ fakta asli saat dokumen ditulis) — lihat Lampiran C:
 | `invalidate(guildId?)` sudah ada; kini dipanggil lintas proses untuk kelima cache lewat `invalidationWiring.ts` | [guildConfigService.ts:106](src/modules/config/guildConfigService.ts#L106), [invalidationWiring.ts](src/modules/config/invalidationWiring.ts) | Hook-nya sudah disiapkan tepat untuk kasus ini; pemanggilnya dipasang bersama dashboard (D2) |
 | `KeyValueStore` punya `publish` dan `subscribe` **opsional**; `RedisKeyValueStore` mengimplementasikan keduanya dengan koneksi langganan terpisah | [kvStore.ts:86](src/services/kvStore.ts#L86) | Kanal invalidasi lintas proses sudah ada, dan bot memakainya sejak D2 terimplementasi |
 | Bot tidak punya permukaan HTTP sama sekali, hanya health check tanpa autentikasi | [health/server.ts](src/modules/health/server.ts) | Dashboard harus membuat jalur komunikasinya sendiri |
-| Database adalah Supabase, bukan container di stack ini; `DATABASE_URL` plus `DIRECT_URL` | [docker-compose.yml](docker-compose.yml) | Dashboard butuh kredensial database, dan itu kredensial produksi |
+| Database adalah container `postgres` di stack yang sama; `DATABASE_URL` tunggal | [docker-compose.yml](docker-compose.yml) | Dashboard menulis ke database yang sama dengan bot |
 
 Ada satu titik positif yang layak dicatat: `GuildConfigService` sudah punya
 `invalidate(guildId?)` dengan komentar "dipakai setelah perubahan dari luar
@@ -267,7 +267,7 @@ pendek. Keduanya punya harga, dan harganya berbeda (§4.2, D2).
                        Prisma (baca + tulis)          | publish config:changed
                                         v             v
                               +--------------+   +--------------+
-                              |  Supabase    |   |  Redis        |
+                              |  PostgreSQL  |   |  Redis        |
                               |  PostgreSQL  |   |  (KeyValueStore)|
                               +--------------+   +-------+--------+
                                                           |
@@ -293,7 +293,7 @@ mahal daripada menjawab sekarang.
 
 | Opsi | Bentuk | Yang terjadi |
 | --- | --- | --- |
-| A | Dashboard bicara Prisma langsung ke Supabase | Satu penulis. Bot jadi pembaca. |
+| A | Dashboard bicara Prisma langsung ke Postgres lokal | Satu penulis. Bot jadi pembaca. |
 | B | Dashboard bicara HTTP API di dalam proses bot | Bot jadi satu-satunya penulis. |
 | C | Service API terpisah, bot dan dashboard dua klien | Tiga layanan, logika bisnis terpecah tiga tempat. |
 
@@ -323,7 +323,7 @@ Ini inti dari seluruh rancangan. Empat opsi:
 | --- | --- | --- |
 | A | Tambah `publish` dan `subscribe` ke `KeyValueStore` | ioredis sudah jadi dependensi, jadi nol dependensi baru. Butuh subscribe per proses shard. |
 | B | Penghitung generasi di store, bot memeriksa tiap N detik | Tidak perlu koneksi subscribe. Tambah satu perjalanan ke store per interval per shard. |
-| C | Turunkan TTL cache konfigurasi jadi 5 detik | Paling sederhana. Tapi tetap tidak deterministik, dan memperbanyak query ke Supabase pada setiap server aktif. |
+| C | Turunkan TTL cache konfigurasi jadi 5 detik | Paling sederhana. Tapi tetap tidak deterministik, dan memperbanyak query ke database pada setiap server aktif. |
 | D | Terima basi sampai 60 detik, tulis di README | Nol kode. Tapi melanggar AC US-05 PRD §8, "langsung berlaku tanpa restart bot". |
 
 **Rekomendasi: A, dengan D3 sebagai syarat.**
@@ -524,7 +524,7 @@ dihindari meski terlihat kecil.
 | --- | --- | --- | --- |
 | Discord OAuth2 | Masuk | HTTPS | Scope `identify guilds`. Client id dan secret baru. |
 | Discord REST (token bot) | Otorisasi | HTTPS | `GET /guilds/{id}/members/{userId}`, `GET /guilds/{id}/channels`, `GET /guilds/{id}/roles`. Dipanggil server-side saja. |
-| Supabase PostgreSQL | Baca + tulis | Prisma | `DATABASE_URL`. `DIRECT_URL` tidak dipakai runtime. |
+| PostgreSQL lokal | Baca + tulis | Prisma | `DATABASE_URL`. Satu URL untuk runtime dan migrasi. |
 | Redis | Baca, tulis, publish | `ioredis` | Hanya untuk publish invalidasi dan rate limit. Tidak menyimpan data konfigurasi. |
 | `log_entry` | Tulis | Prisma | Satu baris per perubahan. |
 | Bot | Pesan | Redis publish-subscribe | Satu arah: dashboard memberi tahu, bot membuang cache. Tidak ada panggilan balik. |

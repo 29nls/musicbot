@@ -18,10 +18,10 @@
 # Build mengambil sumber langsung dari GitHub, jadi `docker compose up` di NAS
 # tanpa terminal tetap bisa — asalkan DNS & HTTPS ke GitHub tersedia.
 #
-# Yang SENGAJA tidak ada di sini: container PostgreSQL. Database produksi
-# adalah Supabase dan `DATABASE_URL` diambil apa adanya dari .env. Menimpanya
-# dengan hostname container berarti bot diam-diam bicara ke database yang
-# berbeda dari yang migrasinya baru saja diterapkan.
+# Database ikut di stack ini sebagai container `postgres`, dengan data di
+# volume `postgres_data`. `DATABASE_URL` di .env tetap diisi untuk pemakaian
+# dari host, tapi di dalam container nilainya ditimpa menjadi hostname
+# `postgres` — `localhost` di dalam container menunjuk ke container itu sendiri.
 
 name: harmony
 
@@ -30,8 +30,8 @@ services:
   # Dockerfile karena Prisma CLI ada di devDependencies dan tidak ikut ke
   # image runtime.
   #
-  # `migrate deploy` (bukan `migrate dev`) karena yang kedua butuh shadow
-  # database, dan Supabase tidak mengizinkan membuatnya.
+  # `migrate deploy` menerapkan migrasi yang sudah ada; penulisan migrasi baru
+  # dilakukan di mesin pengembang.
   migrate:
     build:
       context: ${HARMONY_REPO:-https://github.com/29nls/musicbot.git}#${HARMONY_REF:-main}
@@ -41,7 +41,12 @@ services:
     restart: "no"
     env_file:
       - ${HARMONY_DATA:-/DATA/AppData/harmony-bot}/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
     command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   bot:
     build:
@@ -58,6 +63,7 @@ services:
     environment:
       NODE_ENV: production
       # Hostname service, supaya bot menemukan container lain.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
       REDIS_URL: redis://redis:6379
       LAVALINK_HOST: lavalink
       # Dipaksa ke 8080 dan port yang dipublish juga 8080 supaya keduanya
@@ -67,6 +73,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       lavalink:
@@ -115,6 +123,7 @@ services:
       - ${HARMONY_DATA:-/DATA/AppData/harmony-bot}/.env
     environment:
       NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
       REDIS_URL: redis://redis:6379
       # Dipaksa ke 3000 supaya health check di bawah memprobe
       # port yang benar — pola yang sama dengan HEALTH_PORT di
@@ -124,6 +133,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     ports:
@@ -187,6 +198,27 @@ services:
       - "2333"
     mem_limit: 1g
 
+  # Database. Satu-satunya tempat data bot, disimpan di NAS sendiri.
+  postgres:
+    image: postgres:16-alpine
+    container_name: harmony-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-harmony}
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env - jalankan: node /DATA/AppData/harmony-bot/preflight.mjs}'
+      POSTGRES_DB: ${POSTGRES_DB:-harmony}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-harmony} -d ${POSTGRES_DB:-harmony}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   # Cache bersama: cooldown, cache perintah custom, lease pekerjaan retensi,
   # dan laporan metrik lintas shard semuanya lewat store ini. Steel stateless
   # tanpa Redis akan kehilangan keempatnya.
@@ -207,6 +239,7 @@ services:
       retries: 5
 
 volumes:
+  postgres_data:
   redis_data:
   lavalink_plugins:
   lavalink_logs:

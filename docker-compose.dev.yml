@@ -1,5 +1,5 @@
 # Overlay untuk development: bot dijalankan dari host (`npm run dev`), jadi
-# Lavalink/Redis perlu bisa diakses lewat localhost.
+# Lavalink, Redis, dan Postgres perlu bisa diakses lewat localhost.
 #
 #   npm run infra:up
 #
@@ -7,10 +7,6 @@
 #
 # Port sengaja di-bind ke 127.0.0.1 saja (tidak terbuka ke jaringan luar).
 # Untuk produksi, pakai docker-compose.yml saja — bot ikut jalan di container.
-#
-# Database TIDAK termasuk: yang dipakai adalah Supabase, jadi tidak perlu
-# container database pun. Kalau mau Postgres lokal untuk menulis migrasi:
-#   docker compose --profile local up -d postgres
 
 services:
   lavalink:
@@ -18,7 +14,6 @@ services:
       - "127.0.0.1:2333:2333"
 
   postgres:
-    profiles: ["local"]
     ports:
       - "127.0.0.1:5432:5432"
 

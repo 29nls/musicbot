@@ -215,15 +215,29 @@ describe('compose: invariants yang harus bertahan', () => {
     }
   });
 
-  it('DATABASE_URL tidak pernah ditimpa di compose mana pun', () => {
-    // Database produksi ada di luar stack. Compose yang menulis
-    // `DATABASE_URL: postgres://...` membuat bot diam-diam bicara ke database
-    // yang berbeda dari yang migrasinya baru diterapkan — dan tidak ada yang
-    // gagal saat start.
+  it('service container menimpa DATABASE_URL ke host `postgres`', () => {
+    // Database ada di stack ini. `DATABASE_URL` di .env memakai `localhost`
+    // karena dipakai bot yang jalan dari host; di dalam container nilai itu
+    // menunjuk ke container itu sendiri, jadi setiap service harus menimpanya
+    // ke hostname `postgres`.
     for (const file of COMPOSE_FILES) {
-      expect(read(file), `${file} menimpa DATABASE_URL`).not.toMatch(
-        /^\s*DATABASE_URL:\s*\S+/m,
-      );
+      const text = read(file);
+      const blocks = new Map<string, string>();
+      for (const [, name, body] of text.matchAll(SERVICE_BLOCK)) {
+        blocks.set(name ?? '', body ?? '');
+      }
+
+      expect(blocks.has('postgres'), `${file} tidak punya service postgres`).toBe(true);
+
+      for (const service of ['migrate', 'bot', 'dashboard']) {
+        const body = blocks.get(service);
+        if (body === undefined) continue;
+
+        expect(
+          body,
+          `${file}: ${service} tidak menimpa DATABASE_URL ke host postgres`,
+        ).toMatch(/^\s+DATABASE_URL:\s+postgresql:\/\/[^\n]*@postgres:5432\//m);
+      }
     }
   });
 });

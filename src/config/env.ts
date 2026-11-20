@@ -32,11 +32,8 @@ const envSchema = z.object({
     .transform((value) => value === 'true'),
 
   // Infrastruktur
-  // Database produksi adalah Supabase, yang juga PostgreSQL, jadi format URL-nya
-  // sama. Yang berbeda hanya host-nya — lihat .env.example untuk tiga mode
-  // koneksi yang bisa dipilih. DIRECT_URL hanya dibaca Prisma CLI, jadi bot
-  // tidak memvalidasinya di sini.
-  DATABASE_URL: z.string().min(1, 'wajib diisi, contoh: postgresql://postgres.abc:PASSWORD@POOLER-HOST:5432/postgres?sslmode=require'),
+  // Postgres lokal di container `postgres`; lihat .env.example.
+  DATABASE_URL: z.string().min(1, 'wajib diisi, contoh: postgresql://harmony:harmony_dev_password@localhost:5432/harmony'),
   REDIS_URL: z.string().min(1, 'wajib diisi, contoh: redis://localhost:6379'),
 
   // Lavalink

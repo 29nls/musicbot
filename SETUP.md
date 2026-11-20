@@ -19,12 +19,12 @@ di README.
 | **Java** | 17+ (hanya untuk Lavalink) | `java -version` |
 | **yt-dlp** | 2026.08.19+ (untuk audio YouTube) | `yt-dlp --version` *atau* isi `YTDLP_PATH` |
 | **ffmpeg** | 6+ (encode Opus untuk voice) | `ffmpeg -version` |
-| **PostgreSQL** | 14+ — *hanya* bila pakai DB lokal | `psql --version` |
+| **PostgreSQL** | 14+ — lewat container `postgres` di compose, atau pasang sendiri | `psql --version` |
 | **Redis** | 6+ — *opsional* | `redis-cli ping` |
-| **Akun Supabase** | *hanya* bila pakai DB cloud | [supabase.com](https://supabase.com) |
 
-> **Database tidak harus lokal.** Kami memakai Supabase (PostgreSQL terkelola)
-> untuk produksi. Jika belum punya akun, daftar gratis di langkah 5 di bawah.
+> **Database-nya lokal.** Bot memakai PostgreSQL di mesin ini, tanpa layanan
+> cloud: cukup container `postgres` dari compose (langkah 4), atau PostgreSQL
+> yang sudah terpasang.
 
 > **Redis bersifat opsional.** Jika tidak terpasang, bot otomatis pakai penyimpanan
 > memori dan mencatat peringatan di log — bot tetap berjalan, hanya rate limit
@@ -89,11 +89,10 @@ DISCORD_TOKEN=YOUR_BOT_TOKEN_HERE
 DISCORD_CLIENT_ID=YOUR_APPLICATION_ID
 DEV_GUILD_ID=YOUR_DEV_GUILD_ID      # ID server dev (mode developer)
 
-# ── Database (Supabase) ─────────────────────────────────────
-DATABASE_URL=postgresql://postgres.abc:PASSWORD@POOLER-HOST:5432/postgres?sslmode=require
-DIRECT_URL=postgresql://postgres.abc:PASSWORD@POOLER-HOST:5432/postgres?sslmode=require
-# DIRECT_URL hanya untuk Prisma CLI (migrate). Jika pakai DB lokal, gunakan
-# postgresql://harmony:harmony_dev_password@localhost:5432/harmony?sslmode=disable
+# ── Database (PostgreSQL lokal) ─────────────────────────────
+DATABASE_URL=postgresql://harmony:harmony_dev_password@localhost:5432/harmony
+# Password di URL harus sama dengan POSTGRES_PASSWORD di bawah (atau dengan
+# user yang kamu buat sendiri kalau Postgres-nya bukan dari compose).
 
 # ── Cache (opsional, boleh dikosongkan) ─────────────────────
 REDIS_URL=redis://localhost:6379
@@ -126,34 +125,33 @@ beri komentar jika sudah diisi.
 
 ## 4. Skema database
 
-Jika pakai **Supabase** (disarankan):
+Database-nya PostgreSQL lokal. Paling mudah lewat container di compose:
 
 ```bash
+# Nyalakan database (data disimpan di volume postgres_data)
+docker compose up -d postgres
+
+# Terapkan migrasi yang ada
 npm run db:deploy
 ```
 
-`db:deploy` pakai `prisma migrate deploy` — **bukan** `db:migrate`, karena
-Supabase tidak mendukung *shadow database* yang dibutuhkan `migrate dev`.
-
-Jika pakai **PostgreSQL lokal** (tanpa Docker) untuk pengembangan:
+Kalau Postgres-nya **tidak** dari compose, siapkan user dan database-nya dulu,
+lalu arahkan `DATABASE_URL` ke sana:
 
 ```bash
-# Pasang PostgreSQL (tidak memakai Docker):
-#   Windows: winget install PostgreSQL.PostgreSQL
-#   macOS:   brew install postgresql@16 && brew services start postgresql@16
-#   Linux:   sudo apt-get install postgresql-16
+# Windows: winget install PostgreSQL.PostgreSQL
+# macOS:   brew install postgresql@16 && brew services start postgresql@16
+# Linux:   sudo apt-get install postgresql-16
 
-# Buat database & user
 psql -U postgres -c "CREATE USER harmony WITH PASSWORD 'harmony_dev_password';"
 psql -U postgres -c "CREATE DATABASE harmony OWNER harmony;"
 
-# Edit .env untuk pakai DB lokal, lalu:
+# Edit .env supaya DATABASE_URL menunjuk Postgres itu, lalu:
 npm run db:deploy
 ```
 
-> **Catatan:** bot hanya perlu `DATABASE_URL`. Kalau pakai Supabase, gunakan
-> *session pooler* (port 5432) atau *direct connection*, **bukan** transaction
-> pooler (port 6543) — lihat komentar di `.env.example`.
+`db:deploy` menerapkan migrasi yang sudah ada. Untuk menulis migrasi baru dari
+perubahan `prisma/schema.prisma`, pakai `npm run db:migrate`.
 
 ---
 
@@ -352,8 +350,11 @@ java -version
 ```
 
 ### "database connection failed" setelah migrasi berhasil
-- Pastikan `DATABASE_URL` di `.env` bukan `localhost` — di prod harus ke Supabase.
-- Tambahkan `?sslmode=require` jika pakai Supabase.
+- Pastikan container Postgres hidup: `docker compose ps postgres`.
+- Saat bot jalan di dalam container, host `localhost` tidak berlaku — compose
+  menimpanya menjadi `postgres`; kalau bot dijalankan dari host, pakai
+  `localhost`.
+- Cocokkan password di `DATABASE_URL` dengan `POSTGRES_PASSWORD` di `.env`.
 
 ### Musik YouTube ditolak: "All clients failed to load the item"
 Ini artinya YouTube memblokir IP ini untuk musik. Buka di `.env`:

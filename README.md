@@ -30,7 +30,7 @@ komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 | --- | --- |
 | Node.js **22+** | `node --version` |
 | Java **17+** | hanya kalau Lavalink dijalankan dari host tanpa Docker (diuji di Temurin 21) |
-| Docker + Docker Compose | opsional, untuk Lavalink + Redis. **Tidak wajib** — lihat bagian "Menjalankan tanpa Docker". **Database tidak butuh Docker** — memakai Supabase |
+| Docker + Docker Compose | jalur yang didukung: menyalakan PostgreSQL, Lavalink, dan Redis sekaligus. Tanpa Docker, ketiganya harus disediakan sendiri — lihat bagian "Menjalankan tanpa Docker" |
 | Aplikasi Discord | dibuat di [Developer Portal](https://discord.com/developers/applications) |
 
 ### ⚠️ Wajib: aktifkan Privileged Intents
@@ -128,13 +128,11 @@ npm install
 # 2. Konfigurasi
 cp .env.example .env      # lalu isi DISCORD_TOKEN, DISCORD_CLIENT_ID, DEV_GUILD_ID
 
-# 3. Lavalink + Redis yang bisa diakses dari host
-#    (database = Supabase, jadi tidak ada container database)
+# 3. Postgres + Lavalink + Redis yang bisa diakses dari host
+#    (database ikut jalan sebagai container `postgres`)
 npm run infra:up
 
-# 4. Terapkan skema ke Supabase
-#    db:deploy WAJIB (bukan db:migrate): yang kedua butuh shadow database,
-#    dan Supabase tidak mengizinkan membuatnya. Lihat bagian Database.
+# 4. Terapkan skema database
 npm run db:deploy
 
 # 5. Daftarkan slash command ke server dev (instan)
@@ -150,14 +148,14 @@ servermu.
 
 > **Database mati bukan masalah fatal.** Bot tetap start dan `/ping` tetap jalan;
 > hanya perintah yang butuh konfigurasi (`/setup`, `/config`) yang akan menolak
-> dengan pesan "Database tidak bisa dihubungi". Dengan Supabase, penyebab yang
-> paling sering adalah `DATABASE_URL` salah atau lupa `?sslmode=require` — bukan
-> container yang mati, jadi `npm run infra:up` tidak akan menolong.
+> dengan pesan "Database tidak bisa dihubungi". Penyebab yang paling sering:
+> container `postgres` belum hidup (`docker compose up -d postgres`) atau
+> `DATABASE_URL` tidak cocok dengan `POSTGRES_*` di `.env`.
 
 ### Menjalankan seluruh stack lewat Docker
 
 ```bash
-# bot + Lavalink + Redis. Database ada di Supabase, bukan di stack ini.
+# bot + dashboard + Lavalink + Redis + Postgres.
 docker compose up -d --build
 docker compose logs -f bot
 ```
@@ -167,7 +165,7 @@ skema database selalu terbaru tanpa langkah manual.
 
 | File | Kapan dipakai |
 | --- | --- |
-| `docker-compose.yml` | Produksi/self-host: bot + Lavalink + Redis. Port infrastruktur **tidak** dibuka ke luar. Postgres lokal ada, tapi harus diminta `--profile local` |
+| `docker-compose.yml` | Produksi/self-host: bot + dashboard + Lavalink + Redis + Postgres. Port infrastruktur **tidak** dibuka ke luar |
 | `docker-compose.dev.yml` | Overlay saat bot dijalankan dari host (`npm run infra:up`) |
 | [`deploy/casaos/docker-compose.yml`](deploy/casaos/docker-compose.yml) | Untuk NAS CasaOS/ZimaOS: mandiri, build langsung dari GitHub, tidak butuh checkout repo atau `npm` di NAS. Cara pasang ada di [deploy/casaos/README.md](deploy/casaos/README.md) |
 
@@ -204,8 +202,9 @@ sendiri memang dirancang untuk jalan dari host, jadi tanpa Docker begini:
 # 1. Dependency + Prisma Client
 npm install
 
-# 2. .env: DATABASE_URL & DIRECT_URL menunjuk ke Supabase (JANGAN localhost),
-#    LAVALINK_HOST=localhost, LAVALINK_PORT=2333, LAVALINK_PASSWORD terisi.
+# 2. .env: DATABASE_URL menunjuk Postgres lokal (localhost:5432, lihat
+#    .env.example), LAVALINK_HOST=localhost, LAVALINK_PORT=2333,
+#    LAVALINK_PASSWORD terisi.
 
 # 3. Skema database (ulangi setiap ada migrasi baru)
 npm run db:deploy
@@ -219,7 +218,7 @@ npm run dev
 
 | Kebutuhan | Pakai Docker | Tanpa Docker |
 | --- | --- | --- |
-| Database | Supabase (di luar stack) | Sama: Supabase. Tidak ada Postgres lokal yang perlu hidup |
+| Database | Container `postgres` | PostgreSQL yang harus disediakan sendiri di mesin ini |
 | Lavalink | Service `lavalink` | JVM dari `lavalink/Lavalink.jar` lewat `npm run infra:lavalink` |
 | Redis | Service `redis` | **Tidak wajib.** Kalau `localhost:6379` tidak ada, bot tetap jalan dengan store memori + peringatan di log. Rate limit jadi per proses dan sharding tetap belum aman |
 | Prasyarat tambahan | Docker Desktop | Java 17+ |
@@ -254,129 +253,40 @@ masih dipakai. Bersihkan dengan:
 taskkill /IM java.exe /F
 ```
 
-### Database: Supabase (bukan Postgres lokal)
+### Database: PostgreSQL lokal
 
-Database bot ini **Supabase**. Prisma dan driver `pg` tetap dipakai apa
-adanya, karena Supabase adalah PostgreSQL — yang berubah hanya alamat
-koneksinya.
+Database bot ini berjalan sebagai container `postgres` di stack yang sama,
+dengan data di volume `postgres_data`. Tidak ada database terkelola dan tidak
+ada koneksi database keluar: bot, dashboard, dan migrasi bicara ke PostgreSQL
+yang sama di mesin ini.
 
-> **Jangan pasang `@supabase/supabase-js` untuk ini.** Library itu menulis ke
-> Data API (REST) dan bergantung pada Row Level Security — untuk aplikasi sisi
-> klien yang tidak memegang kredensial database. Bot ini punya skema dan
-> migrasinya sendiri, jadi lapisan itu cuma menambah satu tempat lagi untuk
-> salah.
-
-#### Dua URL, bukan satu
-
-Supabase menaruh pooler di depan database, dan Prisma CLI serta bot punya
-kebutuhan berbeda terhadapnya:
-
-| Variabel | Dipakai oleh | Boleh lewat pooler? |
-| --- | --- | --- |
-| `DATABASE_URL` | bot saat runtime | boleh |
-| `DIRECT_URL` | Prisma CLI (`db:deploy`, `db:studio`) | **tidak boleh** |
-
-Prisma CLI menjalankan migrasi sebagai satu sesi panjang, sedangkan
-transaction pooler mengembalikan koneksi begitu satu transaksi selesai.
-Karena itu [prisma.config.ts](prisma.config.ts) memakai `DIRECT_URL` kalau
-ada, lalu jatuh ke `DATABASE_URL` kalau tidak — sehingga Postgres lokal
-(yang tidak punya pooler) tetap jalan tanpa konfigurasi tambahan. Aturannya
-ada di [prisma/url.ts](prisma/url.ts) dan diuji di
-[prismaUrl.test.ts](tests/prismaUrl.test.ts).
-
-#### Pilih mode koneksi yang benar
-
-Ambil stringnya dari **Supabase Dashboard → Project → Connect**. Mode yang
-salah pilih tidak akan konek, dan gejalanya mirip:
-
-| Mode | Port | Jaringan | Prepared statement | Cocok untuk bot ini? |
-| --- | --- | --- | --- | --- |
-| Session pooler | 5432 | IPv4 maupun IPv6 | ya | **ya — ini yang hampir selalu dipakai** |
-| Direct connection | 5432 | IPv6 saja, atau IPv4 dengan add-on | ya | boleh, kalau jaringanmu mendukung |
-| Transaction pooler | 6543 | IPv4 | **tidak** | **jangan** |
-
-Tiga hal yang sering membuat orang tersesat di sini:
-
-- **Username berbeda.** Koneksi direct memakai `postgres`, sedangkan pooler
-  memakai `postgres.PROJECT-REF`. Salin apa adanya dari dialog Connect.
-- **Transaction pooler merusak Prisma Migrate.** Mode itu tidak mendukung
-  prepared statement. Prisma perlu `?pgbouncer=true` supaya bisa bicara
-  dengannya, tapi migrasi tetap tidak bisa jalan. `prisma.config.ts` memberi
-  peringatan kalau URL yang dipakai menunjuk port 6543, karena tanpa itu
-  migrasi hanya menggantung tanpa alasan yang jelas.
-- **SSL wajib.** Tambahkan `?sslmode=require` di connection string.
-  `pg-connection-string` menerjemahkannya menjadi opsi SSL untuk driver `pg`,
-  jadi tidak ada konfigurasi SSL terpisah di kode.
-
-Karakter khusus pada password (`&`, `#`, `?`, spasi) harus di percent-encode.
-
-#### SSL: kenapa `sslmode=require` saja gagal
-
-Supabase menyajikan sertifikat dari PKI sendiri:
-
-```
-db.<project>.supabase.co  <-  Supabase Intermediate 2021 CA  <-  Supabase Root 2021 CA
-```
-
-CA terakhir itu tidak ada di trust store publik, jadi Node tidak mempercayainya.
-Driver `pg` memetakan `sslmode=require` menjadi verifikasi penuh, dan hasilnya:
-
-```
-Error opening a TLS connection: self-signed certificate in certificate chain
-```
-
-Yang penting: **Prisma CLI tetap bisa konek**, jadi `npm run db:deploy`
-berhasil sementara bot-nya diam-diam tidak bisa query apa pun. Diperbaikinya
-dengan menambahkan CA tadi lewat `sslrootcert`:
+Hanya satu variabel yang perlu diisi, `DATABASE_URL`, dan password-nya harus
+sama dengan `POSTGRES_PASSWORD` di `.env`:
 
 ```bash
-# Ambil CA sekali. Cara paling pasti: unduh dari Supabase Dashboard
-# (Project Settings -> Database -> SSL). Cadangannya, ambil dari rantai
-# yang disajikan server itu sendiri (sertifikat terakhir = Supabase Root 2021 CA):
-openssl s_client -starttls postgres -connect db.REF.supabase.co:5432 -showcerts > chain.pem
-#
-# Simpan sertifikat terakhir sebagai global-root.crt, lalu di .env:
-DATABASE_URL=postgresql://...?sslmode=verify-full&sslrootcert=C:/Users/ANDA/.supabase/global-root.crt
+docker compose up -d postgres     # database saja
 ```
 
-Path di dalam query string **harus garis miring**, dan foldernya sebaiknya
-tanpa spasi (kalau ada spasi, driver `pg` tidak mengurai percent-encoding-nya).
-Kalau mau memastikan CA yang kamu pakai memang yang benar, sidik jari SHA-256
-untuk `Supabase Root 2021 CA` saat ini:
+Nilai di `.env.example` memakai host `localhost` karena dipakai saat bot dan
+dashboard jalan dari host (`npm run dev`). Di dalam container, compose
+menimpanya menjadi hostname `postgres` (lihat
+[docker-compose.yml](docker-compose.yml)): `localhost` di dalam container
+menunjuk ke container itu sendiri, bukan ke database.
 
-```
-80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA
-```
-
-Kalau CA belum ada dan verifikasi harus aktif sekarang juga, pakai
-`?sslmode=no-verify` — trafik tetap terenkripsi, tapi identitas server tidak
-diverifikasi. Bot otomatis menulis peringatan yang menyebut `sslrootcert`
-kalau koneksinya ditolak karena sertifikat.
-
-#### Migrasi: `deploy`, bukan `dev`
-
-`prisma migrate dev` membuat **shadow database** untuk membandingkan hasil
-skema. Supabase tidak mengizinkan hak akses untuk membuatnya, jadi perintah
-itu **akan gagal** terhadap Supabase. Yang dipakai:
+#### Migrasi
 
 ```bash
-npm run db:deploy      # terapkan migrasi yang sudah ada
+npm run db:deploy    # terapkan migrasi yang sudah ada
+npm run db:migrate   # buat migrasi baru dari perubahan prisma/schema.prisma
 ```
 
-Untuk menulis migrasi **baru**, tetap pakai Postgres lokal, lalu deploy
-hasilnya. Ini satu-satunya bagian di mana container postgres lokal masih
-berguna:
+Keduanya memakai `DATABASE_URL` yang sama, jadi tidak ada URL kedua yang perlu
+diisi, dan [prisma.config.ts](prisma.config.ts) membaca variabel itu langsung.
+Service `migrate` di compose menjalankan `db:deploy` sebelum bot start.
 
-```bash
-# 1. nyalakan postgres lokal (hanya saat menulis migrasi)
-docker compose --profile local up -d postgres
-
-# 2. arahkan DATABASE_URL ke localhost sementara, lalu
-npm run db:migrate
-
-# 3. kembalikan DATABASE_URL ke Supabase, lalu terapkan
-npm run db:deploy
-```
+Data bertahan di volume `postgres_data` saat container dibuat ulang.
+`docker compose down -v` menghapus volume itu beserta seluruh isi database,
+dan setelahnya skema perlu diterapkan lagi dengan `npm run db:deploy`.
 
 ---
 
@@ -2495,7 +2405,7 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 
 `npm run test:coverage` mengukur `src/` (laporan teks + HTML di `coverage/`,
 yang tidak di-commit). Angka saat ini: **~70,1% statements** (68,7% branch,
-78,2% fungsi, 69,8% baris) dari **2.047 tes di 116 file** (naik dari ~43%
+78,2% fungsi, 69,8% baris) dari **2.151 tes di 122 file** (naik dari ~43%
 waktu playlist, filter, lirik, health check, statistik, store bersama, metrik,
 state musik bersama, multi-node Lavalink, penulisan atomik, multi-bahasa,
 gerbang sharding beserta lease-nya, pesan error kepemilikan player, penyapuan
@@ -2564,16 +2474,16 @@ setiap push/PR.
 | “DM ke target tidak terkirim” saat moderasi | Wajar kalau target menutup DM atau memblokir bot — aksinya tetap dijalankan dan tercatat di channel log |
 | “Role target lebih tinggi atau setara…” | Hierarki Discord. Pindahkan role bot dan role moderator di atas role target (Server Settings → Roles) |
 | Autorole gagal diberikan | Cek pesan di channel log: bot butuh izin **Manage Roles** dan role autorole harus berada di bawah role bot |
-| Perintah `/setup` bilang database offline | Database-nya Supabase, jadi `infra:up` tidak menolong. Cek `DATABASE_URL` di `.env` (termasuk `?sslmode=require`), lalu coba `npm run db:deploy` kalau tabelnya belum ada. Kalau database hidup tapi `/setup` tetap gagal, cek juga `REDIS_URL` |
-| `Cannot resolve environment variable: DATABASE_URL` | Prisma CLI butuh `DATABASE_URL` (atau `DIRECT_URL`) di `.env` — untuk `generate` saja nilai placeholder otomatis dipakai |
-| Prisma Client tidak sinkron setelah ubah schema | `npm run db:generate`, lalu `npm run db:deploy` ke Supabase. `npm run db:migrate` hanya untuk menulis migrasi baru lewat Postgres lokal — lihat bagian Database |
+| Perintah `/setup` bilang database offline | Container `postgres` belum hidup atau `DATABASE_URL` tidak cocok. Nyalakan dengan `docker compose up -d postgres`, cocokkan password dengan `POSTGRES_PASSWORD`, lalu `npm run db:deploy` kalau tabelnya belum ada. Kalau database hidup tapi `/setup` tetap gagal, cek juga `REDIS_URL` |
+| `Cannot resolve environment variable: DATABASE_URL` | Prisma CLI butuh `DATABASE_URL` di `.env` — untuk `generate` saja nilai placeholder otomatis dipakai |
+| Prisma Client tidak sinkron setelah ubah schema | `npm run db:generate`, lalu `npm run db:deploy`. `npm run db:migrate` hanya untuk menulis migrasi baru — lihat bagian Database |
 | Slash command tidak muncul | Jalankan `npm run deploy`; untuk pendaftaran global butuh ±1 jam. Coba restart aplikasi Discord (Ctrl+R) |
 | Perintah lama masih muncul setelah ganti nama | Developer Portal → Integrations → hapus perintah global lama |
 | Bot join voice tapi tidak ada suara | Cek `docker compose logs lavalink`; pastikan `LAVALINK_PASSWORD` di `.env` sama dengan yang dipakai container |
 | Lavalink mati saat memutar lagu panjang | Naikkan `JAVA_TOOL_OPTIONS=-Xmx2G` di `docker-compose.yml` |
-| `password authentication failed` / `ENOTFOUND` ke host Supabase | Salah salin connection string. Cek username (direct = `postgres`, pooler = `postgres.PROJECT-REF`) dan percent-encode karakter khusus pada password |
-| Migrasi menggantung tanpa keluar | `DIRECT_URL` menunjuk transaction pooler (port 6543). Pakai direct atau session pooler (port 5432) — `prisma.config.ts` sudah memperingatkan soal ini |
-| `P1001` saat start | Bot tidak bisa menjangkau Supabase. Cek internet, firewall, dan apakah `DATABASE_URL` memakai `sslmode=require` |
+| `password authentication failed` / `ENOTFOUND` | Password di `DATABASE_URL` tidak sama dengan `POSTGRES_PASSWORD`, atau host `postgres` tidak bisa di-resolve. Cek `docker compose ps postgres` dan `docker compose logs postgres` |
+| Migrasi menggantung tanpa keluar | Postgres belum siap menerima koneksi atau masih memutar ulang WAL. Lihat `docker compose logs postgres`, lalu ulangi `npm run db:deploy` |
+| `P1001` saat start | Bot tidak bisa menjangkau Postgres. Dari host pakai host `localhost`; dari dalam container compose memakai hostname `postgres` |
 | Error YouTube "sign in to confirm you're not a bot" | Aktifkan OAuth token di plugin [youtube-source](https://github.com/lavalink-devs/youtube-source#using-oauth-tokens) |
 
 ### Permintaan takedown (PRD §15)

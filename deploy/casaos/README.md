@@ -33,7 +33,7 @@ ini:
 ## Syarat
 
 - CasaOS atau ZimaOS dengan Docker yang sudah berjalan.
-- Token bot Discord, Client ID, dan `DATABASE_URL` (Supabase) yang sudah siap.
+- Token bot Discord, Client ID, dan password database (`POSTGRES_PASSWORD`) yang sudah disiapkan.
 - Ruang disk ±2 GB: image bot, image Lavalink, dan volume Redis.
 - **Node.js 12.x? Upgrade ke LTS dulu** — lihat
   [Update Node.js ke LTS](#update-nodejs-ke-lts) di bawah. `preflight.mjs`
@@ -360,8 +360,8 @@ docker compose ps -a        # lihat ExitCode kolom migrate
 ```
 
 `bot` menunggu `migrate` selesai dengan `condition: service_completed_successfully`,
-jadi kalau migrasi gagal — misalnya jaringan NAS belum siap saat boot sehingga
-Supabase belum bisa dihubungi — `docker compose up` menghentikan `bot` di tengah
+jadi kalau migrasi gagal — misalnya container `postgres` belum selesai start
+saat boot — `docker compose up` menghentikan `bot` di tengah
 jalan, dan tidak ada restart policy yang menolong karena container-nya memang
 belum pernah dibuat. Sekali `migrate` berhasil, semuanya kembali normal:
 
@@ -650,7 +650,7 @@ kegagalan itu tinggal di berkasnya, bukan diketik ulang di sini.
   membuktikan pemulihan setelah NAS reboot — itu butuh reboot sungguhan
   (`systemctl is-enabled harmony` untuk bagian `enable`-nya).
 - **`After=network-online.target` hanya berarti kalau ada yang menunggu
-  jaringan.** Kalau bot start sebelum Supabase terjangkau, unit bot gagal dan
+  jaringan.** Kalau bot start sebelum Postgres siap, unit bot gagal dan
   `StartLimitIntervalSec=0` membuatnya mencoba lagi tiap 5 detik sampai berhasil
   — itu memang yang diinginkan, tapi log-nya ramai selama itu.
 - **Tidak ada padanan service `migrate`.** Setelah `git pull` yang membawa
@@ -733,15 +733,15 @@ diambil dari environment proses.
 
 ```bash
 cd /DATA/AppData/harmony-dev
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d lavalink redis
-npm run db:deploy                    # terapkan skema ke Supabase
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres lavalink redis
+npm run db:deploy                    # terapkan skema ke Postgres lokal
 ```
 
-Dua nama service di akhir perintah itu yang penting. `npm run infra:up` adalah
+Tiga nama service di akhir perintah itu yang penting. `npm run infra:up` adalah
 perintah yang sama **tanpa** nama service, dan itu ikut menyalakan `migrate` dan
 `bot` — bot itulah yang lalu berebut token, port 8080, dan koneksi gateway
-dengan `npm run dev`. `lavalink` dan `redis` tidak punya `depends_on`, jadi
-`migrate` tidak ikut tertarik.
+dengan `npm run dev`. `postgres`, `lavalink`, dan `redis` tidak punya
+`depends_on` ke `migrate`, jadi `migrate` tidak ikut tertarik.
 
 Overlay `docker-compose.dev.yml` membuka port hanya ke `127.0.0.1`, bukan ke
 LAN. Itu memang tujuannya: mesin audio tidak boleh bisa dihubungi dari luar NAS.
@@ -946,9 +946,10 @@ Kalau diisi, tulis **jalur absolut** — `$HOME` tidak mengembang di dalam `.env
 Nilai ini diteruskan `tools/start-lavalink.mjs` ke JVM, yang membacanya dari
 environment proses, bukan dari `.env` secara langsung.
 
-Skema database tetap di Supabase, jadi tidak ada Postgres lokal yang perlu hidup:
+Database-nya Postgres lokal, jadi container-nya perlu hidup saat migrasi dijalankan:
 
 ```bash
+docker compose up -d postgres
 npm run db:deploy
 ```
 
@@ -1021,7 +1022,7 @@ setelah Lavalink start di latar belakang dengan cara yang sama.
 - **`/health` bukan dasbor.** Bot ini memang tidak punya UI. Endpoint itu
   mengembalikan JSON status, yang dipakai monitoring (PRD §11) — bukan tempat
   mengelola server.
-- **Tidak ada Postgres lokal.** Kolom `postgres` di compose root sengaja tidak
-  ada di sini: database produksi adalah Supabase, dan menimpanya dengan
-  hostname container berarti bot bicara ke database yang berbeda dari yang
-  migrasinya baru diterapkan.
+- **Database ada di NAS ini sendiri.** Container `postgres` menyimpan datanya
+  di volume `postgres_data`; tidak ada database eksternal yang perlu disiapkan.
+  Konsekuensinya backup adalah tanggung jawabmu: `docker compose exec postgres
+  pg_dump -U harmony harmony > backup.sql`.

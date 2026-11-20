@@ -6,7 +6,7 @@ import { parseEnv } from '../src/config/env.js';
 const REQUIRED_ENV = {
   DISCORD_TOKEN: 'a'.repeat(30),
   DISCORD_CLIENT_ID: '1107624713720709122',
-  DATABASE_URL: 'postgresql://user:pass@db.example.supabase.co:5432/postgres',
+  DATABASE_URL: 'postgresql://harmony:harmony_dev_password@localhost:5432/harmony',
   REDIS_URL: 'redis://localhost:6379',
   LAVALINK_PASSWORD: 'harmony_dev_password',
 };

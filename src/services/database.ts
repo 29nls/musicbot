@@ -12,31 +12,12 @@ let client: PrismaClient | undefined;
  * timeout bawaan, jadi connectionTimeoutMillis diisi supaya startup tidak
  * menggantung saat database mati.
  *
- * **Kenapa tetap Prisma + pg, bukan SDK Supabase.** Supabase adalah PostgreSQL,
- * dan bot ini selalu ke sana lewat satu connection string biasa. SDK
- * `@supabase/supabase-js` menulis ke Data API dan bergantung pada Row Level
- * Security — itu untuk aplikasi sisi klien yang tidak memegang kredensial
- * database. Bot punya skema dan migrasinya sendiri, jadi lapisan itu cuma
- * menambah satu tempat lagi untuk salah.
- *
- * **SSL mengikuti URL, tapi `sslmode=require` saja tidak cukup.** Driver `pg`
- * memetakan `require` menjadi verifikasi penuh: sertifikat server harus
- * ditandatangani CA yang dipercaya Node. Supabase memakai PKI sendiri
- * (leaf <- `Supabase Intermediate 2021 CA` <- `Supabase Root 2021 CA`) dan CA
- * itu tidak ada di trust store publik, jadi `sslmode=require` berakhir dengan
- * `self-signed certificate in certificate chain` — bukan di Prisma CLI (Rust
- * miliknya), tapi di sini. Yang dipakai runtime:
- *
- *   ?sslmode=verify-full&sslrootcert=C:/Users/.../global-root.crt
- *
- * `sslrootcert` dibaca driver dan ditambahkan ke trust store koneksi; path di
- * dalam query string ditulis dengan garis miring. Kalau CA belum pernah
- * diunduh dan verifikasi harus dinyalakan sekarang juga, `?sslmode=no-verify`
- * tetap terenkripsi tapi tidak memverifikasi identitas server.
+ * Database-nya Postgres lokal di container `postgres`, jadi tidak ada SSL,
+ * pooler, atau sertifikat yang perlu diurus: koneksinya lewat jaringan Docker
+ * atau localhost.
  *
  * **Ukuran pool 5** wajar untuk backend yang hidup terus (bot), bukan serverless
- * yang memicu ribuan koneksi sesaat. Kalau nanti memakai transaction pooler
- * (port 6543), prepared statement harus dimatikan lewat `?pgbouncer=true`.
+ * yang memicu ribuan koneksi sesaat.
  */
 export function getPrisma(): PrismaClient {
   if (!client) {
@@ -82,9 +63,8 @@ export async function connectDatabase(): Promise<boolean> {
     logger.warn(
       { err: error },
       'Database tidak bisa dihubungi — perintah yang butuh konfigurasi akan gagal. ' +
-        'Periksa `DATABASE_URL` di .env dan koneksi ke server database. ' +
-        'Kalau errornya soal TLS atau sertifikat, `DATABASE_URL` butuh ' +
-        '`sslmode=verify-full&sslrootcert=<path ke CA Supabase>` — lihat .env.example.',
+        'Periksa `DATABASE_URL` di .env lalu apakah container `postgres` hidup ' +
+        '(`docker compose ps postgres`).',
     );
     return false;
   }

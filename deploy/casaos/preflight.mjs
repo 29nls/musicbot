@@ -69,7 +69,7 @@ const problems = [];
 const notes = [];
 
 /** Kunci yang wajib ada dan tidak boleh kosong. */
-const REQUIRED = ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'DATABASE_URL', 'LAVALINK_PASSWORD'];
+const REQUIRED = ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'POSTGRES_PASSWORD', 'LAVALINK_PASSWORD'];
 
 /** Nilai yang masih berupa contoh bawaan .env.example. */
 const PLACEHOLDER_PREFIXES = ['harmony_dev_password', 'test_', 'ganti', 'ISI_'];
@@ -93,7 +93,9 @@ if (!existsSync(envPath)) {
       '  curl -fsSL https://raw.githubusercontent.com/29nls/musicbot/main/.env.example \\\n' +
       `    -o ${DEFAULT_DATA}/.env`,
   );
-  console.log('\nLalu isi DISCORD_TOKEN, DISCORD_CLIENT_ID, DATABASE_URL, dan LAVALINK_PASSWORD.');
+  console.log(
+    '\nLalu isi DISCORD_TOKEN, DISCORD_CLIENT_ID, POSTGRES_PASSWORD, dan LAVALINK_PASSWORD.',
+  );
   process.exit(1);
 }
 report(true, 'berkas .env ada');
