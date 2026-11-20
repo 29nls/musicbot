@@ -5,6 +5,10 @@ export default tseslint.config(
   {
     // `tools/` berisi skrip Node sekali pakai (pemeriksa karakter), bukan bagian dari build bot.
     ignores: [
+      // `dashboard/` adalah paket Node mandiri: config ESLint sendiri, dan
+      // dependensinya tidak ikut `npm ci` akar, jadi config itu gagal diimpor
+      // saat `eslint .` dari akar. Lint dashboard dijalankan dari folder itu.
+      'dashboard/**',
       'dist/**',
       'node_modules/**',
       'coverage/**',
