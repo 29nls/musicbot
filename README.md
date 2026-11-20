@@ -3,7 +3,7 @@
 Bot Discord serbaguna: pemutaran musik berkualitas tinggi (Lavalink) + moderasi
 komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 
-> **Status: M5 selesai + Fase 3 (statistik).**
+> **Status: M5 selesai + Fase 3 (statistik dan dashboard web).**
 > **46 slash command** terdaftar: 20 admin/moderasi (`/ban`, `/unban`, `/kick`,
 > `/timeout`, `/warn`, `/warnings`, `/unwarn`, `/purge`, `/slowmode`, `/lock`,
 > `/unlock`, `/note`, `/case`, `/modprofile`, `/automod`, `/logging`, `/logs`,
@@ -20,8 +20,15 @@ komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 > `/config set locale:id|en`. Reaction roles, custom command, tiket, playlist,
 > `/stats`, dan mode 24/7 juga sudah jalan.
 >
-> **Yang belum:** dashboard web (§5.3) sama sekali belum ada, dan konfigurasi
-> sharding belum pernah diuji dengan dua proses sungguhan.
+> **Dashboard web sudah ada:** Next.js 15 + React 19 di `dashboard/`, dengan
+> login OAuth Discord (scope `identify guilds`), baca/tulis 12 field konfigurasi
+> dan 5 modul dengan paritas `/config`, audit ke `log_entry`, invalidasi cache
+> lewat Redis, dan rate limit. Cara menjalankan dan batasnya ada di
+> [dashboard/README.md](dashboard/README.md).
+>
+> **Yang belum:** alur OAuth dashboard belum diverifikasi dengan akun Discord
+> sungguhan, dan konfigurasi sharding belum pernah diuji dengan dua proses
+> sungguhan.
 ---
 
 ## 1. Prasyarat
@@ -2223,6 +2230,8 @@ src/
 ├─ prune-retention.ts       # sekali-jalan: bersihkan data kedaluwarsa (cron)
 └─ index.ts                 # entrypoint + graceful shutdown
 
+dashboard/                  # dashboard web Next.js: OAuth, baca/tulis guild_config,
+                            # invalidasi cache Redis, audit, 144 tes di 10 file
 tests/                      # unit test vitest; setup.ts menyetel env minimal
 tsconfig.test.json          # typecheck untuk src/ + tests/
 ```
@@ -2407,13 +2416,18 @@ PostgreSQL tidak pernah hidup di lingkungan pengembangan ini.
 yang tidak di-commit). Angka saat ini: **~70,1% statements** (68,7% branch,
 78,2% fungsi, 69,8% baris) dari **2.151 tes di 122 file** (naik dari ~43%
 waktu playlist, filter, lirik, health check, statistik, store bersama, metrik,
+yang tidak di-commit). Angka cakupan terakhir: **~70,1% statements** (68,7%
+branch, 78,2% fungsi, 69,8% baris) — naik dari ~43% waktu playlist, filter,
+lirik, health check, statistik, store bersama, metrik,
 state musik bersama, multi-node Lavalink, penulisan atomik, multi-bahasa,
 gerbang sharding beserta lease-nya, pesan error kepemilikan player, penyapuan
 panel lintas shard, orkestrasi keempat sapuan retensi di kedua jalurnya,
 handler `interactionCreate` serta `messageCreate`, agregasi metrik lintas shard,
 sembilan belas handler event logging, lifecycle member, pemicu perintah
 custom, loader event, badan `execute` perintah musik, penjaga jalur audio
-yt-dlp, portabilitas skrip CasaOS, dan titik rakit singleton).
+yt-dlp, portabilitas skrip CasaOS, dan titik rakit singleton. Jumlah tes saat
+ini: **2.117 tes di 123 file** untuk bot, ditambah **144 tes di 10 file**
+untuk `dashboard/` yang dijalankan terpisah.
 
 Pembacaannya perlu jujur: setengah yang belum tercover adalah **lapisan lem** —
 fungsi `execute` 46 perintah, repository Prisma, dan barrel `index.ts` — yang
