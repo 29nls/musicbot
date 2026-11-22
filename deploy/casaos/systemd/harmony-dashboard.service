@@ -54,7 +54,7 @@ RestartSec=5
 TimeoutStopSec=30
 
 # Hardening dasar. Dashboard hanya melayani HTTP dan berbicara ke
-# Supabase serta Redis lewat TCP, jadi tidak ada satu pun dari
+# PostgreSQL serta Redis lewat TCP, jadi tidak ada satu pun dari
 # berikut ini yang seharusnya dibutuhkannya:
 #   NoNewPrivileges          tidak ada proses anak yang minta hak istimewa
 #   PrivateTmp               /tmp pribadi, tidak berbagi dengan proses lain

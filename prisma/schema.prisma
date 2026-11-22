@@ -316,3 +316,38 @@ model PlaybackStat {
   @@index([guildId, kind, count(sort: Desc)])
   @@map("playback_stat")
 }
+
+/// Satu giveaway di satu server. Entri peserta disimpan terpisah dan dihapus
+/// saat giveaway berakhir, jadi baris ini tidak menyimpan identitas peserta.
+model Giveaway {
+  id           Int       @id @default(autoincrement())
+  guildId      String    @db.VarChar(20)
+  channelId    String    @db.VarChar(20)
+  messageId    String?   @db.VarChar(20)
+  prize        String    @db.VarChar(200)
+  winnersCount Int
+  endsAt       DateTime
+  endedAt      DateTime?
+  createdAt    DateTime  @default(now())
+
+  entries GiveawayEntry[]
+
+  @@index([guildId, createdAt(sort: Desc)])
+  @@index([endedAt, endsAt])
+  @@map("giveaway")
+}
+
+/// Satu baris per peserta per giveaway. Dihapus saat giveaway berakhir atau
+/// lewat `/data-delete`; tidak ada kolom lain yang menunjuk ke user.
+model GiveawayEntry {
+  id         Int      @id @default(autoincrement())
+  giveawayId Int
+  userId     String   @db.VarChar(20)
+  createdAt  DateTime @default(now())
+
+  giveaway Giveaway @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+
+  @@unique([giveawayId, userId])
+  @@index([userId])
+  @@map("giveaway_entry")
+}

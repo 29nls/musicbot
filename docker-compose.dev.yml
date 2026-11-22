@@ -12,6 +12,11 @@ services:
   lavalink:
     ports:
       - "127.0.0.1:2333:2333"
+    volumes:
+      # Lampiran `/play file:` ditulis bot di host lalu dibaca Lavalink di sini.
+      # Folder host harus sudah ada (Docker membuat folder bind-mount yang
+      # belum ada sebagai root, dan bot berjalan sebagai user biasa).
+      - ./cache/attachments:/opt/Lavalink/attachments:ro
 
   postgres:
     ports:

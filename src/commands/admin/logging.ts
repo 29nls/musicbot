@@ -1,4 +1,5 @@
 import {
+  ChannelType,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -41,7 +42,11 @@ export default {
             .addChoices(...CATEGORY_CHOICES),
         )
         .addChannelOption((option) =>
-          option.setName('channel').setDescription('Channel tujuan log kategori ini').setRequired(true),
+          option
+            .setName('channel')
+            .setDescription('Channel tujuan log kategori ini')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(true),
         ),
     )
     .addSubcommand((sub) =>

@@ -4,10 +4,10 @@ Bot Discord serbaguna: pemutaran musik berkualitas tinggi (Lavalink) + moderasi
 komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 
 > **Status: M5 selesai + Fase 3 (statistik dan dashboard web).**
-> **46 slash command** terdaftar: 20 admin/moderasi (`/ban`, `/unban`, `/kick`,
+> **47 slash command** terdaftar: 21 admin/moderasi (`/ban`, `/unban`, `/kick`,
 > `/timeout`, `/warn`, `/warnings`, `/unwarn`, `/purge`, `/slowmode`, `/lock`,
 > `/unlock`, `/note`, `/case`, `/modprofile`, `/automod`, `/logging`, `/logs`,
-> `/customcommand`, `/reactionrole`, `/ticket`), 20 musik (`/play`,
+> `/customcommand`, `/reactionrole`, `/ticket`, `/giveaway`), 20 musik (`/play`,
 > `/queue`, `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop`, `/disconnect`,
 > `/volume`, `/loop`, `/seek`, `/shuffle`, `/move`, `/remove`, `/filter`,
 > `/lyrics`, `/search`, `/playlist`, `/stats`, `/247`), dan 6 inti (`/setup`,
@@ -35,7 +35,7 @@ komunitas. Ruang lingkup, perintah, dan roadmap lengkap ada di [PRD.md](PRD.md).
 
 | Kebutuhan | Keterangan |
 | --- | --- |
-| Node.js **22+** | `node --version` |
+| Node.js **24+** | `node --version` |
 | Java **17+** | hanya kalau Lavalink dijalankan dari host tanpa Docker (diuji di Temurin 21) |
 | Docker + Docker Compose | jalur yang didukung: menyalakan PostgreSQL, Lavalink, dan Redis sekaligus. Tanpa Docker, ketiganya harus disediakan sendiri — lihat bagian "Menjalankan tanpa Docker" |
 | Aplikasi Discord | dibuat di [Developer Portal](https://discord.com/developers/applications) |
@@ -136,7 +136,9 @@ npm install
 cp .env.example .env      # lalu isi DISCORD_TOKEN, DISCORD_CLIENT_ID, DEV_GUILD_ID
 
 # 3. Postgres + Lavalink + Redis yang bisa diakses dari host
-#    (database ikut jalan sebagai container `postgres`)
+#    (database ikut jalan sebagai container `postgres`). Folder lampiran
+#    dibuat dulu supaya Docker tidak membuatnya sebagai root.
+mkdir -p cache/attachments
 npm run infra:up
 
 # 4. Terapkan skema database
@@ -170,9 +172,48 @@ docker compose logs -f bot
 Service `migrate` menjalankan `prisma migrate deploy` sebelum `bot` start, jadi
 skema database selalu terbaru tanpa langkah manual.
 
+#### Deploy bot yang reproducible
+
+`docker compose up -d` tidak membangun ulang image, jadi container bisa tetap
+menjalankan kode lama sementara migration dan slash command sudah dari source
+baru. Satu perintah ini menutup celah itu:
+
+```bash
+npm run deploy:stack
+```
+
+Skripnya build image `migrate` + `bot` dari source saat ini, menerapkan migrasi
+lewat image `migrate` yang baru, me-recreate `bot`, lalu menunggu `GET /ready`
+menjawab 200. Working tree yang belum di-commit ditolak secara bawaan; pakai
+`--allow-dirty` kalau memang perlu, atau `--dry-run` untuk melihat perintahnya
+saja. Dashboard tidak ikut dibangun, dan skrip ini tidak melakukan push/tag.
+
+### Pengawas container (Docker)
+
+Healthcheck Docker hanya **menandai** container `unhealthy`; Docker tidak
+pernah me-restart container karena status itu. `npm run watchdog` menutup celah
+itu: ia memeriksa health Lavalink dan `GET /ready` bot, lalu me-restart
+container setelah **dua** pemeriksaan gagal berturut-turut.
+
+Yang tidak direstart: bot yang `/ready`-nya 503 hanya karena database mati.
+Restart tidak membetulkan database, dan aturan lengkapnya ada di
+[`tools/watchdog-lib.ts`](tools/watchdog-lib.ts). Bot yang menggantung, gateway
+putus, atau kehilangan node Lavalink sementara Lavalink sehat tetap direstart.
+
+Jalankan dari cron tiap lima menit:
+
+```cron
+*/5 * * * * cd /path/ke/harmony && npm run watchdog >> /var/log/harmony-watchdog.log 2>&1
+```
+
+Isi `WATCHDOG_WEBHOOK_URL` di `.env` dengan webhook Discord untuk mendapat
+pesan saat restart. Tanpa itu, restart tetap terjadi dan hanya dicatat di log.
+Skrip ini memakai nama container `harmony-bot`/`harmony-lavalink`; ia butuh
+checkout repo, jadi tidak tersedia di stack CasaOS yang hanya berisi compose.
+
 | File | Kapan dipakai |
 | --- | --- |
-| `docker-compose.yml` | Produksi/self-host: bot + dashboard + Lavalink + Redis + Postgres. Port infrastruktur **tidak** dibuka ke luar |
+| `docker-compose.yml` | Produksi/self-host: bot + dashboard + Lavalink + Redis + Postgres. Port infrastruktur hanya di-bind ke loopback; Postgres selalu terbuka di `127.0.0.1:5432` |
 | `docker-compose.dev.yml` | Overlay saat bot dijalankan dari host (`npm run infra:up`) |
 | [`deploy/casaos/docker-compose.yml`](deploy/casaos/docker-compose.yml) | Untuk NAS CasaOS/ZimaOS: mandiri, build langsung dari GitHub, tidak butuh checkout repo atau `npm` di NAS. Cara pasang ada di [deploy/casaos/README.md](deploy/casaos/README.md) |
 
@@ -189,11 +230,12 @@ bukan service-nya — semuanya sama — tapi cara pasangnya:
   CasaOS folder build dihapus setelah selesai, jadi bind mount ke file repo akan
   menunjuk ke berkas yang sudah tidak ada.
 
-Compose mengganti `REDIS_URL` dan `LAVALINK_HOST` menjadi hostname container
-(`redis`, `lavalink`), tapi **tidak pernah menyentuh `DATABASE_URL`** —
-database itu di luar stack. Dulu compose menimpanya ke hostname `postgres`,
-dan itu berbahaya: bot akan diam-diam bicara ke database yang berbeda dari
-yang migrasinya tadi diterapkan.
+Compose mengganti `REDIS_URL`, `LAVALINK_HOST`, dan `DATABASE_URL` menjadi
+hostname container (`redis`, `lavalink`, `postgres`). Itu perlu karena
+`localhost` di dalam container menunjuk ke container itu sendiri, bukan ke
+database. Nilai di `.env` tetap memakai `localhost` karena dipakai saat bot,
+Prisma CLI, dan dashboard dijalankan dari host (`npm run dev`, `npm run
+db:deploy`).
 
 ### Menjalankan tanpa Docker (laptop kecil)
 
@@ -227,7 +269,7 @@ npm run dev
 | --- | --- | --- |
 | Database | Container `postgres` | PostgreSQL yang harus disediakan sendiri di mesin ini |
 | Lavalink | Service `lavalink` | JVM dari `lavalink/Lavalink.jar` lewat `npm run infra:lavalink` |
-| Redis | Service `redis` | **Tidak wajib.** Kalau `localhost:6379` tidak ada, bot tetap jalan dengan store memori + peringatan di log. Rate limit jadi per proses dan sharding tetap belum aman |
+| Redis | Service `redis` | **Service-nya tidak wajib, tetapi `REDIS_URL` harus tetap diisi alamat yang sah.** Kalau alamat itu tidak terjangkau, bot tetap jalan dengan store memori + peringatan di log. Rate limit jadi per proses dan sharding tetap belum aman |
 | Prasyarat tambahan | Docker Desktop | Java 17+ |
 
 `npm run infra:lavalink` membaca `LAVALINK_PASSWORD` dari `.env` lalu
@@ -274,6 +316,11 @@ sama dengan `POSTGRES_PASSWORD` di `.env`:
 docker compose up -d postgres     # database saja
 ```
 
+Container `postgres` mem-publish port `5432` ke `127.0.0.1` saja, jadi
+`npm run db:deploy`, `npm run db:migrate`, dan `npm run db:studio` dari host
+langsung bisa terhubung lewat `localhost:5432` tanpa overlay dev. Port itu
+tidak terbuka ke mesin lain di jaringan.
+
 Nilai di `.env.example` memakai host `localhost` karena dipakai saat bot dan
 dashboard jalan dari host (`npm run dev`). Di dalam container, compose
 menimpanya menjadi hostname `postgres` (lihat
@@ -290,6 +337,31 @@ npm run db:migrate   # buat migrasi baru dari perubahan prisma/schema.prisma
 Keduanya memakai `DATABASE_URL` yang sama, jadi tidak ada URL kedua yang perlu
 diisi, dan [prisma.config.ts](prisma.config.ts) membaca variabel itu langsung.
 Service `migrate` di compose menjalankan `db:deploy` sebelum bot start.
+
+#### Backup dan restore
+
+Dump dibuat dengan `pg_dump` di dalam container, jadi host tidak perlu punya
+PostgreSQL client:
+
+```bash
+npm run db:backup            # tulis backups/harmony-<waktu>.sql.gz
+npm run db:backup:verify     # restore dump terbaru ke database sementara
+```
+
+Retensinya 7 dump harian terakhir, 4 mingguan, dan 12 bulanan. Uji restore
+membuat database `<POSTGRES_DB>_restore_check`, memulihkan dump ke sana,
+membandingkan jumlah migrasi Prisma yang selesai, lalu menghapus database
+sementara itu. Database asli tidak pernah ditulis.
+
+Jadwalkan lewat cron (contoh: dump tiap hari, verifikasi tiap Minggu):
+
+```cron
+15 3 * * * cd /path/ke/harmony && npm run db:backup >> /var/log/harmony-backup.log 2>&1
+30 3 * * 0 cd /path/ke/harmony && npm run db:backup:verify >> /var/log/harmony-backup.log 2>&1
+```
+
+`backups/` ada di `.gitignore` dan lokasinya bisa diubah lewat `BACKUP_DIR`.
+Salin dump ke mesin lain: satu salinan di mesin yang sama bukan backup.
 
 Data bertahan di volume `postgres_data` saat container dibuat ulang.
 `docker compose down -v` menghapus volume itu beserta seluruh isi database,
@@ -754,7 +826,7 @@ sisanya adalah kebocoran modul playlists itu.
 
 | Perintah | Fungsi | Izin |
 | --- | --- | --- |
-| `/play <query>` | Cari lalu putar **tepat satu lagu** (hasil terbaik; PRD US-01), atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya — URL playlist atau radio (`&list=`) juga diambil **lagu pertamanya saja**; memilih dari hasil pencarian lewat `/search`, memutar playlist penuh lewat `/playlist add` lalu `/playlist play`; tautan Spotify → metadata resmi lalu audio dicari ulang | Semua (harus di voice channel) |
+| `/play <query>` | Cari lalu putar **tepat satu lagu** (hasil terbaik; PRD US-01), atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya — URL playlist atau radio (`&list=`) juga diambil **lagu pertamanya saja**; memilih dari hasil pencarian lewat `/search`, memutar playlist penuh lewat `/playlist add` lalu `/playlist play`; tautan Spotify → metadata resmi lalu audio dicari ulang; lampiran audio lewat opsi `file`; URL file audio langsung (mp3/flac/wav/ogg) diputar tanpa diunduh bot | Semua (harus di voice channel) |
 | `/search <query>` | Cari 5 hasil teratas, pilih satu lewat select menu untuk langsung diputar | Semua (harus di voice channel) |
 | `/queue` | Lagu yang sedang diputar + antrean berhalaman (10 lagu/halaman, tombol navigasi) | Semua |
 | `/nowplaying` | Embed lagu aktif: progress bar, volume, sisa antrean | Semua |
@@ -882,6 +954,34 @@ Yang perlu diketahui:
   bilang tidak bisa**.
 - Embed menyebutkan kalau durasi audio meleset beberapa detik dari metadata,
   supaya perbedaan rekaman terlihat jelas dan bukan sesuatu yang misterius.
+
+**Lampiran audio: memutar file yang diunggah**
+
+`/play file:<lampiran>` menyimpan unggahan ke `cache/attachments` lalu memutarnya
+lewat sumber `local` Lavalink. Antrean, filter, seek, dan volume bekerja sama
+seperti lagu lain. Isi **salah satu**: `query` atau `file` — mengisi keduanya
+ditolak supaya tidak ada pilihan yang diabaikan diam-diam.
+
+Yang perlu diketahui:
+
+- **Hanya audionya.** Video (mp4/mkv) tetap diputar suara saja; Discord tidak
+  menyediakan video di voice channel.
+- **Maksimal 25 MB**, dan batas durasi §6.2 tetap berlaku: file > 30 menit hanya
+  untuk DJ, > 6 jam ditolak siapa pun. File besar tidak diunduh sama sekali.
+- **File lebih besar dari batas unggah Discord:** taruh di URL yang bisa diakses
+  publik, lalu `/play https://contoh.test/lagu.flac`. Lavalink memutar alamat itu
+  langsung (dengan dukungan seek), jadi tidak ada unduhan ke disk bot dan tidak
+  ada batas 25 MB. Tautannya harus menunjuk **file audio langsung**, bukan
+  halaman unduhan; sumber `http` yang dipakai untuk ini sudah menyala di
+  `lavalink/application.yml`.
+- **Bersih-bersih:** file dihapus saat `/stop`, `/disconnect`, atau saat lagunya
+  gagal dimuat. Sisanya disapu otomatis setelah 24 jam tidak dipakai, dan track
+  yang sedang diputar (termasuk yang diulang mode loop) menyegarkan umurnya.
+- **Satu filesystem dengan Lavalink.** Sumber `local` membaca path dari disk
+  Lavalink, jadi folder yang sama harus terlihat oleh bot dan Lavalink; di
+  compose itu volume `attachment_data`, dan `ATTACHMENT_LAVALINK_DIR` menunjuk
+  folder itu dari sisi Lavalink. Dengan beberapa node Lavalink, lampiran hanya
+  jalan kalau semua node melihat volume yang sama.
 
 **Batas durasi track (PRD §6.2)** — dua aturan anti-abuse yang berlaku untuk semua
 server:
@@ -2451,13 +2551,17 @@ lewat mock besar akan menguji mock itu sendiri, bukan bot.
 | `npm run clean` | Hapus `dist/` (mencegah file lama ikut dimuat loader) |
 | `npm start` | Jalankan hasil build (produksi) |
 | `npm run deploy` | Daftarkan slash command (guild dev bila `DEV_GUILD_ID` diisi, jika tidak global) |
+| `npm run deploy:stack` | Build image, terapkan migrasi, recreate bot, lalu tunggu `/ready` |
 | `npm run invite` | Cetak URL undangan OAuth2 + angka izin yang bot butuhkan |
 | `npm run perms:scan` | Pindai `src/`: izin Discord yang dipanggil vs yang diminta saat undangan |
 | `npm run infra:up` / `infra:down` | Nyalakan/matikan Postgres + Lavalink + Redis untuk dev lokal |
+| `npm run watchdog` | Periksa health container dan restart setelah dua kegagalan berturut-turut |
 | `npm run db:migrate` | Buat + terapkan migrasi baru (pengembangan) |
 | `npm run db:deploy` | Terapkan migrasi yang sudah ada (produksi/CI) |
 | `npm run db:generate` | Generate Prisma Client dari schema |
 | `npm run db:studio` | Buka Prisma Studio untuk melihat isi database |
+| `npm run db:backup` | Dump database ke `backups/` dan terapkan retensi 7/4/12 |
+| `npm run db:backup:verify` | Restore dump terbaru ke database sementara, bandingkan migrasi, lalu hapus |
 | `npm run db:prune` | Sekali jalan: hapus kasus, peringatan, tiket, statistik playback & riwayat log yang lewat retensi (cron) |
 | `npm run typecheck` | TypeScript strict tanpa emit — mencakup `src/` dan `tests/` |
 | `npm run lint` / `lint:fix` | ESLint |
@@ -2497,7 +2601,7 @@ setiap push/PR.
 | Lavalink mati saat memutar lagu panjang | Naikkan `JAVA_TOOL_OPTIONS=-Xmx2G` di `docker-compose.yml` |
 | `password authentication failed` / `ENOTFOUND` | Password di `DATABASE_URL` tidak sama dengan `POSTGRES_PASSWORD`, atau host `postgres` tidak bisa di-resolve. Cek `docker compose ps postgres` dan `docker compose logs postgres` |
 | Migrasi menggantung tanpa keluar | Postgres belum siap menerima koneksi atau masih memutar ulang WAL. Lihat `docker compose logs postgres`, lalu ulangi `npm run db:deploy` |
-| `P1001` saat start | Bot tidak bisa menjangkau Postgres. Dari host pakai host `localhost`; dari dalam container compose memakai hostname `postgres` |
+| `P1001` saat start | Bot tidak bisa menjangkau Postgres. Pastikan container `postgres` hidup (`docker compose up -d postgres`); port `5432`-nya dipublish ke `127.0.0.1`. Dari host pakai host `localhost`; dari dalam container compose memakai hostname `postgres` |
 | Error YouTube "sign in to confirm you're not a bot" | Aktifkan OAuth token di plugin [youtube-source](https://github.com/lavalink-devs/youtube-source#using-oauth-tokens) |
 
 ### Permintaan takedown (PRD §15)

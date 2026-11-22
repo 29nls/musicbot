@@ -105,6 +105,18 @@ const idMessages = {
   'music.play.rejectedTitle': 'Lagu Ditolak Batas Durasi',
   'music.play.lavalinkDown':
     'Lavalink belum terhubung, jadi lagu tidak bisa diputar. Cek `docker compose logs lavalink`.',
+  'music.play.attachmentAuthor': 'Lampiran',
+  'music.play.attachmentTitleFallback': 'File audio',
+  'music.play.attachmentNeedOne':
+    'Lampirkan file audio di opsi `file`, atau isi `query` dengan judul atau URL.',
+  'music.play.attachmentChooseOne':
+    'Pilih salah satu: lampiran `file` atau `query`, bukan keduanya.',
+  'music.play.attachmentTooLarge':
+    'File terlalu besar ({size}). Batas unggahan {max}; untuk file lebih besar, taruh di URL lalu pakai `/play <URL>`.',
+  'music.play.attachmentFailed':
+    'File tidak bisa diunduh atau disimpan. Coba unggah ulang.',
+  'music.play.attachmentUnsupported':
+    'File itu tidak bisa diputar sebagai audio. Format yang didukung: mp3, m4a, aac, flac, wav, ogg, dan opus.',
 
   'music.search.title': '🗑 Hasil pencarian',
   'music.search.forQuery': 'Hasil untuk `{query}` — pilih satu dari menu di bawah.',
@@ -1182,6 +1194,45 @@ const idMessages = {
   'ticket.cmd.panelTitle': '🎫 Tiket Disiapkan',
   'ticket.audit.closed': 'Tiket ditutup',
 
+  // ── Giveaway ─────────────────────────────────────────────────────
+  'giveaway.embed.title': '🎉 {prize}',
+  'giveaway.embed.description': 'Tekan tombol di bawah untuk ikut. Satu orang satu kesempatan.',
+  'giveaway.embed.footer': 'Giveaway #{id}',
+  'giveaway.field.winners': 'Jumlah pemenang',
+  'giveaway.field.ends': 'Berakhir',
+  'giveaway.field.prize': 'Hadiah',
+  'giveaway.field.entries': 'Peserta',
+  'giveaway.button.join': 'Ikut Giveaway',
+  'giveaway.ended.title': '🎉 Giveaway Selesai',
+  'giveaway.ended.winners': 'Pemenang: {winners}',
+  'giveaway.ended.noEntries': 'Tidak ada yang ikut, jadi tidak ada pemenang.',
+  'giveaway.announce.winners': 'Selamat kepada {winners}! Hadiah: **{prize}**',
+  'giveaway.cmd.createdTitle': '🎉 Giveaway Dibuat',
+  'giveaway.cmd.created': 'Giveaway **{prize}** dibuat di <#{channel}>. Berakhir <t:{endsAt}:R>.',
+  'giveaway.cmd.endedTitle': '🎉 Giveaway Diakhiri',
+  'giveaway.cmd.ended': 'Giveaway **{prize}** diakhiri. {winners}',
+  'giveaway.cmd.noWinners': 'Tidak ada peserta.',
+  'giveaway.cmd.alreadyEnded': 'Giveaway itu sudah berakhir.',
+  'giveaway.cmd.notFound': 'Giveaway #{id} tidak ditemukan di server ini.',
+  'giveaway.cmd.noChannel': 'Channel itu tidak bisa dikirimi giveaway.',
+  'giveaway.cmd.messageGone': 'Giveaway **{prize}** sudah diakhiri, tetapi pesan aslinya tidak bisa diperbarui. Pemenang: {winners}',
+  'giveaway.err.prizeEmpty': 'Hadiah wajib diisi.',
+  'giveaway.err.prizeTooLong': 'Hadiah maksimal {max} karakter.',
+  'giveaway.err.winnersRange': 'Jumlah pemenang harus antara {min} dan {max}.',
+  'giveaway.err.durationUnreadable': 'Durasi **{value}** tidak terbaca. Contoh: 10m, 2h, 7d.',
+  'giveaway.err.durationUnit': 'Satuan durasi **{unit}** tidak dikenal. Pakai m, h, atau d.',
+  'giveaway.err.durationMin': 'Durasi minimal 1 menit.',
+  'giveaway.err.durationMax': 'Durasi maksimal 30 hari.',
+  'giveaway.err.generic': 'Giveaway gagal diproses. Detailnya sudah dicatat di log bot.',
+  'giveaway.join.title': '🎉 Giveaway',
+  'giveaway.join.ok': 'Kamu tercatat sebagai peserta. Semoga beruntung!',
+  'giveaway.join.already': 'Kamu sudah ikut giveaway ini.',
+  'giveaway.join.closed': 'Giveaway ini sudah berakhir.',
+  'giveaway.join.missing': 'Giveaway ini tidak ditemukan.',
+  'privacy.row.giveawayEntries': 'Giveaway yang kamu ikuti',
+  'privacy.done.giveawayEntriesLine': '• {count} entri giveaway',
+  'privacy.log.giveawayEntriesField': '• Entri giveaway dihapus: `{count}`',
+
   // ── Perintah inti + fallback handler (PRD 5.3) ────────────────────
   // Ringkasan konfigurasi, wizard /setup, daftar perintah, /ping, pesan
   // cooldown, dan embed error saat perintah gagal dijalankan.
@@ -1346,6 +1397,18 @@ const enMessages: Record<MessageKey, string> = {
   'music.play.rejectedTitle': 'Track rejected by the length limit',
   'music.play.lavalinkDown':
     'Lavalink is not connected, so the track cannot be played. Check `docker compose logs lavalink`.',
+  'music.play.attachmentAuthor': 'Attachment',
+  'music.play.attachmentTitleFallback': 'Audio file',
+  'music.play.attachmentNeedOne':
+    'Attach an audio file with the `file` option, or put a title or URL in `query`.',
+  'music.play.attachmentChooseOne':
+    'Pick one: the `file` attachment or `query`, not both.',
+  'music.play.attachmentTooLarge':
+    'That file is too large ({size}). Uploads are limited to {max}; for bigger files, host it and use `/play <URL>`.',
+  'music.play.attachmentFailed':
+    'The file could not be downloaded or saved. Try uploading it again.',
+  'music.play.attachmentUnsupported':
+    'That file cannot be played as audio. Supported formats: mp3, m4a, aac, flac, wav, ogg, and opus.',
 
   'music.search.title': '🗑 Search results',
   'music.search.forQuery': 'Results for `{query}` — pick one from the menu below.',
@@ -2397,6 +2460,45 @@ const enMessages: Record<MessageKey, string> = {
   'ticket.cmd.panelResent': 'The ticket panel was sent again to <#{channel}>.',
   'ticket.cmd.panelTitle': '🎫 Tickets Ready',
   'ticket.audit.closed': 'Ticket closed',
+
+  // ── Giveaway ─────────────────────────────────────────────────────
+  'giveaway.embed.title': '🎉 {prize}',
+  'giveaway.embed.description': 'Press the button below to enter. One entry per person.',
+  'giveaway.embed.footer': 'Giveaway #{id}',
+  'giveaway.field.winners': 'Winner count',
+  'giveaway.field.ends': 'Ends',
+  'giveaway.field.prize': 'Prize',
+  'giveaway.field.entries': 'Entries',
+  'giveaway.button.join': 'Join Giveaway',
+  'giveaway.ended.title': '🎉 Giveaway Ended',
+  'giveaway.ended.winners': 'Winners: {winners}',
+  'giveaway.ended.noEntries': 'Nobody entered, so there are no winners.',
+  'giveaway.announce.winners': 'Congratulations to {winners}! Prize: **{prize}**',
+  'giveaway.cmd.createdTitle': '🎉 Giveaway Created',
+  'giveaway.cmd.created': 'Giveaway **{prize}** created in <#{channel}>. Ends <t:{endsAt}:R>.',
+  'giveaway.cmd.endedTitle': '🎉 Giveaway Ended',
+  'giveaway.cmd.ended': 'Giveaway **{prize}** ended. {winners}',
+  'giveaway.cmd.noWinners': 'No entries.',
+  'giveaway.cmd.alreadyEnded': 'That giveaway has already ended.',
+  'giveaway.cmd.notFound': 'Giveaway #{id} was not found on this server.',
+  'giveaway.cmd.noChannel': 'That channel cannot receive a giveaway.',
+  'giveaway.cmd.messageGone': 'Giveaway **{prize}** ended, but its original message could not be updated. Winners: {winners}',
+  'giveaway.err.prizeEmpty': 'The prize is required.',
+  'giveaway.err.prizeTooLong': 'The prize can be at most {max} characters.',
+  'giveaway.err.winnersRange': 'The winner count must be between {min} and {max}.',
+  'giveaway.err.durationUnreadable': 'Duration **{value}** could not be read. Examples: 10m, 2h, 7d.',
+  'giveaway.err.durationUnit': 'Unknown duration unit **{unit}**. Use m, h, or d.',
+  'giveaway.err.durationMin': 'The minimum duration is 1 minute.',
+  'giveaway.err.durationMax': 'The maximum duration is 30 days.',
+  'giveaway.err.generic': 'The giveaway could not be processed. The details are in the bot log.',
+  'giveaway.join.title': '🎉 Giveaway',
+  'giveaway.join.ok': 'You are entered. Good luck!',
+  'giveaway.join.already': 'You have already entered this giveaway.',
+  'giveaway.join.closed': 'This giveaway has ended.',
+  'giveaway.join.missing': 'This giveaway could not be found.',
+  'privacy.row.giveawayEntries': 'Giveaways you entered',
+  'privacy.done.giveawayEntriesLine': '• {count} giveaway entries',
+  'privacy.log.giveawayEntriesField': '• Giveaway entries deleted: `{count}`',
 
   // ── Perintah inti + fallback handler (PRD 5.3) ────────────────────
   // Ringkasan konfigurasi, wizard /setup, daftar perintah, /ping, pesan

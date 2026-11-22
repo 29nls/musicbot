@@ -81,6 +81,13 @@ export type PlayOutcome =
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
   | { kind: 'queue-full' }
+  /** Lampiran audio gagal dipakai; `unsupported` berarti Lavalink menolaknya. */
+  | {
+      kind: 'attachment-failed';
+      reason: 'too-large' | 'failed' | 'unsupported';
+      /** Ukuran file (byte) kalau alasannya `too-large`. */
+      size?: number;
+    }
   /** Semua lagu ditolak oleh batas §6.2 (tidak ada yang dimuat). */
   | { kind: 'rejected'; reason: 'too-long' | 'needs-control'; count: number }
   | {

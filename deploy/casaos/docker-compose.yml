@@ -35,8 +35,8 @@ services:
   migrate:
     build:
       context: ${HARMONY_REPO:-https://github.com/29nls/musicbot.git}#${HARMONY_REF:-main}
-      target: build
-    image: harmony-bot:build
+      target: deps
+    image: harmony-bot:deps
     container_name: harmony-migrate
     restart: "no"
     env_file:
@@ -53,7 +53,7 @@ services:
       context: ${HARMONY_REPO:-https://github.com/29nls/musicbot.git}#${HARMONY_REF:-main}
     image: harmony-bot:local
     container_name: harmony-bot
-    restart: unless-stopped
+    restart: always
     # Image alpine resmi menjalankan proses sebagai user `node` (uid 1000).
     # Menimpanya dengan PUID/PGID NAS membuat file log & volume tetap milik
     # pengguna yang mengelola CasaOS, bukan milik root.
@@ -66,10 +66,15 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
       REDIS_URL: redis://redis:6379
       LAVALINK_HOST: lavalink
+      # Folder lampiran yang sama, dilihat dari sisi Lavalink (sumber `local`).
+      ATTACHMENT_LAVALINK_DIR: /opt/Lavalink/attachments
       # Dipaksa ke 8080 dan port yang dipublish juga 8080 supaya keduanya
       # tidak bisa melenceng. Nilai HEALTH_PORT di .env diabaikan di stack ini;
       # kalau diisi lain, health check di bawah akan probe port yang salah.
       HEALTH_PORT: "8080"
+    volumes:
+      # Lampiran `/play file:` ditulis bot lalu dibaca Lavalink dari volume ini.
+      - attachment_data:/app/cache/attachments
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -78,7 +83,7 @@ services:
       redis:
         condition: service_healthy
       lavalink:
-        condition: service_started
+        condition: service_healthy
     # Bot tidak punya antarmuka web, jadi satu-satunya yang bisa dibuka
     # manusia dari browser adalah endpoint health (PRD §11). Itu yang
     # dijadikan "app" oleh CasaOS.
@@ -117,7 +122,7 @@ services:
       dockerfile: dashboard/Dockerfile
     image: harmony-dashboard:local
     container_name: harmony-dashboard
-    restart: unless-stopped
+    restart: always
     user: "${PUID:-1000}:${PGID:-1000}"
     env_file:
       - ${HARMONY_DATA:-/DATA/AppData/harmony-bot}/.env
@@ -161,7 +166,7 @@ services:
       dockerfile: deploy/casaos/lavalink.Dockerfile
     image: harmony-lavalink:local
     container_name: harmony-lavalink
-    restart: unless-stopped
+    restart: always
     environment:
       # Harus sama dengan LAVALINK_PASSWORD di .env.
       #
@@ -191,18 +196,30 @@ services:
     volumes:
       - lavalink_plugins:/opt/Lavalink/plugins
       - lavalink_logs:/opt/Lavalink/logs
+      # Hanya baca: Lavalink memutar lampiran, bot yang menulis dan menghapus.
+      - attachment_data:/opt/Lavalink/attachments:ro
     # Sengaja TIDAK ada `ports`: hanya jaringan internal compose yang boleh
     # bicara ke mesin audio. Debug dari luar? Buka sementara lewat SSH:
     #   docker compose exec lavalink sh
     expose:
       - "2333"
     mem_limit: 1g
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'wget -qO- --header="Authorization: $$LAVALINK_SERVER_PASSWORD" http://127.0.0.1:2333/v4/info >/dev/null 2>&1',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   # Database. Satu-satunya tempat data bot, disimpan di NAS sendiri.
   postgres:
     image: postgres:16-alpine
     container_name: harmony-postgres
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-harmony}
       POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env - jalankan: node /DATA/AppData/harmony-bot/preflight.mjs}'
@@ -225,7 +242,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: harmony-redis
-    restart: unless-stopped
+    restart: always
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "192mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis_data:/data
@@ -243,6 +260,7 @@ volumes:
   redis_data:
   lavalink_plugins:
   lavalink_logs:
+  attachment_data:
 
 x-casaos:
   # Identitas protokol app store. Reverse-domain, minimal dua bagian.

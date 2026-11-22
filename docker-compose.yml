@@ -21,8 +21,10 @@ services:
   migrate:
     build:
       context: .
-      target: build
-    image: harmony-bot:build
+      # Tahap `deps` (bukan `build`): migrate hanya butuh Prisma CLI + dotenv,
+      # dan tahap `build` sudah memangkas devDependencies lewat `npm prune`.
+      target: deps
+    image: harmony-bot:deps
     container_name: harmony-migrate
     restart: "no"
     env_file:
@@ -41,7 +43,7 @@ services:
     build: .
     image: harmony-bot:local
     container_name: harmony-bot
-    restart: unless-stopped
+    restart: always
     env_file:
       - .env
     environment:
@@ -51,6 +53,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
       REDIS_URL: redis://redis:6379
       LAVALINK_HOST: lavalink
+      # Folder lampiran yang sama, dilihat dari sisi Lavalink (sumber `local`).
+      ATTACHMENT_LAVALINK_DIR: /opt/Lavalink/attachments
+    volumes:
+      # Lampiran `/play file:` ditulis bot lalu dibaca Lavalink dari volume ini.
+      - attachment_data:/app/cache/attachments
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -59,7 +66,7 @@ services:
       redis:
         condition: service_healthy
       lavalink:
-        condition: service_started
+        condition: service_healthy
     # PRD 5.1: endpoint /health dipakai monitoring (liveness). Port tidak
     # dipublish ke host — hanya tersedia di jaringan internal compose.
     healthcheck:
@@ -87,7 +94,7 @@ services:
       dockerfile: dashboard/Dockerfile
     image: harmony-dashboard:local
     container_name: harmony-dashboard
-    restart: unless-stopped
+    restart: always
     env_file:
       - .env
     environment:
@@ -126,9 +133,12 @@ services:
       start_period: 20s
 
   lavalink:
-    image: ghcr.io/lavalink-devs/lavalink:4-alpine
+    build:
+      context: .
+      dockerfile: deploy/casaos/lavalink.Dockerfile
+    image: harmony-lavalink:local
     container_name: harmony-lavalink
-    restart: unless-stopped
+    restart: always
     environment:
       # Harus sama dengan LAVALINK_PASSWORD di .env (dipakai bot untuk login).
       LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:?isi LAVALINK_PASSWORD di .env}
@@ -147,14 +157,27 @@ services:
       # Heap Lavalink. Naikkan (mis. -Xmx2G) kalau sering memutar lagu panjang.
       JAVA_TOOL_OPTIONS: -Xmx1G
     volumes:
-      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
       # Plugin (youtube-source, LavaSrc) diunduh sekali lalu disimpan di sini.
       - lavalink_plugins:/opt/Lavalink/plugins
+      # Hanya baca: Lavalink memutar lampiran, bot yang menulis dan menghapus.
+      - attachment_data:/opt/Lavalink/attachments:ro
     # Sengaja TIDAK memakai ports: agar hanya bisa diakses dari jaringan compose.
     # Butuh debug dari host? Tambahkan:  ports: ["127.0.0.1:2333:2333"]
     expose:
       - "2333"
-    # Lavalink belum punya healthcheck bawaan; bot akan mencoba reconnect sendiri.
+    # Healthcheck memastikan Lavalink sudah siap (port 2333 menjawab) sebelum
+    # bot mencoba menyambung — tanpa ini bot start duluan dan node Lavalink
+    # gagal terhubung lalu tidak pernah mencoba lagi.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'wget -qO- --header="Authorization: $$LAVALINK_SERVER_PASSWORD" http://127.0.0.1:2333/v4/info >/dev/null 2>&1',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   # Postgres lokal — satu-satunya database bot, datanya di volume
   # `postgres_data`. Service ini ikut start bersama stack; kalau hanya
@@ -162,7 +185,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: harmony-postgres
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-harmony}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}
@@ -175,13 +198,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    # Butuh akses dari host (mis. Prisma Studio)? Buka sebaris ini:
-    # ports: ["127.0.0.1:5432:5432"]
+    # Dipublish ke loopback supaya `npm run db:deploy`, `npm run db:migrate`,
+    # dan Prisma Studio di host bisa menjangkau database ini lewat localhost.
+    # Hanya 127.0.0.1: database tidak terbuka ke jaringan lain.
+    ports:
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7-alpine
     container_name: harmony-redis
-    restart: unless-stopped
+    restart: always
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -195,3 +221,4 @@ volumes:
   postgres_data:
   redis_data:
   lavalink_plugins:
+  attachment_data:

@@ -3,7 +3,7 @@ import { getEnv } from '../../config/env.js';
 import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { errorEmbed, warningEmbed } from '../../utils/embeds.js';
 import { addedToQueueEmbed } from './embeds.js';
-import { trackLimitRejectionMessage } from './limits.js';
+import { MAX_ATTACHMENT_BYTES, trackLimitRejectionMessage } from './limits.js';
 import type { PlayOutcome } from './types.js';
 
 /**
@@ -27,6 +27,25 @@ export function renderPlayOutcome(
       return warningEmbed(
         t('music.play.queueFullMessage', { max: getEnv().MAX_QUEUE_SIZE }),
       );
+    case 'attachment-failed':
+      if (outcome.reason === 'too-large') {
+        return errorEmbed(
+          t('music.play.attachmentTooLarge', {
+            size: formatMegabytes(outcome.size ?? 0),
+            max: formatMegabytes(MAX_ATTACHMENT_BYTES),
+          }),
+          t('embed.title.error'),
+        );
+      }
+
+      return errorEmbed(
+        t(
+          outcome.reason === 'failed'
+            ? 'music.play.attachmentFailed'
+            : 'music.play.attachmentUnsupported',
+        ),
+        t('embed.title.error'),
+      );
     case 'rejected':
       return warningEmbed(
         trackLimitRejectionMessage(outcome.reason, outcome.count, t),
@@ -36,4 +55,9 @@ export function renderPlayOutcome(
     default:
       return errorEmbed(t('music.play.lavalinkDown'), t('embed.title.error'));
   }
+}
+
+/** Ukuran file untuk pesan batas; satu desimal cukup untuk dibaca. */
+function formatMegabytes(bytes: number): string {
+  return `${Number((Math.max(bytes, 0) / (1024 * 1024)).toFixed(1))} MB`;
 }

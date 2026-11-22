@@ -21,7 +21,8 @@ function touchedTotal(outcome: AnonymizeOutcome): number {
     outcome.transcripts +
     outcome.logEntries +
     outcome.playlists +
-    outcome.customCommands
+    outcome.customCommands +
+    outcome.giveawayEntries
   );
 }
 
@@ -132,6 +133,9 @@ export function dataDeleteEmbed(
               t('privacy.done.logsLine', { count: String(outcome.logEntries) }),
               t('privacy.done.playlistsLine', { count: String(outcome.playlists) }),
               t('privacy.done.customCommandsLine', { count: String(outcome.customCommands) }),
+              t('privacy.done.giveawayEntriesLine', {
+                count: String(outcome.giveawayEntries),
+              }),
               '',
               t('privacy.done.keptContent'),
             ].join('\n'),
@@ -195,6 +199,9 @@ export function dataDeleteLogEmbed(
         t('privacy.log.logsField', { count: String(outcome.logEntries) }),
         t('privacy.log.playlistsField', { count: String(outcome.playlists) }),
         t('privacy.log.customCommandsField', { count: String(outcome.customCommands) }),
+        t('privacy.log.giveawayEntriesField', {
+          count: String(outcome.giveawayEntries),
+        }),
         '',
         t('privacy.log.keptNote'),
       ].join('\n'),

@@ -32,7 +32,9 @@ export type CommandTranslations = Record<string, { en: CommandTranslation }>;
 
 export const EN_COMMAND_TRANSLATIONS: CommandTranslations = {
   // ── Musik ──────────────────────────────────────────────
-  play: { en: { name: 'play', description: 'Play a track or add it to the queue' } },
+  play: {
+    en: { name: 'play', description: 'Play a track, a link, or an uploaded audio file' },
+  },
   pause: { en: { name: 'pause', description: 'Pause the track that is playing' } },
   resume: { en: { name: 'resume', description: 'Resume the paused playback' } },
   skip: { en: { name: 'skip', description: 'Skip the track that is playing' } },
@@ -75,6 +77,7 @@ export const EN_COMMAND_TRANSLATIONS: CommandTranslations = {
   logs: { en: { name: 'logs', description: 'Search the server log history' } },
   ticket: { en: { name: 'ticket', description: 'Basic ticket system: private channels for support requests' } },
   reactionrole: { en: { name: 'reactionrole', description: 'Self-assign roles panel (members pick their own roles)' } },
+  giveaway: { en: { name: 'giveaway', description: 'Create and end giveaways on this server' } },
   setup: { en: { name: 'setup', description: 'Guide to set the bot up here (channels, DJ role, modules)' } },
   config: { en: { name: 'config', description: 'View or change the bot configuration on this server' } },
 

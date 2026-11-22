@@ -1,55 +1,46 @@
 # Build multi-stage untuk dashboard Next.js.
 # syntax=docker/dockerfile:1
 #
-# Konteks build adalah AKAR REPO, bukan dashboard/ — sengaja.
-# Dashboard mengimpor modul bot lewat alias `@bot/*` (validasi,
-# tipe, katalog bahasa, kanal invalidasi) dan memakai client
-# Prisma hasil generate milik bot (src/generated/prisma). Membangun
-# dari dashboard/ saja berarti harus menyalin modul-modul itu, dan
-# salinan adalah cara paling pasti untuk membuat paritas /config
-# basi tanpa ada tes yang gagal (lihat tests/fieldParity.test.ts).
+# Konteks build adalah AKAR REPO. Struktur direktori di container sengaja
+# dibuat sama dengan di mesin pengembangan: dashboard di /app/dashboard,
+# src di /app/src, node_modules bot di /app/node_modules. Dengan begitu
+# alias @bot/* (../src) dan resolusi modul bot (discord.js, zod, dll.)
+# tetap bekerja tanpa penyesuaian.
 
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
-COPY dashboard/package.json dashboard/package-lock.json ./
-# Schema + konfigurasi CLI wajib hadir sebelum `npm ci`: seperti
-# milik bot, `prisma generate` dijalankan eksplisit, bukan diserahkan
-# ke postinstall, supaya client pasti sesuai schema yang disalin.
+# Dependensi bot + client Prisma.
+COPY package.json package-lock.json ./
 COPY prisma ./prisma
 COPY prisma.config.ts ./
 RUN npm ci && npx prisma generate
+# Dependensi dashboard.
+COPY dashboard/package.json dashboard/package-lock.json ./dashboard/
+RUN cd dashboard && npm ci
 
 FROM deps AS build
-COPY dashboard/tsconfig.json dashboard/next.config.mjs ./
-COPY dashboard/app ./app
-COPY dashboard/components ./components
-COPY dashboard/lib ./lib
-# Sumber modul `@bot/*`. `src/generated/prisma` hasil tahap
-# `deps` tetap ada: COPY menggabungkan isi direktori, tidak
-# menimpa berkas yang sudah ada.
+# Sumber dashboard.
+COPY dashboard/tsconfig.json dashboard/next.config.mjs ./dashboard/
+COPY dashboard/app ./dashboard/app
+COPY dashboard/components ./dashboard/components
+COPY dashboard/lib ./dashboard/lib
+# Sumber bot yang diimpor lewat @bot/*.
 COPY src ./src
-# Generate ulang (idempoten) supaya client pasti sesuai schema
-# yang baru disalin, lalu build dan buang devDependencies —
-# CLI prisma, TypeScript, dan vitest tidak ikut ke image runtime.
-RUN npx prisma generate \
- && npm run build \
- && npm prune --omit=dev
+# Generate ulang client Prisma (idempoten), lalu build dashboard.
+RUN npx prisma generate
+WORKDIR /app/dashboard
+RUN npm run build && npm prune --omit=dev
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/.next ./.next
-COPY --from=build --chown=node:node /app/package.json ./package.json
-COPY --from=build --chown=node:node /app/next.config.mjs ./next.config.mjs
+COPY --from=build --chown=node:node /app/dashboard/node_modules ./dashboard/node_modules
+COPY --from=build --chown=node:node /app/dashboard/.next ./dashboard/.next
+COPY --from=build --chown=node:node /app/dashboard/package.json ./dashboard/package.json
+COPY --from=build --chown=node:node /app/dashboard/next.config.mjs ./dashboard/next.config.mjs
+COPY --from=build --chown=node:node /app/src ./src
 
-# Jalankan sebagai user non-root bawaan image (uid 1000).
 USER node
-
 EXPOSE 3000
-
-# `next start` membaca port dari flag, bukan dari DASHBOARD_PORT
-# milik dashboard — wrapper ini menjembatani keduanya supaya satu
-# variabel lingkungan yang mengatur port di mana pun dashboard
-# dijalankan (compose, systemd, manual).
-CMD ["sh", "-c", "exec npx next start -p \"${DASHBOARD_PORT:-3000}\""]
+CMD ["sh", "-c", "cd /app/dashboard && exec npx next start -p \"${DASHBOARD_PORT:-3000}\""]

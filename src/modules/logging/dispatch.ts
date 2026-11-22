@@ -1,4 +1,4 @@
-import type { EmbedBuilder, Guild, Message } from 'discord.js';
+import { PermissionFlagsBits, type EmbedBuilder, Guild, Message } from 'discord.js';
 import { getLogger } from '../../services/logger.js';
 import { buildRecordInput, resolveLogTarget, type LogRecordMeta } from './record.js';
 import { getLoggingService } from './singleton.js';
@@ -68,9 +68,37 @@ async function sendLogEmbed(
       return null;
     }
 
+    // Cegah percobaan kirim kalau bot memang tidak punya izin di channel itu;
+    // tanpa ini setiap event akan memanggil API dan memenuhi log dengan 403.
+    const me = guild.members?.me ?? null;
+    if (me) {
+      const permissions = channel.permissionsFor?.(me);
+      if (
+        permissions &&
+        (!permissions.has(PermissionFlagsBits.ViewChannel) ||
+          !permissions.has(PermissionFlagsBits.SendMessages) ||
+          !permissions.has(PermissionFlagsBits.EmbedLinks))
+      ) {
+        getLogger().debug(
+          { guild: guild.id, channelId },
+          'Bot tidak punya izin mengirim log ke channel tujuan',
+        );
+        return null;
+      }
+    }
+
     return await channel.send({ embeds: [embed] });
   } catch (error) {
-    getLogger().warn({ err: error, guild: guild.id, channelId }, 'Gagal mengirim embed log');
+    const status = (error as { status?: number; code?: number })?.status;
+    const code = (error as { code?: number })?.code;
+    // "Missing Access" (403) berarti channel memang tidak bisa diakses bot;
+    // catat di debug supaya tidak memenuhi log produksi, tapi tetap kembalikan
+    // null agar alur event tidak terganggu.
+    if (status === 403 || code === 50001) {
+      getLogger().debug({ err: error, guild: guild.id, channelId }, 'Gagal mengirim embed log');
+    } else {
+      getLogger().warn({ err: error, guild: guild.id, channelId }, 'Gagal mengirim embed log');
+    }
     return null;
   }
 }

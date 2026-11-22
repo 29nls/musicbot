@@ -251,6 +251,8 @@ export interface RedisLike {
   publish?(channel: string, message: string): Promise<number>;
   /** SUBSCRIBE; hanya di koneksi khusus langganan. */
   subscribe?(channel: string): Promise<unknown>;
+  /** Buka koneksi; opsional karena ioredis bisa auto-connect. */
+  connect?(): Promise<unknown>;
 }
 
 /**
@@ -405,6 +407,11 @@ export class RedisKeyValueStore implements KeyValueStore {
     });
 
     if (!subscriber.subscribe) throw new Error('klien langganan tidak punya SUBSCRIBE');
+    // Koneksi langganan dibuat dengan opsi yang sama dengan koneksi perintah,
+    // termasuk `lazyConnect` dan `enableOfflineQueue: false`. Kalau tidak
+    // dibuka dulu, `SUBSCRIBE` dikirim ke soket yang belum siap dan ioredis
+    // menolaknya dengan "Stream isn't writeable".
+    if (typeof subscriber.connect === 'function') await subscriber.connect();
     await subscriber.subscribe(channel);
 
     return async () => {

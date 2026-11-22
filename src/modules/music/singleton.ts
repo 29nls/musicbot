@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { Client } from 'discord.js';
 import { getEnv } from '../../config/env.js';
 import { processInstanceId } from '../../services/instanceId.js';
@@ -5,6 +6,7 @@ import { getLogger } from '../../services/logger.js';
 import { getGuildConfigService } from '../config/index.js';
 import { getMetricsRegistry } from '../metrics/index.js';
 import { getStatsService } from '../stats/index.js';
+import { AttachmentStore } from './attachments.js';
 import { MusicService } from './musicService.js';
 import { lavalinkNodeName, parseLavalinkNodes } from './nodes.js';
 import { PlayerOwnership } from './ownership.js';
@@ -47,6 +49,8 @@ export function initMusic(client: Client): MusicService {
     );
   }
 
+  const attachmentDir = resolve(process.cwd(), 'cache', 'attachments');
+
   service = new MusicService(client, {
     nodes: nodeList.nodes.map((node) => ({
       host: node.host,
@@ -55,6 +59,12 @@ export function initMusic(client: Client): MusicService {
       name: lavalinkNodeName(node),
     })),
     maxQueueSize: env.MAX_QUEUE_SIZE,
+    // Lampiran audio: bot menulis ke `attachmentDir`, Lavalink membacanya lewat
+    // path kedua. Di compose keduanya beda mount point untuk folder yang sama.
+    attachments: new AttachmentStore({
+      dir: attachmentDir,
+      lavalinkDir: env.ATTACHMENT_LAVALINK_DIR ?? attachmentDir,
+    }),
     // Kepemilikan player di store bersama. Store-nya diambil lewat fungsi, bukan
     // objek, karena modul musik dibangun sebelum store kunci-nilai selesai
     // dibuat — kalau objeknya yang diambil, yang tertangkap adalah store memori

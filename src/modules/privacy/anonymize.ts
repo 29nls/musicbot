@@ -73,6 +73,8 @@ export interface AnonymizeOutcome {
   playlists: number;
   /** Perintah custom yang pembuatnya dilepas; isi balasannya tetap ada. */
   customCommands: number;
+  /** Entri giveaway yang dihapus; giveaway-nya sendiri tetap ada. */
+  giveawayEntries: number;
 }
 
 export function emptyAnonymizeOutcome(pseudonym: string): AnonymizeOutcome {
@@ -85,5 +87,6 @@ export function emptyAnonymizeOutcome(pseudonym: string): AnonymizeOutcome {
     logEntries: 0,
     playlists: 0,
     customCommands: 0,
+    giveawayEntries: 0,
   };
 }

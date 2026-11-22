@@ -53,6 +53,11 @@ const envSchema = z.object({
   YTDLP_COOKIES_FILE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   FFMPEG_PATH: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 
+  // Folder lampiran (`/play file:`) dilihat dari Lavalink. Kosong = path yang
+  // sama dengan yang ditulis bot, benar saat keduanya jalan di mesin yang sama.
+  // Di Docker path-nya beda karena mount point-nya beda; compose mengisinya.
+  ATTACHMENT_LAVALINK_DIR: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+
   // Health check (PRD 5.1): port untuk GET /health dan /ready.
   // 0 = matikan endpoint (mis. saat menjalankan lokal tanpa monitoring).
   HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(8080),
@@ -68,6 +73,10 @@ const envSchema = z.object({
   // Berapa menit sekali job menonaktifkan panel reaction role yang lewat masa
   // hidup. 0 = matikan penjadwalan.
   PANEL_EXPIRY_SWEEP_MINUTES: z.coerce.number().int().min(0).max(24 * 60).default(15),
+
+  // Berapa detik sekali job menutup giveaway yang waktunya sudah habis.
+  // 0 = matikan penjadwalan (mis. saat menguji tanpa gateway).
+  GIVEAWAY_SWEEP_SECONDS: z.coerce.number().int().min(0).max(3_600).default(30),
 
   // Mode 24/7 (PRD 5.2): berapa menit sekali job memastikan bot tetap
   // tersambung di channel 24/7 tiap server. Menutup kasus bot ter-kick,

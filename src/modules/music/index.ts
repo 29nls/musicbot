@@ -29,11 +29,24 @@ export {
 } from './nodes.js';
 export type { LavalinkNodeList, LavalinkNodeReport, LavalinkNodeSpec, LavalinkNodeStatus } from './nodes.js';
 export type {
+  AttachmentPlayRequest,
   EnqueueRequest,
   MusicNodeOptions,
   MusicServiceOptions,
   PlayRequest,
 } from './musicService.js';
+export {
+  ATTACHMENT_TTL_MS,
+  AttachmentStore,
+  attachmentTitle,
+} from './attachments.js';
+export type {
+  AttachmentSaveFailure,
+  AttachmentSaveResult,
+  AttachmentSource,
+  AttachmentStoreOptions,
+  StoredAttachment,
+} from './attachments.js';
 export { canControlMusic, clampVolume, isInSameVoiceChannel } from './permissions.js';
 export { renderPlayOutcome } from './render.js';
 export { handleSearchSelect, searchSelectRow } from './searchSelect.js';
@@ -102,6 +115,7 @@ export {
 export type { SharedMusicRecord } from './sharedStateCodec.js';
 export {
   LONG_TRACK_THRESHOLD_MS,
+  MAX_ATTACHMENT_BYTES,
   MAX_TRACK_DURATION_MS,
   checkTrackLimit,
   splitByTrackLimits,

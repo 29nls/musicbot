@@ -47,6 +47,8 @@ export interface DataInventory {
   playlists: number;
   /** Perintah custom yang dibuat member ini di server ini. */
   customCommands: number;
+  /** Giveaway aktif yang diikuti member ini di server ini. */
+  giveawayEntries: number;
 }
 
 export function emptyInventory(guildId: string, userId: string): DataInventory {
@@ -61,6 +63,7 @@ export function emptyInventory(guildId: string, userId: string): DataInventory {
     logEntries: 0,
     playlists: 0,
     customCommands: 0,
+    giveawayEntries: 0,
   };
 }
 
@@ -81,6 +84,7 @@ export function buildInventory(input: {
   logEntries: number;
   playlists: number;
   customCommands: number;
+  giveawayEntries?: number;
 }): DataInventory {
   const counts = new Map<ModerationAction, number>();
   let caseTotal = 0;
@@ -106,6 +110,7 @@ export function buildInventory(input: {
     logEntries: input.logEntries,
     playlists: input.playlists,
     customCommands: input.customCommands,
+    giveawayEntries: input.giveawayEntries ?? 0,
   };
 }
 
@@ -178,6 +183,11 @@ export function inventoryRows(
       removedByDataDelete: true,
     },
     {
+      label: t('privacy.row.giveawayEntries'),
+      value: String(inventory.giveawayEntries),
+      removedByDataDelete: true,
+    },
+    {
       label: t('privacy.row.logEntries'),
       value: String(inventory.logEntries),
       // Log dihapus, bukan dianonimkan — jadi tidak ada yang tersisa darinya.
@@ -195,6 +205,7 @@ export function inventoryTouchedCount(inventory: DataInventory): number {
     inventory.ticketTranscripts +
     inventory.logEntries +
     inventory.playlists +
-    inventory.customCommands
+    inventory.customCommands +
+    inventory.giveawayEntries
   );
 }

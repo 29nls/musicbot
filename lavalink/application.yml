@@ -120,8 +120,21 @@ lavalink:
       twitch: true
       vimeo: true
       nico: false
-      http: false
-      local: false
+      # Tautan langsung ke file audio besar (`/play https://…/lagu.flac`), tanpa
+      # diunduh bot lebih dulu. Sumber ini didaftarkan PALING AKHIR oleh
+      # Lavalink, jadi YouTube/SoundCloud/Vimeo tetap ditangani plugin dan tidak
+      # menambah permintaan ke tautan yang sudah dikenal.
+      #
+      # Risikonya: siapa pun yang bisa memakai bot bisa membuat node mengambil
+      # URL apa pun, termasuk alamat di jaringan internal. Port 2333 tidak
+      # dipublish di compose; jangan membuka Lavalink ke jaringan luar.
+      http: true
+      # Lampiran Discord (`/play file:`) dibaca dari folder bersama bot–Lavalink.
+      # Sumber ini menerima path apa adanya, jadi siapa pun yang bisa memanggil
+      # REST Lavalink dengan password bisa memutar file mana pun yang terbaca
+      # proses Lavalink. Port 2333 tidak dipublish di compose, dan input user
+      # tidak pernah diteruskan sebagai path (hanya identifier hasil bot sendiri).
+      local: true
     filters:
       volume: true
       equalizer: true

@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { canControlMusic } from '../../modules/music/index.js';
+import { attachmentTitle, canControlMusic } from '../../modules/music/index.js';
 import type { Translator } from '../../modules/i18n/index.js';
 import { getSpotifyService, resolveSpotifyPlay, toPlayInfo } from '../../modules/spotify/index.js';
 import type { BotCommand } from '../../types/command.js';
@@ -14,7 +14,13 @@ export default {
       option
         .setName('query')
         .setDescription('Judul lagu, kata kunci, URL (YouTube/SoundCloud), atau tautan Spotify')
-        .setRequired(true),
+        .setRequired(false),
+    )
+    .addAttachmentOption((option) =>
+      option
+        .setName('file')
+        .setDescription('File audio dari perangkatmu (mp3, m4a, flac, wav, ogg)')
+        .setRequired(false),
     ),
   category: 'music',
   guildOnly: true,
@@ -30,7 +36,25 @@ export default {
         return;
       }
 
-      const query = interaction.options.getString('query', true);
+      const file = interaction.options.getAttachment('file');
+      const query = interaction.options.getString('query');
+
+      if (!file && !query) {
+        await replyEphemeralError(
+          interaction,
+          errorEmbed(gate.ctx.t('music.play.attachmentNeedOne'), gate.ctx.t('embed.title.error')),
+        );
+        return;
+      }
+
+      if (file && query) {
+        await replyEphemeralError(
+          interaction,
+          errorEmbed(gate.ctx.t('music.play.attachmentChooseOne'), gate.ctx.t('embed.title.error')),
+        );
+        return;
+      }
+
       const canControl = canControlMusic({
         djRoleId: gate.ctx.config.djRoleId,
         memberRoleIds: gate.ctx.memberRoleIds,
@@ -44,10 +68,26 @@ export default {
         canControl,
       };
 
+      if (file) {
+        const outcome = await gate.ctx.music.playAttachment({
+          ...shared,
+          requesterId: interaction.user.id,
+          attachment: { url: file.url, name: file.name, size: file.size },
+          title: attachmentTitle(file.name, gate.ctx.t('music.play.attachmentTitleFallback')),
+          author: gate.ctx.t('music.play.attachmentAuthor'),
+        });
+
+        await interaction.editReply({ embeds: [renderPlayOutcome(outcome, gate.ctx.t)] });
+        return;
+      }
+
+      // Setelah dua cabang di atas, `query` pasti terisi.
+      const textQuery = query ?? '';
+
       // Tautan Spotify tidak bisa langsung diselesaikan Lavalink (butuh plugin
       // berbayar), jadi metadata diambil dulu lalu audio dicari ulang dengan
       // judul resmi. Query biasa tetap lewat jalur yang selalu bekerja.
-      const spotify = await resolveSpotifyPlay(query, {
+      const spotify = await resolveSpotifyPlay(textQuery, {
         meta: (id) => getSpotifyService().getTrack(id),
         search: (searchQuery) => gate.ctx.music.resolve(searchQuery),
         requesterId: interaction.user.id,
@@ -74,7 +114,7 @@ export default {
 
       const outcome = await gate.ctx.music.play({
         ...shared,
-        query,
+        query: textQuery,
         requesterId: interaction.user.id,
       });
 

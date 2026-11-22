@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           # Dua lockfile: akar repo dan dashboard/ diinstal terpisah
           # (tanpa workspaces), jadi keduanya ikut di-cache.
@@ -48,7 +48,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       # Validasi parse YAML saja (bukan `docker compose config`): cukup untuk
       # menangkap berkas rusak/indentasi salah di PR, tanpa perlu daemon Docker

@@ -150,7 +150,7 @@ pertama keluarannya mencetak versi Node. Kalau Node di NAS tetap lebih tua dari
 ### Update Node.js ke LTS
 
 Jika NAS masih bawaan Node 12.x (lazim di CasaOS lama), upgrade ke LTS
-terbaru (v22+) supaya semua alat jalan dengan stabil:
+terbaru (v24+) supaya semua alat jalan dengan stabil:
 
 ```bash
 # Cek versi & arsitektur dulu
@@ -818,8 +818,9 @@ mengembangkan.
 - **`npm run dev` lebih boros RAM** daripada bot versi container: `tsx watch`
   menambah proses transpiler (~340 MB terukur, vs ~165 MB untuk
   `node dist/index.js`). Di NAS dengan RAM kecil, pertimbangkan menutup Redis
-  dari jalur ini — Redis opsional, dan tanpa `localhost:6379` bot tetap jalan
-  dengan store memori.
+  dari jalur ini — service Redis opsional, tetapi `REDIS_URL` tetap harus diisi
+  dengan alamat yang sah. Tanpa server di alamat itu, bot tetap jalan dengan
+  store memori.
 - **Bukan cara memasang bot.** Jalur ini tidak muncul di App Store CasaOS dan
   tidak punya health check; `/health` hanya hidup selama `npm run dev` berjalan.
 
@@ -849,7 +850,7 @@ tetap perlu ditambahkan ke `.env` itu: `YTDLP_PATH` dari langkah 3, kalau
 **1. Node LTS — di jalur ini wajib, bukan saran**
 
 `npm run dev` menjalankan `tsx watch`, dan `package.json` menetapkan
-`engines.node: ">=22"`. Kalau NAS masih membawa Node 12.x, kerjakan dulu
+`engines.node: ">=24"`. Kalau NAS masih membawa Node 12.x, kerjakan dulu
 [Update Node.js ke LTS](#update-nodejs-ke-lts).
 
 **2. Java 17+**
