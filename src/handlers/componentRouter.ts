@@ -12,6 +12,7 @@ import { getLogger } from '../services/logger.js';
 import { handleSearchSelect, SEARCH_SELECT_PREFIX } from '../modules/music/index.js';
 import { handleQueuePage, QUEUE_PAGE_PREFIX } from '../modules/music/index.js';
 import { handleReactionRoleSelect, REACTION_ROLE_PREFIX } from '../modules/reactionroles/index.js';
+import { GIVEAWAY_JOIN_PREFIX, handleGiveawayJoin } from '../modules/giveaways/index.js';
 import {
   handleTicketButton,
   handleTicketSubjectSubmit,
@@ -70,6 +71,12 @@ const HANDLERS: readonly ComponentHandler[] = [
     prefix: `${REACTION_ROLE_PREFIX}panel-`,
     kinds: ['select'],
     handle: handleReactionRoleSelect,
+    cooldownSeconds: 3,
+  },
+  {
+    prefix: GIVEAWAY_JOIN_PREFIX,
+    kinds: ['button'],
+    handle: handleGiveawayJoin,
     cooldownSeconds: 3,
   },
   {

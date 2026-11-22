@@ -30,7 +30,6 @@ interface DeclaredPermission {
  * keputusan yang tercatat, bukan kelalaian.
  */
 const PLATFORM_ONLY: Record<string, string> = {
-  EmbedLinks: 'Discord memblokir embed yang dikirim bot tanpa izin ini',
   ReadMessageHistory: 'isi pesan hanya terbaca di channel yang boleh dibaca bot',
   AttachFiles: 'unggah file ditolak tanpa izin ini; dipakai ekspor /logs dan transkrip tiket',
 };

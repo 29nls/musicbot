@@ -18,6 +18,7 @@ import { processInstanceId } from './services/instanceId.js';
 import { SweepLease } from './services/sweepLease.js';
 import { setCooldownStore } from './utils/cooldown.js';
 import { startPanelExpiryJob, type PanelExpiryJob } from './services/panelExpiryJob.js';
+import { startGiveawayJob, type GiveawayJob } from './services/giveawayJob.js';
 import { startRetentionJob, type RetentionJob } from './services/retentionJob.js';
 import { startStayJob, type StayJob } from './services/stayJob.js';
 import {
@@ -36,6 +37,7 @@ import { describeStartupFailure } from './utils/startupFailure.js';
 let client: BotClient | undefined;
 let retentionJob: RetentionJob | undefined;
 let panelExpiryJob: PanelExpiryJob | undefined;
+let giveawayJob: GiveawayJob | undefined;
 let stayJob: StayJob | undefined;
 let metricsProbe: MetricsProbe | undefined;
 let fleetReporter: FleetReporter | undefined;
@@ -183,6 +185,11 @@ async function main(): Promise<void> {
     guilds: () => [...(client?.guilds.cache.values() ?? [])],
   });
 
+  // Giveaway juga mengubah pesan Discord, jadi baru dijalankan setelah login.
+  giveawayJob = startGiveawayJob({
+    guilds: () => [...(client?.guilds.cache.values() ?? [])],
+  });
+
   // Mode 24/7 (PRD 5.2): menyambungkan bot ke voice channel, jadi juga
   // butuh shard yang siap. Karena itu baru dijalankan setelah login.
   stayJob = startStayJob({
@@ -232,6 +239,7 @@ function registerProcessHandlers(bot: BotClient): void {
     clearCaseLinks();
     retentionJob?.stop();
     panelExpiryJob?.stop();
+    giveawayJob?.stop();
     stayJob?.stop();
     metricsProbe?.stop();
     fleetReporter?.stop();

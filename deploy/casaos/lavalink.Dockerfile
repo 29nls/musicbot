@@ -22,13 +22,22 @@ COPY lavalink/application.yml /opt/Lavalink/application.yml
 # bertahan melewati update image.
 RUN mkdir -p /opt/Lavalink/logs /opt/Lavalink/plugins
 
-# yt-dlp dipasang di dalam image supaya sumber `lavasrc.sources.ytdlp` punya
-# binernya. Image resmi Lavalink tidak memuatnya, dan tanpa biner itu pencarian
+# apk butuh root; image dasar berjalan sebagai user `lavalink`.
+USER root
+
+# yt-dlp dipasang lewat pip, bukan paket Alpine: paket `yt-dlp` di Alpine 3.20
+# (base image Lavalink ini) tertinggal di 2024.x, di bawah batas minimum
+# 2026.08.19 yang terukur bisa mengekstrak audio YouTube, dan gejalanya adalah
+# "Requested format is not available" saat memutar lagu. pip menyediakan rilis
+# terbaru yang kompatibel dengan Python 3.12 di image ini.
+#
+# Biner ini tetap diperlukan supaya sumber `lavasrc.sources.ytdlp` punya
+# binernya: image resmi Lavalink tidak memuatnya, dan tanpa biner itu pencarian
 # `ytsearch:` kembali dilayani youtube-plugin -- yang kliennya ditolak YouTube
 # untuk lagu musik ("This video requires login", lihat bagian "Musik tidak bisa
-# dimuat" di README.md). Paketnya ada di repositori community Alpine.
-#
-# Batas yang jujur: baris ini belum pernah di-build di lingkungan pengembangan
-# repo ini, jadi kalau nama paketnya berubah/beda arsitektur, ganti dengan
-# unduhan biner resmi yt-dlp dan arahkan YTDLP_PATH ke situ.
-RUN apk add --no-cache yt-dlp
+# dimuat" di README.md).
+RUN apk add --no-cache python3 py3-pip \
+ && python3 -m pip install --break-system-packages --no-cache-dir 'yt-dlp>=2026.08.19'
+
+# Kembalikan ke user bawaan image supaya runtime tidak berjalan sebagai root.
+USER lavalink

@@ -14,21 +14,23 @@ di README.
 
 | Kebutuhan | Versi / Catatan | Di mana diperiksa |
 | --- | --- | --- |
-| **Node.js** | 22+ (diuji di v24) | `node --version` |
+| **Node.js** | 24+ (diuji di v24.22.3) | `node --version` |
 | **npm** | 10+ (ikatan dari Node) | `npm --version` |
 | **Java** | 17+ (hanya untuk Lavalink) | `java -version` |
 | **yt-dlp** | 2026.08.19+ (untuk audio YouTube) | `yt-dlp --version` *atau* isi `YTDLP_PATH` |
 | **ffmpeg** | 6+ (encode Opus untuk voice) | `ffmpeg -version` |
 | **PostgreSQL** | 14+ — lewat container `postgres` di compose, atau pasang sendiri | `psql --version` |
-| **Redis** | 6+ — *opsional* | `redis-cli ping` |
+| **Redis** | 6+ — *service opsional, `REDIS_URL` tetap wajib diisi* | `redis-cli ping` |
 
 > **Database-nya lokal.** Bot memakai PostgreSQL di mesin ini, tanpa layanan
 > cloud: cukup container `postgres` dari compose (langkah 4), atau PostgreSQL
 > yang sudah terpasang.
 
-> **Redis bersifat opsional.** Jika tidak terpasang, bot otomatis pakai penyimpanan
-> memori dan mencatat peringatan di log — bot tetap berjalan, hanya rate limit
-> jadi per-proses (tidak optimal untuk sharding).
+> **Service Redis opsional, variabelnya wajib.** `REDIS_URL` harus tetap diisi
+> dengan alamat yang sah (mis. `redis://localhost:6379`). Jika alamat itu tidak
+> terjangkau, bot otomatis memakai penyimpanan memori dan mencatat peringatan di
+> log — bot tetap berjalan, hanya rate limit jadi per-proses (tidak optimal
+> untuk sharding).
 
 ### Pasang di Windows
 
@@ -53,7 +55,7 @@ sudo ln -sfn $(brew --prefix openjdk@21)/libexec/openjdk.jdk /Library/Java/JavaV
 ### Pasang di Linux (Debian/Ubuntu)
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs openjdk-21-jre yt-dlp ffmpeg redis-server
 ```
 
@@ -94,7 +96,7 @@ DATABASE_URL=postgresql://harmony:harmony_dev_password@localhost:5432/harmony
 # Password di URL harus sama dengan POSTGRES_PASSWORD di bawah (atau dengan
 # user yang kamu buat sendiri kalau Postgres-nya bukan dari compose).
 
-# ── Cache (opsional, boleh dikosongkan) ─────────────────────
+# ── Cache (service opsional, REDIS_URL wajib diisi) ─────────
 REDIS_URL=redis://localhost:6379
 
 # ── Lavalink ───────────────────────────────────────────────
@@ -134,6 +136,10 @@ docker compose up -d postgres
 # Terapkan migrasi yang ada
 npm run db:deploy
 ```
+
+Container `postgres` mem-publish port ke `127.0.0.1:5432`, jadi kedua perintah
+di atas berjalan dari host tanpa overlay dev. Port itu tidak terbuka ke mesin
+lain di jaringan.
 
 Kalau Postgres-nya **tidak** dari compose, siapkan user dan database-nya dulu,
 lalu arahkan `DATABASE_URL` ke sana:
@@ -193,9 +199,10 @@ yt-dlp sudah aktif. Jika tidak muncul, restart Lavalink setelah memastikan
 
 ---
 
-## 6. Redis (jika dipasang)
+## 6. Redis (service opsional)
 
-Redis **opsional**. Jika sudah terpasang:
+Redis boleh tidak dipasang, tetapi `REDIS_URL` tetap wajib diisi. Jika sudah
+terpasang:
 
 ```bash
 # macOS
@@ -212,8 +219,9 @@ redis-cli ping
 # PONG
 ```
 
-Jika tidak pasang, biarkan `REDIS_URL` kosong di `.env` — bot akan memakai
-store memori dan mencatat peringatan.
+Jika tidak memasang Redis, tetap isi `REDIS_URL` dengan alamat yang sah (mis.
+`redis://localhost:6379`). Kalau alamat itu tidak terjangkau, bot memakai store
+memori dan mencatat peringatan.
 
 ---
 
@@ -327,7 +335,7 @@ Jika lagu tidak berputar, cek log bot untuk baris
 | Konfig | `cp .env.example .env && nano .env` | isi token, DB URL, password |
 | Migrasi | `npm run db:deploy` | `migrate deploy`, bukan `migrate dev` |
 | Lavalink | `npm run infra:lavalink -- --download` | unduh jar sekali, jalan di foreground |
-| Redis | `redis-cli ping` | (opsional) |
+| Redis | `redis-cli ping` | service opsional; `REDIS_URL` wajib diisi |
 | yt-dlp | `yt-dlp --version` | (opsional) isi `YTDLP_PATH` kalau perlu |
 | Deploy command | `npm run deploy` | daftarkan slash command ke DEV_GUILD_ID |
 | Jalankan | `npm run dev` | auto-reload, atau `npm run build && npm start` |

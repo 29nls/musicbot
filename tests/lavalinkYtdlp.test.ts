@@ -113,9 +113,11 @@ describe('pass-through YTDLP_PATH ke container', () => {
   }
 
   it('Dockerfile CasaOS memasang yt-dlp di dalam image', () => {
-    // Tanpa baris ini sumber ytdlp menyala tapi tidak punya biner, dan
+    // Tanpa biner ini sumber ytdlp menyala tapi tidak punya biner, dan
     // gejalanya kembali ke "semua klien gagal" tanpa menyebut yt-dlp.
-    expect(read('deploy/casaos/lavalink.Dockerfile')).toMatch(/^RUN apk add --no-cache yt-dlp$/m);
+    // Paket Alpine tertinggal di 2024.x, jadi pemasangan lewat pip dengan
+    // batas minimum 2026.08.19.
+    expect(read('deploy/casaos/lavalink.Dockerfile')).toMatch(/python3 -m pip install .*yt-dlp>=2026\.08\.19/);
   });
 });
 

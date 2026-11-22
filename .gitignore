@@ -30,6 +30,9 @@ lavalink/*.jar
 # Arsip ekspor log (/logs … format:) — jangan ikut ter-commit
 data/
 
+# Dump database (npm run db:backup) — isinya data pengguna, bukan sumber kode
+backups/
+
 # Editor & OS
 .DS_Store
 Thumbs.db

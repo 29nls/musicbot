@@ -1,5 +1,6 @@
 import { getLogger } from '../../services/logger.js';
 import type { CustomCommandRepository } from '../customcommands/repository.js';
+import type { GiveawayRepository } from '../giveaways/repository.js';
 import type { LoggingRepository } from '../logging/repository.js';
 import type { PlaylistRepository } from '../playlists/repository.js';
 import type { ModerationRepository } from '../moderation/repository.js';
@@ -23,6 +24,7 @@ export interface PrivacyRepositories {
   logging: Pick<LoggingRepository, 'countAboutUser' | 'deleteAboutUser'>;
   playlists: Pick<PlaylistRepository, 'countByOwner' | 'anonymizeOwner'>;
   customCommands: Pick<CustomCommandRepository, 'countByCreator' | 'anonymizeCreator'>;
+  giveaways: Pick<GiveawayRepository, 'countEntriesForUser' | 'deleteEntriesForUser'>;
 }
 
 /**
@@ -40,7 +42,7 @@ export class PrivacyService {
   /**
    * Apa yang disimpan Harmony tentang member ini di server ini.
    *
-   * Enam pembacaan berjalan bersamaan: satu per kelompok data, plus satu
+   * Tujuh pembacaan berjalan bersamaan: satu per kelompok data, plus satu
    * pembacaan agregat kasus. Semuanya pada indeks yang sudah ada, jadi
    * inventaris ini tidak memindai tabel yang lebih besar dari yang dijawab.
    */
@@ -49,15 +51,23 @@ export class PrivacyService {
     // sebagai "tidak ada data" padahal barisnya masih ada dalam bentuk anonim.
     const pseudonym = pseudonymFor(guildId, userId);
 
-    const [actionRows, activeWarnings, tickets, logEntries, playlists, customCommands] =
-      await Promise.all([
-        this.repositories.moderation.countTargetByTypeAndActive(guildId, userId),
-        this.repositories.moderation.countWarnings(guildId, userId),
-        this.repositories.tickets.countByOpener(guildId, userId),
-        this.repositories.logging.countAboutUser(guildId, userId, pseudonym),
-        this.repositories.playlists.countByOwner(guildId, userId),
-        this.repositories.customCommands.countByCreator(guildId, userId),
-      ]);
+    const [
+      actionRows,
+      activeWarnings,
+      tickets,
+      logEntries,
+      playlists,
+      customCommands,
+      giveawayEntries,
+    ] = await Promise.all([
+      this.repositories.moderation.countTargetByTypeAndActive(guildId, userId),
+      this.repositories.moderation.countWarnings(guildId, userId),
+      this.repositories.tickets.countByOpener(guildId, userId),
+      this.repositories.logging.countAboutUser(guildId, userId, pseudonym),
+      this.repositories.playlists.countByOwner(guildId, userId),
+      this.repositories.customCommands.countByCreator(guildId, userId),
+      this.repositories.giveaways.countEntriesForUser(guildId, userId),
+    ]);
 
     return buildInventory({
       guildId,
@@ -69,6 +79,7 @@ export class PrivacyService {
       logEntries,
       playlists,
       customCommands,
+      giveawayEntries,
     });
   }
 
@@ -127,6 +138,14 @@ export class PrivacyService {
       pseudonym,
     );
 
+    // Entri giveaway tidak dianonimkan: tidak ada isi yang perlu dipertahankan.
+    // Menghapus barisnya sekaligus memastikan undian berikutnya tidak bisa
+    // menarik identitas yang sudah meminta penghapusan.
+    outcome.giveawayEntries = await this.repositories.giveaways.deleteEntriesForUser(
+      guildId,
+      userId,
+    );
+
     // Log dihapus terakhir karena tidak ada yang bergantung padanya.
     outcome.logEntries = await this.repositories.logging.deleteAboutUser(
       guildId,
@@ -145,6 +164,7 @@ export class PrivacyService {
         logEntries: outcome.logEntries,
         playlists: outcome.playlists,
         customCommands: outcome.customCommands,
+        giveawayEntries: outcome.giveawayEntries,
       },
       'Permintaan penghapusan data anonimasi',
     );

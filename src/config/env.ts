@@ -69,6 +69,10 @@ const envSchema = z.object({
   // hidup. 0 = matikan penjadwalan.
   PANEL_EXPIRY_SWEEP_MINUTES: z.coerce.number().int().min(0).max(24 * 60).default(15),
 
+  // Berapa detik sekali job menutup giveaway yang waktunya sudah habis.
+  // 0 = matikan penjadwalan (mis. saat menguji tanpa gateway).
+  GIVEAWAY_SWEEP_SECONDS: z.coerce.number().int().min(0).max(3_600).default(30),
+
   // Mode 24/7 (PRD 5.2): berapa menit sekali job memastikan bot tetap
   // tersambung di channel 24/7 tiap server. Menutup kasus bot ter-kick,
   // shard reconnect, atau perubahan channel saat bot sedang kosong.

@@ -42,7 +42,8 @@ function fakeRepositories(overrides: {
   logEntries?: number;
   playlists?: number;
   customCommands?: number;
-  failAnonymize?: 'moderation' | 'tickets' | 'playlists' | 'logging' | 'customCommands';
+  giveawayEntries?: number;
+  failAnonymize?: 'moderation' | 'tickets' | 'playlists' | 'logging' | 'customCommands' | 'giveaways';
 } = {}) {
   const state = {
     anonymizedReason: new Map<string, string>(),
@@ -51,6 +52,7 @@ function fakeRepositories(overrides: {
     deletedLogs: 0,
     anonymizedPlaylists: 0,
     anonymizedCustomCommands: 0,
+    deletedGiveawayEntries: 0,
     calls: [] as string[],
   };
 
@@ -127,6 +129,20 @@ function fakeRepositories(overrides: {
         if (overrides.failAnonymize === 'logging') throw new Error('tabel log terkunci');
         state.deletedLogs = overrides.logEntries ?? 0;
         return overrides.logEntries ?? 0;
+      },
+    },
+    giveaways: {
+      async countEntriesForUser(guildId, userId) {
+        state.calls.push(`countgiveaway:${guildId}:${userId}`);
+        return guildId === GUILD_ID && userId === USER_ID ? (overrides.giveawayEntries ?? 0) : 0;
+      },
+      async deleteEntriesForUser(guildId, userId) {
+        state.calls.push(`anonymize:giveaways:${guildId}:${userId}`);
+        if (overrides.failAnonymize === 'giveaways') {
+          throw new Error('tabel giveaway terkunci');
+        }
+        state.deletedGiveawayEntries = overrides.giveawayEntries ?? 0;
+        return overrides.giveawayEntries ?? 0;
       },
     },
   };
@@ -320,6 +336,29 @@ describe('PrivacyService.anonymize', () => {
 
     expect(playlistCall).toBeGreaterThanOrEqual(0);
     expect(playlistCall).toBeLessThan(loggingCall);
+  });
+
+  it('inventaris menghitung entri giveaway milik member', async () => {
+    const { repositories } = fakeRepositories({ giveawayEntries: 2 });
+
+    const inventory = await new PrivacyService(repositories).inventory(GUILD_ID, USER_ID);
+
+    expect(inventory.giveawayEntries).toBe(2);
+    const row = inventoryRows(inventory).find(
+      (item) => item.label === 'Giveaway yang kamu ikuti',
+    );
+    expect(row?.value).toBe('2');
+    expect(row?.removedByDataDelete).toBe(true);
+  });
+
+  it('data-delete menghapus entri giveaway dan melaporkan jumlahnya', async () => {
+    const { repositories, state } = fakeRepositories({ giveawayEntries: 2 });
+
+    const outcome = await new PrivacyService(repositories).anonymize(GUILD_ID, USER_ID);
+
+    expect(outcome.giveawayEntries).toBe(2);
+    expect(state.deletedGiveawayEntries).toBe(2);
+    expect(state.calls).toContain(`anonymize:giveaways:${GUILD_ID}:${USER_ID}`);
   });
 
   it('inventaris menghitung playlist milik member', async () => {

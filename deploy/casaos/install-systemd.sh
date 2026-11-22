@@ -163,7 +163,7 @@ if [ "$DASHBOARD" = 1 ]; then
 fi
 NODE_MAJOR="$("$NODE_BIN" --version 2>/dev/null | sed 's/^v\([0-9]*\).*/\1/')"
 case "$NODE_MAJOR" in ''|*[!0-9]*) : ;; *)
-  [ "$NODE_MAJOR" -ge 22 ] || say "PERINGATAN: Node $( "$NODE_BIN" --version ) < 22; package.json menetapkan >=22."
+  [ "$NODE_MAJOR" -ge 24 ] || say "PERINGATAN: Node $( "$NODE_BIN" --version ) < 24; package.json menetapkan >=24."
   ;;
 esac
 

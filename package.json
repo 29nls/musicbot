@@ -5,7 +5,7 @@
   "description": "Bot Discord musik & admin — lihat PRD.md",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -22,17 +22,21 @@
     "invite": "node tools/invite.mjs",
     "perms:scan": "node tools/scan-permissions.mjs",
     "deploy:prod": "node dist/deploy-commands.js",
+    "deploy:stack": "tsx tools/deploy-stack.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:prune": "tsx src/prune-retention.ts",
+    "db:backup": "tsx tools/db-backup.ts",
+    "db:backup:verify": "tsx tools/db-backup.ts --verify",
     "postinstall": "prisma generate",
     "dev:all": "node tools/dev-all.mjs",
     "dev:stop": "node tools/dev-all.mjs --stop",
     "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d",
     "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
     "infra:lavalink": "node tools/start-lavalink.mjs",
+    "watchdog": "tsx tools/watchdog.ts",
     "probe:direct": "tsx tools/direct-stream-probe.ts"
   },
   "dependencies": {

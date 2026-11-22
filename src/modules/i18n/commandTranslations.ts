@@ -75,6 +75,7 @@ export const EN_COMMAND_TRANSLATIONS: CommandTranslations = {
   logs: { en: { name: 'logs', description: 'Search the server log history' } },
   ticket: { en: { name: 'ticket', description: 'Basic ticket system: private channels for support requests' } },
   reactionrole: { en: { name: 'reactionrole', description: 'Self-assign roles panel (members pick their own roles)' } },
+  giveaway: { en: { name: 'giveaway', description: 'Create and end giveaways on this server' } },
   setup: { en: { name: 'setup', description: 'Guide to set the bot up here (channels, DJ role, modules)' } },
   config: { en: { name: 'config', description: 'View or change the bot configuration on this server' } },
 
