@@ -90,6 +90,9 @@ Setelah itu edit `.env` dan isi nilai berikut (wajib):
 DISCORD_TOKEN=YOUR_BOT_TOKEN_HERE
 DISCORD_CLIENT_ID=YOUR_APPLICATION_ID
 DEV_GUILD_ID=YOUR_DEV_GUILD_ID      # ID server dev (mode developer)
+# Ambil ID-nya: Discord → Settings → Advanced → Developer Mode aktif, lalu klik
+# kanan nama server → Copy Server ID. Kalau dikosongkan, command didaftarkan
+# global (butuh ±1 jam).
 
 # ── Database (PostgreSQL lokal) ─────────────────────────────
 DATABASE_URL=postgresql://harmony:harmony_dev_password@localhost:5432/harmony
@@ -108,6 +111,11 @@ LAVALINK_PASSWORD=isi_password_acak_di_sini
 YOUTUBE_OAUTH_ENABLED=false                 # true kalau lagu ditolak YouTube ("All clients failed")
 # YTDLP_PATH=C:/Users/ANDA/.../yt-dlp.exe   # isi kalau yt-dlp tidak di PATH
 # YTDLP_COOKIES_FILE=/path/to/cookies.txt   # opsional, bypass bot check
+
+# ── Lampiran audio (`/play file:`) ─────────────────────────
+# Lavalink dan bot sama-sama jalan di mesin ini, jadi path-nya sama. Kosongkan
+# nilai bawaan di .env.example yang ditujukan untuk Lavalink di container.
+ATTACHMENT_LAVALINK_DIR=
 ```
 
 ### Membuat `LAVALINK_PASSWORD` acak
@@ -196,6 +204,33 @@ curl -s http://localhost:2333/health | head -1
 Baris `Registering YTDLP audio source manager...` di log berarti sumber
 yt-dlp sudah aktif. Jika tidak muncul, restart Lavalink setelah memastikan
 `lavalink/application.yml` punya `lavasrc.sources.ytdlp: true`.
+
+### Lampiran audio dan URL langsung
+
+`/play` bisa memutar berkas yang diunggah lewat opsi `file:`. Batas ukurannya
+**25 MB** (`MAX_ATTACHMENT_BYTES`, mengikuti batas unggahan Discord). Berkas
+disimpan sementara di `cache/attachments`, dibaca Lavalink lewat sumber `local`,
+lalu dihapus saat lagu selesai, dilewati, atau dihentikan. Untuk berkas yang
+lebih besar, unggah ke hosting sendiri dan pakai `/play <URL>`: bot tidak
+mengunduhnya, Lavalink mengambil langsung lewat sumber `http`.
+
+Kedua sumber sudah aktif di `lavalink/application.yml` (`local: true` dan
+`http: true`); tidak ada yang perlu diubah. Cek bahwa Lavalink bisa membaca
+berkas lampiran (port Lavalink tidak dipublikasikan, jadi perintah dijalankan
+di dalam container):
+
+```bash
+docker compose exec lavalink sh -c 'wget -qO- \
+  --header="Authorization: $LAVALINK_SERVER_PASSWORD" \
+  "http://127.0.0.1:2333/v4/loadtracks?identifier=/opt/Lavalink/attachments/<folder>/<berkas>.wav"'
+```
+
+Balasan `"loadType":"track"` berarti berkas terbaca. Diuji pada stack Docker
+repo ini: lampiran WAV menghasilkan `track` 1 detik, URL langsung `http://...`
+menghasilkan `track` 2 detik, dan berkas sementara terhapus dari sisi bot maupun
+Lavalink. Uji itu memakai REST Lavalink, bukan unggahan Discord sungguhan, jadi
+sekali-sekali tetap coba `/play file:` langsung di server dev untuk memastikan
+pemutaran ke voice channel.
 
 ---
 
@@ -321,6 +356,8 @@ Di Discord:
 1. Ketik `/play` di server dev.
 2. Pilih lagu (misalnya ketik "test" di kotak pencarian).
 3. Bot harus join voice channel dan memutar audio.
+4. Untuk berkas sendiri, isi opsi `file:` (maks 25 MB). Berkas lebih besar
+   diunggah ke hosting sendiri lalu diputar lewat `/play <URL>`.
 
 Jika lagu tidak berputar, cek log bot untuk baris
 `Registering YTDLP audio source manager...` pada saat Lavalink start.

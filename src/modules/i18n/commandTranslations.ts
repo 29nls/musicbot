@@ -32,7 +32,9 @@ export type CommandTranslations = Record<string, { en: CommandTranslation }>;
 
 export const EN_COMMAND_TRANSLATIONS: CommandTranslations = {
   // ── Musik ──────────────────────────────────────────────
-  play: { en: { name: 'play', description: 'Play a track or add it to the queue' } },
+  play: {
+    en: { name: 'play', description: 'Play a track, a link, or an uploaded audio file' },
+  },
   pause: { en: { name: 'pause', description: 'Pause the track that is playing' } },
   resume: { en: { name: 'resume', description: 'Resume the paused playback' } },
   skip: { en: { name: 'skip', description: 'Skip the track that is playing' } },

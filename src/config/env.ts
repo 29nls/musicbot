@@ -53,6 +53,11 @@ const envSchema = z.object({
   YTDLP_COOKIES_FILE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   FFMPEG_PATH: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 
+  // Folder lampiran (`/play file:`) dilihat dari Lavalink. Kosong = path yang
+  // sama dengan yang ditulis bot, benar saat keduanya jalan di mesin yang sama.
+  // Di Docker path-nya beda karena mount point-nya beda; compose mengisinya.
+  ATTACHMENT_LAVALINK_DIR: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+
   // Health check (PRD 5.1): port untuk GET /health dan /ready.
   // 0 = matikan endpoint (mis. saat menjalankan lokal tanpa monitoring).
   HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(8080),

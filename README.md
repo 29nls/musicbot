@@ -136,7 +136,9 @@ npm install
 cp .env.example .env      # lalu isi DISCORD_TOKEN, DISCORD_CLIENT_ID, DEV_GUILD_ID
 
 # 3. Postgres + Lavalink + Redis yang bisa diakses dari host
-#    (database ikut jalan sebagai container `postgres`)
+#    (database ikut jalan sebagai container `postgres`). Folder lampiran
+#    dibuat dulu supaya Docker tidak membuatnya sebagai root.
+mkdir -p cache/attachments
 npm run infra:up
 
 # 4. Terapkan skema database
@@ -824,7 +826,7 @@ sisanya adalah kebocoran modul playlists itu.
 
 | Perintah | Fungsi | Izin |
 | --- | --- | --- |
-| `/play <query>` | Cari lalu putar **tepat satu lagu** (hasil terbaik; PRD US-01), atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya — URL playlist atau radio (`&list=`) juga diambil **lagu pertamanya saja**; memilih dari hasil pencarian lewat `/search`, memutar playlist penuh lewat `/playlist add` lalu `/playlist play`; tautan Spotify → metadata resmi lalu audio dicari ulang | Semua (harus di voice channel) |
+| `/play <query>` | Cari lalu putar **tepat satu lagu** (hasil terbaik; PRD US-01), atau tambahkan ke antrean. Kata kunci → pencarian YouTube; URL diteruskan apa adanya — URL playlist atau radio (`&list=`) juga diambil **lagu pertamanya saja**; memilih dari hasil pencarian lewat `/search`, memutar playlist penuh lewat `/playlist add` lalu `/playlist play`; tautan Spotify → metadata resmi lalu audio dicari ulang; lampiran audio lewat opsi `file`; URL file audio langsung (mp3/flac/wav/ogg) diputar tanpa diunduh bot | Semua (harus di voice channel) |
 | `/search <query>` | Cari 5 hasil teratas, pilih satu lewat select menu untuk langsung diputar | Semua (harus di voice channel) |
 | `/queue` | Lagu yang sedang diputar + antrean berhalaman (10 lagu/halaman, tombol navigasi) | Semua |
 | `/nowplaying` | Embed lagu aktif: progress bar, volume, sisa antrean | Semua |
@@ -952,6 +954,34 @@ Yang perlu diketahui:
   bilang tidak bisa**.
 - Embed menyebutkan kalau durasi audio meleset beberapa detik dari metadata,
   supaya perbedaan rekaman terlihat jelas dan bukan sesuatu yang misterius.
+
+**Lampiran audio: memutar file yang diunggah**
+
+`/play file:<lampiran>` menyimpan unggahan ke `cache/attachments` lalu memutarnya
+lewat sumber `local` Lavalink. Antrean, filter, seek, dan volume bekerja sama
+seperti lagu lain. Isi **salah satu**: `query` atau `file` — mengisi keduanya
+ditolak supaya tidak ada pilihan yang diabaikan diam-diam.
+
+Yang perlu diketahui:
+
+- **Hanya audionya.** Video (mp4/mkv) tetap diputar suara saja; Discord tidak
+  menyediakan video di voice channel.
+- **Maksimal 25 MB**, dan batas durasi §6.2 tetap berlaku: file > 30 menit hanya
+  untuk DJ, > 6 jam ditolak siapa pun. File besar tidak diunduh sama sekali.
+- **File lebih besar dari batas unggah Discord:** taruh di URL yang bisa diakses
+  publik, lalu `/play https://contoh.test/lagu.flac`. Lavalink memutar alamat itu
+  langsung (dengan dukungan seek), jadi tidak ada unduhan ke disk bot dan tidak
+  ada batas 25 MB. Tautannya harus menunjuk **file audio langsung**, bukan
+  halaman unduhan; sumber `http` yang dipakai untuk ini sudah menyala di
+  `lavalink/application.yml`.
+- **Bersih-bersih:** file dihapus saat `/stop`, `/disconnect`, atau saat lagunya
+  gagal dimuat. Sisanya disapu otomatis setelah 24 jam tidak dipakai, dan track
+  yang sedang diputar (termasuk yang diulang mode loop) menyegarkan umurnya.
+- **Satu filesystem dengan Lavalink.** Sumber `local` membaca path dari disk
+  Lavalink, jadi folder yang sama harus terlihat oleh bot dan Lavalink; di
+  compose itu volume `attachment_data`, dan `ATTACHMENT_LAVALINK_DIR` menunjuk
+  folder itu dari sisi Lavalink. Dengan beberapa node Lavalink, lampiran hanya
+  jalan kalau semua node melihat volume yang sama.
 
 **Batas durasi track (PRD §6.2)** — dua aturan anti-abuse yang berlaku untuk semua
 server:

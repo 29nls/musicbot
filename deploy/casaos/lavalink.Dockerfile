@@ -20,7 +20,8 @@ COPY lavalink/application.yml /opt/Lavalink/application.yml
 
 # Folder log & plugin tetap berupa named volume di compose supaya isinya
 # bertahan melewati update image.
-RUN mkdir -p /opt/Lavalink/logs /opt/Lavalink/plugins
+RUN mkdir -p /opt/Lavalink/logs /opt/Lavalink/plugins /opt/Lavalink/attachments \
+ && chmod 0777 /opt/Lavalink/attachments
 
 # apk butuh root; image dasar berjalan sebagai user `lavalink`.
 USER root

@@ -207,7 +207,9 @@ describe('lokalisasi perintah saat deploy', () => {
     // Kode bacanya `en-US`, bukan `en`: enum Locale Discord tidak punya `en` polos, dan
     // mengirim `en` membuat Discord menolak seluruh payload dengan 50035.
     expect(result.name_localizations).toEqual({ 'en-US': 'play' });
-    expect(result.description_localizations).toEqual({ 'en-US': 'Play a track or add it to the queue' });
+    expect(result.description_localizations).toEqual({
+      'en-US': 'Play a track, a link, or an uploaded audio file',
+    });
   });
 
   it('meneruskan perintah tanpa terjemahan apa adanya', () => {
@@ -228,7 +230,7 @@ describe('lokalisasi perintah saat deploy', () => {
     expect(result.name_localizations).toEqual({ de: 'abspielen', 'en-US': 'play' });
     expect(result.description_localizations).toEqual({
       de: 'Ein Lied abspielen',
-      'en-US': 'Play a track or add it to the queue',
+      'en-US': 'Play a track, a link, or an uploaded audio file',
     });
   });
 

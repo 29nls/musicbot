@@ -26,8 +26,9 @@ WORKDIR /app
 # jadi PCM 48 kHz stereo sebelum di-encode jadi opus 20 ms. Keduanya wajib ada
 # di image; tanpa salah satu, bot start tapi tidak ada suara sama sekali.
 RUN apk add --no-cache ffmpeg yt-dlp \
- && mkdir -p /app/cache/scripts \
- && chown -R node:node /app/cache
+ && mkdir -p /app/cache/scripts /app/cache/attachments \
+ && chown -R node:node /app/cache \
+ && chmod 0777 /app/cache/attachments
 
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist

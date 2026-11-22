@@ -10,6 +10,7 @@ import {
 import { getLogger } from '../../services/logger.js';
 import type { GuildConfig } from '../config/index.js';
 import { DEFAULT_IDLE_TIMEOUT_SEC } from '../config/types.js';
+import { AttachmentStore, type AttachmentSource } from './attachments.js';
 import { IdleTimer } from './idleTimer.js';
 import { cycleResetOn, planAdvance, type LoopMode } from './loop.js';
 import { filterParamsFor, isWithinSafeBounds, type FilterMode } from './filters.js';
@@ -80,6 +81,11 @@ export interface MusicServiceOptions {
    * dan callback yang melempar tidak boleh menjatuhkan pemutaran.
    */
   onTrackFinished?: (event: TrackFinishedEvent) => void;
+  /**
+   * Penyimpanan lampiran audio. Disuntik supaya tes bisa memakai folder
+   * sementara sendiri; kalau tidak diisi, dibuat di `cache/attachments`.
+   */
+  attachments?: AttachmentStore;
 }
 
 /** Yang dilaporkan ke `onTrackFinished`. */
@@ -114,6 +120,20 @@ export interface PlayRequest {
   canControl?: boolean;
 }
 
+/** Permintaan `/play file:` setelah lampirannya tersedia. */
+export interface AttachmentPlayRequest {
+  guildId: string;
+  voiceChannelId: string;
+  shardId: number;
+  requesterId: string;
+  canControl?: boolean;
+  /** Lampiran dari Discord (URL bertanda tangan, cepat kedaluwarsa). */
+  attachment: AttachmentSource;
+  /** Judul yang ditampilkan; nama file di disk berupa UUID. */
+  title: string;
+  author: string;
+}
+
 /** Permintaan untuk lagu yang sudah di-resolve (dipakai `/search`). */
 export interface EnqueueRequest {
   guildId: string;
@@ -145,6 +165,8 @@ export class MusicService {
    * oleh shard lain.
    */
   private readonly state: SharedMusicState;
+  /** Lampiran audio sementara yang sedang dipakai antrean. */
+  private readonly attachments: AttachmentStore;
   /** Nama node yang dikonfigurasi, urut. */
   private readonly nodeNames: string[];
   private readonly currents = new Map<string, TrackInfo>();
@@ -189,6 +211,12 @@ export class MusicService {
     );
 
     this.state = options.sharedState ?? new SharedMusicState({ capacity: options.maxQueueSize });
+
+    this.attachments =
+      options.attachments ?? new AttachmentStore({ dir: 'cache/attachments' });
+    // Sapuan hanya dijalankan untuk store yang disuntik dari startup, supaya
+    // tes yang membuat service tanpa lampiran tidak menyentuh folder nyata.
+    if (options.attachments) this.attachments.startSweeper();
 
     this.attachManagerLogging();
   }
@@ -269,11 +297,25 @@ export class MusicService {
 
   /** Cari lagu ke Lavalink. Tidak melempar: semua kegagalan jadi hasil terstruktur. */
   async resolve(query: string): Promise<SearchOutcome> {
+    return this.loadIdentifier(buildSearchIdentifier(query));
+  }
+
+  /**
+   * Resolve identifier apa adanya, tanpa diubah jadi pencarian.
+   *
+   * Dipakai lampiran: identifier-nya path file yang dibaca sumber `local`
+   * Lavalink, dan menambahkan `ytsearch:` akan mengubahnya jadi kata kunci.
+   */
+  async resolveLocal(path: string): Promise<SearchOutcome> {
+    return this.loadIdentifier(path);
+  }
+
+  private async loadIdentifier(identifier: string): Promise<SearchOutcome> {
     const node = this.manager.getIdealNode();
     if (!node) return { kind: 'unavailable' };
 
     try {
-      const result = await node.rest.resolve(buildSearchIdentifier(query));
+      const result = await node.rest.resolve(identifier);
       if (!result) return { kind: 'empty' };
 
       switch (result.loadType) {
@@ -291,7 +333,7 @@ export class MusicService {
           return { kind: 'empty' };
       }
     } catch (error) {
-      getLogger().error({ err: error, query }, 'Pencarian ke Lavalink gagal');
+      getLogger().error({ err: error, identifier }, 'Pencarian ke Lavalink gagal');
       return { kind: 'unavailable' };
     }
   }
@@ -325,6 +367,65 @@ export class MusicService {
       // playlistName tidak diteruskan: hasilnya kini selalu satu lagu dan
       // judul embednya judul lagu itu sendiri (US-01), bukan nama playlist.
     });
+  }
+
+  /**
+   * Putar lampiran audio yang diunggah member.
+   *
+   * File diunduh dulu ke folder bersama bot–Lavalink, lalu di-resolve sebagai
+   * path biasa (sumber `local`), supaya antrean, filter, dan seek memakai jalur
+   * yang sama dengan lagu lain. File dihapus kalau lagunya ditolak atau tidak
+   * bisa dimuat, dan pada `/stop`/`/disconnect`; sisanya disapu TTL.
+   */
+  async playAttachment(request: AttachmentPlayRequest): Promise<PlayOutcome> {
+    const saved = await this.attachments.save(request.attachment);
+    if (!saved.ok) return { kind: 'attachment-failed', reason: saved.reason };
+
+    const found = await this.resolveLocal(saved.stored.lavalinkPath);
+
+    if (found.kind === 'unavailable') {
+      await this.attachments.releasePath(saved.stored.path);
+      return { kind: 'unavailable' };
+    }
+
+    if (found.kind === 'error') {
+      await this.attachments.releasePath(saved.stored.path);
+      return { kind: 'error', message: found.message };
+    }
+
+    const [best] = pickTracks(found, 'single', saved.stored.lavalinkPath);
+    if (!best) {
+      await this.attachments.releasePath(saved.stored.path);
+      return { kind: 'attachment-failed', reason: 'unsupported' };
+    }
+
+    const outcome = await this.enqueue({
+      guildId: request.guildId,
+      voiceChannelId: request.voiceChannelId,
+      shardId: request.shardId,
+      canControl: request.canControl,
+      tracks: [
+        {
+          ...toTrackInfo(best, request.requesterId),
+          title: request.title,
+          author: request.author,
+          // Lavalink mengisi `uri` dengan path file di disk. Embed hanya mau
+          // URL http(s) — path seperti itu ditolak Discord dan membuat balasan
+          // gagal terkirim walaupun lagunya sudah diputar.
+          uri: null,
+        },
+      ],
+    });
+
+    if (outcome.kind === 'added') {
+      for (const track of outcome.tracks) {
+        this.attachments.register(track.encoded, saved.stored.path);
+      }
+    } else {
+      await this.attachments.releasePath(saved.stored.path);
+    }
+
+    return outcome;
   }
 
   /**
@@ -403,6 +504,13 @@ export class MusicService {
     // sini, tombol skip jadi tidak melakukan apa pun, dan itu bukan yang biasa
     // orang maksudkan saat menekan tombol.
     const next = await this.advanceToNext(guildId, player, skipped, { respectTrackLoop: false });
+
+    // Mode `queue` menyimpan lagu yang selesai untuk diputar lagi di siklus
+    // berikutnya, jadi filenya harus tetap ada. Di mode lain lagu yang dilewati
+    // tidak akan kembali.
+    if (skipped && this.loopMode(guildId) !== 'queue') {
+      await this.attachments.release([skipped.encoded]);
+    }
 
     if (!next) {
       await player.stopTrack().catch(() => undefined);
@@ -511,7 +619,9 @@ export class MusicService {
 
   /** Hapus satu lagu dari antrean; undefined kalau posisinya di luar jangkauan. */
   async removeFromQueue(guildId: string, position: number): Promise<TrackInfo | undefined> {
-    return this.state.remove(guildId, position);
+    const removed = await this.state.remove(guildId, position);
+    if (removed) await this.attachments.release([removed.encoded]);
+    return removed;
   }
 
   /** Pindahkan satu lagu dalam antrean; null kalau salah satu posisi salah. */
@@ -524,7 +634,13 @@ export class MusicService {
     const stopped = this.currents.get(guildId) ?? null;
     const player = this.manager.players.get(guildId);
 
-    await this.state.clearTracks(guildId);
+    // Lagu yang tersisa dibaca sambil dikosongkan: file lampirannya harus ikut
+    // dilepas, dan setelah queue.clear() daftar itu sudah tidak bisa dibaca.
+    const queued = await this.state.mutateQueue(guildId, (queue) => {
+      const remaining = queue.toArray();
+      queue.clear();
+      return remaining;
+    });
     this.currents.delete(guildId);
     // Siklus ikut dibuang: setelah `/stop` tidak ada lagi lagu yang diputar dalam
     // siklus ini, dan memegangnya hanya menahan referensi tanpa guna.
@@ -532,6 +648,9 @@ export class MusicService {
 
     if (player) await player.stopTrack().catch(() => undefined);
     await this.scheduleIdleDisconnect(guildId);
+    await this.attachments.release(
+      [...queued, ...(stopped ? [stopped] : [])].map((track) => track.encoded),
+    );
 
     return stopped;
   }
@@ -624,6 +743,7 @@ export class MusicService {
 
   /** Dipanggil saat bot dimatikan: batalkan timer dan keluar dari semua voice channel. */
   async shutdown(): Promise<void> {
+    this.attachments.stopSweeper();
     for (const timer of this.idleTimers.values()) timer.cancel();
     this.idleTimers.clear();
     this.state.forgetAll();
@@ -755,6 +875,12 @@ export class MusicService {
     const finished = this.currents.get(guildId) ?? null;
     this.reportFinishedTrack(guildId, player, finished);
 
+    // Hanya mode `off` yang tidak akan memutar lagu ini lagi: `track` langsung
+    // mengulanginya dan `queue` menyimpannya untuk siklus berikutnya.
+    if (finished && this.loopMode(guildId) === 'off') {
+      await this.attachments.release([finished.encoded]);
+    }
+
     const next = await this.advanceToNext(guildId, player, finished);
     if (next) return;
 
@@ -846,6 +972,10 @@ export class MusicService {
   private async startTrack(guildId: string, player: Player, track: TrackInfo): Promise<void> {
     this.currents.set(guildId, track);
     this.idleTimerFor(guildId).cancel();
+
+    // Segarkan umur file lampiran supaya sapuan TTL tidak menghapus file yang
+    // masih diputar, termasuk saat track yang sama diulang mode loop.
+    void this.attachments.touch(track.encoded);
 
     await player.playTrack({ track: { encoded: track.encoded } });
   }
@@ -998,11 +1128,20 @@ export class MusicService {
   }
 
   private async resetGuildState(guildId: string): Promise<void> {
+    // Antrean dibaca sebelum dikosongkan supaya file lampiran di dalamnya ikut
+    // dilepas; kalau tidak, file hanya menunggu sapuan TTL.
+    await this.state.refresh(guildId);
+    const remaining = [...this.state.tracks(guildId), this.currents.get(guildId)].filter(
+      (track): track is TrackInfo => track !== undefined,
+    );
+
     await this.state.reset(guildId);
     this.currents.delete(guildId);
     this.idleTimers.get(guildId)?.cancel();
     this.attachedPlayers.delete(guildId);
     this.filterModes.delete(guildId);
     this.playedCycles.delete(guildId);
+
+    await this.attachments.release(remaining.map((track) => track.encoded));
   }
 }

@@ -60,7 +60,8 @@ export function nowPlayingEmbed(
     )
     .setTimestamp();
 
-  if (track.uri) embed.setURL(track.uri);
+  const url = httpUrl(track.uri);
+  if (url) embed.setURL(url);
   if (track.artworkUrl) embed.setThumbnail(track.artworkUrl);
 
   if (snapshot.idleRemainingMs !== null) {
@@ -79,6 +80,17 @@ export function nowPlayingEmbed(
   }
 
   return embed;
+}
+
+/**
+ * URL yang boleh dipasang di embed.
+ *
+ * Discord menolak seluruh pesan kalau `embed.url` bukan http(s) — dan sumber
+ * `local` Lavalink mengisi `uri` dengan path file, bukan URL. Tanpa saringan
+ * ini, satu lampiran yang berhasil diputar tetap dilaporkan sebagai error.
+ */
+function httpUrl(uri: string | null): string | null {
+  return uri && /^https?:\/\//i.test(uri) ? uri : null;
 }
 
 /** Daftar antrean, satu halaman 10 lagu (AC §8 US-02). */
@@ -199,7 +211,8 @@ export function addedToQueueEmbed(
 
   embed.setDescription(lines.join('\n'));
 
-  if (first.uri) embed.setURL(first.uri);
+  const url = httpUrl(first.uri);
+  if (url) embed.setURL(url);
   if (first.artworkUrl && outcome.tracks.length === 1) embed.setThumbnail(first.artworkUrl);
 
   // Metadata Spotify: cover & judul asli lebih trustworthy daripada sampul

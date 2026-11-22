@@ -23,6 +23,15 @@ export const MAX_TRACK_DURATION_MS = 6 * 60 * 60 * 1_000;
  */
 export const LONG_TRACK_THRESHOLD_MS = 30 * 60 * 1_000;
 
+/**
+ * Batas ukuran lampiran audio yang diunduh untuk diputar.
+ *
+ * Batas ini melindungi disk bot, bukan hak akses: lampiran Discord sendiri
+ * sudah dibatasi platform, tapi server ber-boost bisa mengunggah jauh lebih
+ * besar dari yang dibutuhkan satu lagu.
+ */
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
 /** Bentuk minimum lagu yang dibutuhkan pemeriksaan ini. */
 export interface TrackLimitInput {
   /** Durasi ms; 0 kalau tidak diketahui (live stream). */

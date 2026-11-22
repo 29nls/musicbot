@@ -66,10 +66,15 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-harmony}:${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di .env}@postgres:5432/${POSTGRES_DB:-harmony}
       REDIS_URL: redis://redis:6379
       LAVALINK_HOST: lavalink
+      # Folder lampiran yang sama, dilihat dari sisi Lavalink (sumber `local`).
+      ATTACHMENT_LAVALINK_DIR: /opt/Lavalink/attachments
       # Dipaksa ke 8080 dan port yang dipublish juga 8080 supaya keduanya
       # tidak bisa melenceng. Nilai HEALTH_PORT di .env diabaikan di stack ini;
       # kalau diisi lain, health check di bawah akan probe port yang salah.
       HEALTH_PORT: "8080"
+    volumes:
+      # Lampiran `/play file:` ditulis bot lalu dibaca Lavalink dari volume ini.
+      - attachment_data:/app/cache/attachments
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -191,6 +196,8 @@ services:
     volumes:
       - lavalink_plugins:/opt/Lavalink/plugins
       - lavalink_logs:/opt/Lavalink/logs
+      # Hanya baca: Lavalink memutar lampiran, bot yang menulis dan menghapus.
+      - attachment_data:/opt/Lavalink/attachments:ro
     # Sengaja TIDAK ada `ports`: hanya jaringan internal compose yang boleh
     # bicara ke mesin audio. Debug dari luar? Buka sementara lewat SSH:
     #   docker compose exec lavalink sh
@@ -253,6 +260,7 @@ volumes:
   redis_data:
   lavalink_plugins:
   lavalink_logs:
+  attachment_data:
 
 x-casaos:
   # Identitas protokol app store. Reverse-domain, minimal dua bagian.

@@ -105,6 +105,18 @@ const idMessages = {
   'music.play.rejectedTitle': 'Lagu Ditolak Batas Durasi',
   'music.play.lavalinkDown':
     'Lavalink belum terhubung, jadi lagu tidak bisa diputar. Cek `docker compose logs lavalink`.',
+  'music.play.attachmentAuthor': 'Lampiran',
+  'music.play.attachmentTitleFallback': 'File audio',
+  'music.play.attachmentNeedOne':
+    'Lampirkan file audio di opsi `file`, atau isi `query` dengan judul atau URL.',
+  'music.play.attachmentChooseOne':
+    'Pilih salah satu: lampiran `file` atau `query`, bukan keduanya.',
+  'music.play.attachmentTooLarge':
+    'File terlalu besar ({size}). Batas unggahan {max}; untuk file lebih besar, taruh di URL lalu pakai `/play <URL>`.',
+  'music.play.attachmentFailed':
+    'File tidak bisa diunduh atau disimpan. Coba unggah ulang.',
+  'music.play.attachmentUnsupported':
+    'File itu tidak bisa diputar sebagai audio. Format yang didukung: mp3, m4a, aac, flac, wav, ogg, dan opus.',
 
   'music.search.title': '🗑 Hasil pencarian',
   'music.search.forQuery': 'Hasil untuk `{query}` — pilih satu dari menu di bawah.',
@@ -1385,6 +1397,18 @@ const enMessages: Record<MessageKey, string> = {
   'music.play.rejectedTitle': 'Track rejected by the length limit',
   'music.play.lavalinkDown':
     'Lavalink is not connected, so the track cannot be played. Check `docker compose logs lavalink`.',
+  'music.play.attachmentAuthor': 'Attachment',
+  'music.play.attachmentTitleFallback': 'Audio file',
+  'music.play.attachmentNeedOne':
+    'Attach an audio file with the `file` option, or put a title or URL in `query`.',
+  'music.play.attachmentChooseOne':
+    'Pick one: the `file` attachment or `query`, not both.',
+  'music.play.attachmentTooLarge':
+    'That file is too large ({size}). Uploads are limited to {max}; for bigger files, host it and use `/play <URL>`.',
+  'music.play.attachmentFailed':
+    'The file could not be downloaded or saved. Try uploading it again.',
+  'music.play.attachmentUnsupported':
+    'That file cannot be played as audio. Supported formats: mp3, m4a, aac, flac, wav, ogg, and opus.',
 
   'music.search.title': '🗑 Search results',
   'music.search.forQuery': 'Results for `{query}` — pick one from the menu below.',
