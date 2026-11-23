@@ -1,5 +1,5 @@
 import type { EmbedBuilder, Guild } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import type { LogCategory } from '../logging/types.js';
 import type { ModerationAction } from './types.js';
 

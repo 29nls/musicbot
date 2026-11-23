@@ -1,6 +1,6 @@
 import type { Redis, RedisOptions } from 'ioredis';
 import { getEnv } from '../config/env.js';
-import { getLogger } from './logger.js';
+import { getLogger } from '../modules/logger/index.js';
 
 /**
  * Store kunci-nilai bersama untuk state yang tidak boleh per proses.

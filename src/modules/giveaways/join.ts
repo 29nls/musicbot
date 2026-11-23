@@ -1,5 +1,5 @@
 import { MessageFlags, type ButtonInteraction, type EmbedBuilder } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { translatorFor, type Translator } from '../i18n/index.js';
 import { toGiveawayErrorEmbed } from './errors.js';

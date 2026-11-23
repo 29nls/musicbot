@@ -1,5 +1,5 @@
 import { PermissionFlagsBits, type EmbedBuilder, Guild, Message } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { buildRecordInput, resolveLogTarget, type LogRecordMeta } from './record.js';
 import { getLoggingService } from './singleton.js';
 import type { LogCategory } from './types.js';

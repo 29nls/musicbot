@@ -17,7 +17,7 @@ import {
   renderedMessage,
   type CustomCommand,
 } from '../../modules/customcommands/index.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../../modules/logger/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { canManageGuild } from '../../utils/permissions.js';

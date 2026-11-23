@@ -123,9 +123,17 @@ export default async function ConfigPage({ params }: PageProps) {
 
   return (
     <main>
-      <Link href="/servers" style={{ color: '#949ba4', fontSize: 14 }}>
-        ← {t('action.back')}
-      </Link>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <Link href="/servers" style={{ color: '#949ba4', fontSize: 14 }}>
+          ← {t('action.back')}
+        </Link>
+        <Link
+          href={`/servers/${guildId}/music`}
+          style={{ color: '#dbdee1', fontSize: 14, fontWeight: 600 }}
+        >
+          Buka panel musik
+        </Link>
+      </div>
 
       <h1 style={{ fontSize: 24, marginBottom: 4 }}>{t('config.title')}</h1>
       <p style={{ color: '#b5bac1', marginTop: 0 }}>

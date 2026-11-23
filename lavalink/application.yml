@@ -64,6 +64,10 @@ plugins:
   # LavaSrc: metadata Spotify/Apple Music + lirik (dipakai mulai Fase 2).
   # Sumber berbayar dibiarkan false supaya tidak butuh kredensial; yang menyala
   # di sini hanya ytdlp, yang tidak butuh kredensial sama sekali.
+  # Soundy: sumber SoundCloud yang masih berfungsi. Jar diunduh di Dockerfile.
+  soundy:
+    enabled: true
+
   lavasrc:
     sources:
       spotify: false
@@ -116,7 +120,7 @@ lavalink:
     sources:
       youtube: false # WAJIB false: sudah ditangani youtube-plugin di atas
       bandcamp: true
-      soundcloud: true
+      soundcloud: false # digantikan plugin soundy (built-in rusak)
       twitch: true
       vimeo: true
       nico: false

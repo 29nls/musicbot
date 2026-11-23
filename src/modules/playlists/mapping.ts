@@ -1,5 +1,5 @@
 import { parseStoredTracks } from './tracks.js';
-import type { Playlist } from './types.js';
+import type { Playlist, PlaylistScope } from './types.js';
 
 /**
  * Bentuk baris tabel `playlist` yang dibutuhkan pemetaan. Didefinisikan lokal
@@ -12,6 +12,7 @@ export interface PlaylistRow {
   name: string;
   tracks: unknown;
   isPublic: boolean;
+  scope?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,7 +32,12 @@ export function toDomain(row: PlaylistRow): Playlist {
     name: row.name,
     tracks: parseStoredTracks(row.tracks),
     isPublic: row.isPublic,
+    scope: toScope(row.scope),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function toScope(value: string | undefined): PlaylistScope {
+  return value === 'personal' ? 'personal' : 'server';
 }

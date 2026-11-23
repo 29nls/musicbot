@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { pino, type Logger } from 'pino';
-import { getEnv } from '../config/env.js';
+import { getEnv } from '../../config/env.js';
 
 let instance: Logger | undefined;
 

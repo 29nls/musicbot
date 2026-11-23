@@ -1,5 +1,5 @@
 import type { EmbedBuilder, Guild } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { getGuildConfigService } from '../config/index.js';
 import { getLoggingService } from './singleton.js';
 import { buildLogSummary } from './summary.js';

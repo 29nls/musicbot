@@ -8,7 +8,7 @@ import {
   renderGreeting,
   sendGuildEmbed,
 } from '../modules/moderation/index.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 import type { BotEvent } from '../types/event.js';
 import { warningEmbed } from '../utils/embeds.js';
 

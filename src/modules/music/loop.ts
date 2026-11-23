@@ -5,7 +5,7 @@
  * sini supaya aturan loop bisa diuji tanpa Lavalink.
  */
 
-import { defaultTranslator, type Translator } from '../i18n/index.js';
+import { defaultTranslator, type Translator } from '../i18n/catalog.js';
 import type { TrackInfo } from './types.js';
 
 /** Mode loop, sesuai §6.1 PRD: `off` / `track` / `queue`. */

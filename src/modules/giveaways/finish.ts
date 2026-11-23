@@ -1,5 +1,5 @@
 import type { Guild } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { isGuildTextChannel } from '../../utils/discord.js';
 import type { Translator } from '../i18n/index.js';
 import { giveawayEndedEmbed, giveawayWinnerContent } from './embeds.js';

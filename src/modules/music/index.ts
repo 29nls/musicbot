@@ -14,6 +14,56 @@ export {
 } from './singleton.js';
 export { MusicService } from './musicService.js';
 export {
+  DASHBOARD_CLAIM_PREFIX,
+  DASHBOARD_COMMANDS,
+  DASHBOARD_FAILURE_REASONS,
+  DASHBOARD_MUSIC_CHANNEL,
+  DASHBOARD_PLAYER_CONTROLS,
+  DASHBOARD_RESULT_PREFIX,
+  DASHBOARD_RESULT_TTL_MS,
+  MAX_DASHBOARD_COMMAND_AGE_MS,
+  MAX_DASHBOARD_QUERY_LENGTH,
+  SEARCH_SOURCES,
+  audioSourceOf,
+  claimDashboardCommand,
+  dashboardClaimKey,
+  dashboardResultKey,
+  decodeDashboardMusicCommand,
+  decodeDashboardResult,
+  encodeDashboardMusicCommand,
+  isRequestId,
+  isSnowflake,
+  publishDashboardMusicCommand,
+  subscribeDashboardMusicCommands,
+  toDashboardTrack,
+  writeDashboardResult,
+} from './dashboard.js';
+export type {
+  DashboardAction,
+  DashboardCommand,
+  DashboardCommandMessage,
+  DashboardFailureReason,
+  DashboardResult,
+  DashboardTrack,
+  DecodedDashboardCommand,
+  SearchSource,
+  StoredDashboardResult,
+} from './dashboard.js';
+export {
+  PLAYER_SNAPSHOT_QUEUE_PREVIEW,
+  PLAYER_STATE_HEARTBEAT_MS,
+  PLAYER_STATE_KEY_PREFIX,
+  PLAYER_STATE_TTL_MS,
+  buildPlayerSnapshot,
+  decodePlayerSnapshot,
+  playerStateKey,
+} from './playerState.js';
+export type {
+  PlayerSnapshot,
+  PlayerSnapshotInput,
+  PlayerTrackSummary,
+} from './playerState.js';
+export {
   PLAYER_OWNER_RENEW_MS,
   PLAYER_OWNER_TTL_MS,
   PlayerOwnedElsewhereError,

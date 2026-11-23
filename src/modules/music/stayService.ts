@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import type { GuildConfig } from '../config/index.js';
 import { planStay, type StayPlan } from './stay.js';
 

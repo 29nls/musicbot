@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import type { GiveawayRepository } from './repository.js';
 import type { CreateGiveawayInput, Giveaway } from './types.js';
 import { isGiveawayActive } from './types.js';

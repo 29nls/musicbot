@@ -15,7 +15,7 @@ import {
 import { getGuildConfigService, type GuildConfig } from '../modules/config/index.js';
 import { translatorFor, type Translator } from '../modules/i18n/index.js';
 import { getModerationService, sendGuildEmbed } from '../modules/moderation/index.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 import type { BotEvent } from '../types/event.js';
 
 export default {

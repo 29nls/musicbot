@@ -1,5 +1,5 @@
 import type { AuditLogEvent, Guild, GuildAuditLogsEntry } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 
 export interface AuditLookupOptions {
   /** Cocokkan targetId entri (mis. ID member yang di-kick). */

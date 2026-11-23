@@ -3,7 +3,7 @@ import { getEnv } from '../config/env.js';
 import { closePanel, type PanelCloser } from '../modules/reactionroles/expire.js';
 import { getReactionRoleService } from '../modules/reactionroles/index.js';
 import type { ReactionRoleService } from '../modules/reactionroles/service.js';
-import { getLogger } from './logger.js';
+import { getLogger } from '../modules/logger/index.js';
 import { translatorFor } from '../modules/i18n/index.js';
 
 /**

@@ -5,6 +5,7 @@ import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
 import { startHealthServer, type HealthServerHandle } from './modules/health/index.js';
 import { getMusicService, initMusic, isMusicConnected } from './modules/music/index.js';
+import { startDashboardMusicBridge } from './modules/music/dashboardWiring.js';
 import { clearCaseLinks } from './modules/moderation/index.js';
 import { connectDatabase, disconnectDatabase, pingDatabase } from './services/database.js';
 import {
@@ -12,7 +13,7 @@ import {
   subscribeConfigChanged,
 } from './modules/config/invalidation.js';
 import { createServiceInvalidationTargets } from './modules/config/invalidationWiring.js';
-import { getLogger } from './services/logger.js';
+import { getLogger } from './modules/logger/index.js';
 import { createKeyValueStore, getKeyValueStore, setKeyValueStore, type KeyValueStoreHandle } from './services/kvStore.js';
 import { processInstanceId } from './services/instanceId.js';
 import { SweepLease } from './services/sweepLease.js';
@@ -45,6 +46,8 @@ let healthServer: HealthServerHandle | null = null;
 let keyValueStore: KeyValueStoreHandle | undefined;
 /** Fungsi berhenti langganan invalidasi konfigurasi; null = store tanpa pub/sub. */
 let configInvalidationStop: (() => Promise<void>) | null = null;
+/** Fungsi berhenti langganan perintah musik dashboard; null = store tanpa pub/sub. */
+let dashboardMusicStop: (() => Promise<void>) | null = null;
 
 /** Kapan proses ini start — dipakai health check untuk menghitung uptime. */
 const startedAt = Date.now();
@@ -114,7 +117,25 @@ async function main(): Promise<void> {
 
   // Wajib sebelum login: shoukaku memasang listener `clientReady` untuk
   // mendaftarkan node Lavalink, dan listener itu hanya terpasang sekali.
-  initMusic(client);
+  const music = initMusic(client);
+
+  // Jembatan perintah dashboard → MusicService. Dashboard dan bot tetap dua
+  // proses; yang menghubungkan hanya pub/sub yang sama dengan invalidasi
+  // konfigurasi. Kalau store tidak bisa berlangganan (Redis mati), bot tetap
+  // benar dan hanya perintah dashboard yang tidak dijalankan.
+  try {
+    dashboardMusicStop = await startDashboardMusicBridge(client, music);
+    if (dashboardMusicStop) {
+      logger.info('Langganan perintah musik dashboard aktif');
+    } else {
+      logger.warn('Store bersama tidak mendukung langganan — perintah musik dashboard tidak akan dijalankan');
+    }
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      'Langganan perintah musik dashboard gagal — dashboard tidak bisa mengontrol pemutaran',
+    );
+  }
 
   registerProcessHandlers(client);
 
@@ -251,6 +272,7 @@ function registerProcessHandlers(bot: BotClient): void {
     void Promise.allSettled([
       healthServer?.close() ?? Promise.resolve(),
       configInvalidationStop?.() ?? Promise.resolve(),
+      dashboardMusicStop?.() ?? Promise.resolve(),
       keyValueStore?.store.close() ?? Promise.resolve(),
       disconnectDatabase(),
       stopMusic(),

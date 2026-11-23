@@ -103,6 +103,12 @@ function fakeRepositories(overrides: {
         state.pseudonyms.push(pseudonym);
         return overrides.playlists ?? 0;
       },
+      async countPersonalByOwner() {
+        return 0;
+      },
+      async anonymizePersonalOwner() {
+        return 0;
+      },
     },
     customCommands: {
       async countByCreator(guildId, userId) {

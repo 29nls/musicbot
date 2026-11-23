@@ -45,7 +45,7 @@ vi.mock('../src/modules/metrics/index.js', async (importOriginal) => {
   return { ...actual, getMetricsRegistry: () => ({ record: mocks.recordMetric }) };
 });
 
-vi.mock('../src/services/logger.js', () => ({
+vi.mock('./../src/modules/logger/index.js', () => ({
   getLogger: () => ({ warn: mocks.loggerWarn, debug: mocks.loggerDebug, error: vi.fn(), info: vi.fn() }),
 }));
 

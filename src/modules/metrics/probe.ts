@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 
 /**
  * Job pengukur latensi Lavalink (PRD §11 "latensi Lavalink").

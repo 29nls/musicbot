@@ -1,6 +1,6 @@
 import { Events } from 'discord.js';
 import type { BotClient } from '../client.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 
 export default {
   name: Events.Error,

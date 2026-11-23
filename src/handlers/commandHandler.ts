@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Collection } from 'discord.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 import type { BotCommand } from '../types/command.js';
 import { importDefault, listModuleFiles } from '../utils/moduleLoader.js';
 

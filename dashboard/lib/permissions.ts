@@ -130,3 +130,25 @@ export async function checkManageGuild(
     ? 'allowed'
     : 'denied';
 }
+
+/**
+ * Keanggotaan guild untuk dashboard musik.
+ *
+ * Berbeda dari `checkManageGuild`: pemegang role DJ boleh mengontrol musik tanpa
+ * punya Manage Server. Route hanya memastikan bot ada di guild dan user adalah
+ * anggotanya; keputusan DJ dan voice diambil bot dari gateway saat perintah
+ * dijalankan. Tanpa pemisahan ini, dashboard akan menolak orang yang justru
+ * berhak memakai musik menurut aturan bot sendiri.
+ */
+export async function checkGuildAccess(
+  deps: PermissionDeps,
+  guildId: string,
+  userId: string,
+): Promise<PermissionVerdict> {
+  const guild = await deps.getGuild(guildId);
+  if (!guild) return 'unknown';
+
+  const member = await deps.getMember(guildId, userId);
+
+  return member ? 'allowed' : 'denied';
+}

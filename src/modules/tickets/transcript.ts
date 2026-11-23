@@ -9,7 +9,7 @@
  */
 
 import { MessageType, type Message, type TextChannel } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { defaultTranslator, type Translator } from '../i18n/index.js';
 import { formatTicketId, type Ticket } from './types.js';
 

@@ -84,7 +84,7 @@ export type PlayerOwnershipStore = KeyValueStore | (() => KeyValueStore);
 export class PlayerOwnership {
   constructor(
     private readonly storeSource: PlayerOwnershipStore,
-    private readonly instanceId: string,
+    private readonly instanceIdValue: string,
   ) {}
 
   /** Store yang dipakai sekarang; fungsi diselesaikan saat ini juga. */
@@ -125,17 +125,22 @@ export class PlayerOwnership {
 
     // `expectedValue: null` berarti key harus belum ada (atau sudah kedaluwarsa),
     // jadi dua proses yang mulai bersamaan tidak bisa sama-sama berhasil.
-    const fresh = await compareAndSet.call(store, key, this.instanceId, {
+    const fresh = await compareAndSet.call(store, key, this.instanceIdValue, {
       expectedValue: null,
       ttlMs: PLAYER_OWNER_TTL_MS,
     });
     if (fresh) return 'acquired';
 
     const current = await store.get(key);
-    if (current !== this.instanceId) return 'foreign';
+    if (current !== this.instanceIdValue) return 'foreign';
 
-    await store.set(key, this.instanceId, { ttlMs: PLAYER_OWNER_TTL_MS });
+    await store.set(key, this.instanceIdValue, { ttlMs: PLAYER_OWNER_TTL_MS });
     return 'renewed';
+  }
+
+  /** ID proses ini; snapshot pemutar ditandai dengan ini. */
+  get instanceId(): string {
+    return this.instanceIdValue;
   }
 
   /** ID proses yang memegang lease guild ini, atau `null` kalau tidak ada. */
@@ -146,7 +151,7 @@ export class PlayerOwnership {
   /** Lempar kalau guild ini sedang dipegang proses lain. */
   async assertOwned(guildId: string): Promise<void> {
     const ownerId = await this.ownerOf(guildId);
-    if (ownerId === null || ownerId === this.instanceId) return;
+    if (ownerId === null || ownerId === this.instanceIdValue) return;
 
     throw new PlayerOwnedElsewhereError(guildId, ownerId);
   }
@@ -154,7 +159,7 @@ export class PlayerOwnership {
   /** Lepas lease — hanya kalau memang lease proses ini. */
   async release(guildId: string): Promise<void> {
     if (!this.available) return;
-    if ((await this.ownerOf(guildId)) !== this.instanceId) return;
+    if ((await this.ownerOf(guildId)) !== this.instanceIdValue) return;
 
     await this.store.delete(playerOwnerKey(guildId));
   }

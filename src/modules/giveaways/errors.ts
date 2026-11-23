@@ -1,5 +1,5 @@
 import type { EmbedBuilder } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { errorEmbed, warningEmbed } from '../../utils/embeds.js';
 import type { Translator } from '../i18n/index.js';
 import { GiveawayValidationError } from './validation.js';

@@ -1,4 +1,4 @@
-import { defaultTranslator, type MessageKey } from '../i18n/index.js';
+import { defaultTranslator, type MessageKey } from '../i18n/catalog.js';
 import { MAX_PLAYLIST_NAME_LENGTH } from './types.js';
 
 /**

@@ -4,7 +4,7 @@ import { getModerationService } from '../modules/moderation/index.js';
 import type { RetentionResult } from '../modules/moderation/retention.js';
 import { getStatsService } from '../modules/stats/index.js';
 import { getTicketService } from '../modules/tickets/index.js';
-import { getLogger } from './logger.js';
+import { getLogger } from '../modules/logger/index.js';
 import {
   runRetentionSweeps,
   type LogSweepRunner,

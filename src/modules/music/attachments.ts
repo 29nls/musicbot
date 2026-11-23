@@ -3,7 +3,7 @@ import { mkdir, readdir, stat, unlink, utimes, writeFile } from 'node:fs/promise
 import { posix, resolve } from 'node:path';
 
 import { processInstanceId } from '../../services/instanceId.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { MAX_ATTACHMENT_BYTES } from './limits.js';
 
 /**

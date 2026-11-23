@@ -3,7 +3,7 @@ import { translatorFor } from '../../modules/i18n/index.js';
 import { getStatsService, isStatKind, statsEmbed, STAT_MAX_DAYS } from '../../modules/stats/index.js';
 import type { StatKind } from '../../modules/stats/index.js';
 import type { BotCommand } from '../../types/command.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../../modules/logger/index.js';
 import { errorEmbed } from '../../utils/embeds.js';
 
 /**

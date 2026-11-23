@@ -9,7 +9,7 @@ import {
 } from '../modules/customcommands/index.js';
 import { getGuildConfigService } from '../modules/config/index.js';
 import { getMetricsRegistry } from '../modules/metrics/index.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 import type { BotEvent } from '../types/event.js';
 import { checkCooldown } from '../utils/cooldown.js';
 

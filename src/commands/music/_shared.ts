@@ -14,7 +14,7 @@ import {
   PlayerOwnedElsewhereError,
   type MusicService,
 } from '../../modules/music/index.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../../modules/logger/index.js';
 import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
 import { errorEmbed } from '../../utils/embeds.js';
 import { canManageGuild as hasManageGuild } from '../../utils/permissions.js';

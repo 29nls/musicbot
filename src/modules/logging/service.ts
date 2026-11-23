@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { purgeExpiredLogs, type LogRetentionResult } from './retention.js';
 import type { LoggingRepository } from './repository.js';
 import { clampLogSummary } from './summary.js';

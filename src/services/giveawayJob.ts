@@ -5,7 +5,7 @@ import { getGiveawayService } from '../modules/giveaways/index.js';
 import type { EndGiveawayOutcome } from '../modules/giveaways/service.js';
 import type { Giveaway } from '../modules/giveaways/types.js';
 import { translatorFor } from '../modules/i18n/index.js';
-import { getLogger } from './logger.js';
+import { getLogger } from '../modules/logger/index.js';
 
 /**
  * Yang dibutuhkan job dari modul giveaway — interface tipis supaya bisa diganti

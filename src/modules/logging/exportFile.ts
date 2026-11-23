@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import type { LogExport } from './export.js';
 
 /** Folder arsip lokal; bisa diganti lewat `LOG_EXPORT_DIR`. */
