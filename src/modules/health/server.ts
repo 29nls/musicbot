@@ -1,5 +1,5 @@
 import { createServer, type ServerResponse } from 'node:http';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import {
   renderFleetMetrics,
   renderMetrics,

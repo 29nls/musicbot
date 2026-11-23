@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import type { CustomCommandRepository } from '../customcommands/repository.js';
 import type { GiveawayRepository } from '../giveaways/repository.js';
 import type { LoggingRepository } from '../logging/repository.js';
@@ -22,7 +22,10 @@ export interface PrivacyRepositories {
   >;
   tickets: Pick<TicketRepository, 'countByOpener' | 'anonymizeOpener'>;
   logging: Pick<LoggingRepository, 'countAboutUser' | 'deleteAboutUser'>;
-  playlists: Pick<PlaylistRepository, 'countByOwner' | 'anonymizeOwner'>;
+  playlists: Pick<
+    PlaylistRepository,
+    'countByOwner' | 'anonymizeOwner' | 'countPersonalByOwner' | 'anonymizePersonalOwner'
+  >;
   customCommands: Pick<CustomCommandRepository, 'countByCreator' | 'anonymizeCreator'>;
   giveaways: Pick<GiveawayRepository, 'countEntriesForUser' | 'deleteEntriesForUser'>;
 }
@@ -56,7 +59,8 @@ export class PrivacyService {
       activeWarnings,
       tickets,
       logEntries,
-      playlists,
+      guildPlaylists,
+      personalPlaylists,
       customCommands,
       giveawayEntries,
     ] = await Promise.all([
@@ -65,6 +69,7 @@ export class PrivacyService {
       this.repositories.tickets.countByOpener(guildId, userId),
       this.repositories.logging.countAboutUser(guildId, userId, pseudonym),
       this.repositories.playlists.countByOwner(guildId, userId),
+      this.repositories.playlists.countPersonalByOwner(userId),
       this.repositories.customCommands.countByCreator(guildId, userId),
       this.repositories.giveaways.countEntriesForUser(guildId, userId),
     ]);
@@ -77,7 +82,7 @@ export class PrivacyService {
       tickets: tickets.tickets,
       ticketTranscripts: tickets.transcripts,
       logEntries,
-      playlists,
+      playlists: guildPlaylists + personalPlaylists,
       customCommands,
       giveawayEntries,
     });
@@ -126,6 +131,13 @@ export class PrivacyService {
     // lain tanpa bisa ditelusuri balik ke dia.
     outcome.playlists = await this.repositories.playlists.anonymizeOwner(
       guildId,
+      userId,
+      pseudonym,
+    );
+    // Playlist personal tidak terikat guild, jadi permintaan dari server mana pun
+    // harus melepas pemiliknya juga. Tanpa ini, satu `/data-delete` di server A
+    // meninggalkan playlist yang masih bisa dilacak ke user yang sama.
+    outcome.playlists += await this.repositories.playlists.anonymizePersonalOwner(
       userId,
       pseudonym,
     );

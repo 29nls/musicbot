@@ -39,7 +39,7 @@ vi.mock('../src/modules/moderation/index.js', async (importOriginal) => {
   return { ...actual, sendGuildEmbed: mocks.sendGuildEmbed };
 });
 
-vi.mock('../src/services/logger.js', () => ({
+vi.mock('./../src/modules/logger/index.js', () => ({
   getLogger: () => ({
     warn: mocks.loggerWarn,
     error: mocks.loggerError,

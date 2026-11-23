@@ -1,7 +1,7 @@
 import type { Guild } from 'discord.js';
 import { getEnv } from '../config/env.js';
 import { getStayService, type StayOutcome } from '../modules/music/index.js';
-import { getLogger } from './logger.js';
+import { getLogger } from '../modules/logger/index.js';
 
 /**
  * Job penyapuan mode 24/7 (PRD §5.2).

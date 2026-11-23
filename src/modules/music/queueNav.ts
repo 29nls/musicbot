@@ -5,7 +5,7 @@ import {
   MessageFlags,
   type ButtonInteraction,
 } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { errorEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService } from '../config/index.js';
 import { defaultTranslator, translatorFor, type Translator } from '../i18n/index.js';

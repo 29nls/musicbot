@@ -1,7 +1,7 @@
 import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { getEnv } from './config/env.js';
 import { parseShardList, resolveShardPlan } from './config/sharding.js';
-import { getLogger } from './services/logger.js';
+import { getLogger } from './modules/logger/index.js';
 import type { BotCommand } from './types/command.js';
 
 /**

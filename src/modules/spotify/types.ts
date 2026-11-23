@@ -52,3 +52,10 @@ export type SpotifyResult =
   /** Kredensial belum diisi di `.env` — fitur dimatikan, bukan gagal. */
   | { kind: 'not-configured' }
   | { kind: 'error'; message: string };
+
+/** Hasil pencarian Spotify; audio tetap dicari terpisah di Lavalink. */
+export type SpotifySearchResult =
+  | { kind: 'found'; tracks: SpotifyTrackMeta[] }
+  | { kind: 'empty' }
+  | { kind: 'not-configured' }
+  | { kind: 'error'; message: string };

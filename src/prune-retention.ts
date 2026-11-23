@@ -4,7 +4,7 @@ import { getStatsService } from './modules/stats/index.js';
 import { getTicketService } from './modules/tickets/index.js';
 import { formatPruneReport, runPrune } from './services/pruneRetention.js';
 import { disconnectDatabase } from './services/database.js';
-import { getLogger } from './services/logger.js';
+import { getLogger } from './modules/logger/index.js';
 
 /**
  * Sekali-jalan: bersihkan semua data yang lewat retensi.

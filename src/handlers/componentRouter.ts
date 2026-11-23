@@ -8,7 +8,7 @@ import { checkCooldown } from '../utils/cooldown.js';
 import { errorEmbed, warningEmbed } from '../utils/embeds.js';
 import { translatorForGuild } from '../modules/i18n/index.js';
 import { getMetricsRegistry } from '../modules/metrics/index.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 import { handleSearchSelect, SEARCH_SELECT_PREFIX } from '../modules/music/index.js';
 import { handleQueuePage, QUEUE_PAGE_PREFIX } from '../modules/music/index.js';
 import { handleReactionRoleSelect, REACTION_ROLE_PREFIX } from '../modules/reactionroles/index.js';

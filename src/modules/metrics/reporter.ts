@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import type { KeyValueStore } from '../../services/kvStore.js';
 import {
   mergeInstances,

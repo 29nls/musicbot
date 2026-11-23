@@ -1,7 +1,7 @@
 import { ActivityType, Events, type Client } from 'discord.js';
 import type { BotClient } from '../client.js';
 import { BOT_NAME } from '../config/constants.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 
 export default {
   name: Events.ClientReady,

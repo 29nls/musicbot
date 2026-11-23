@@ -2,7 +2,7 @@ import { Collection, REST, Routes } from 'discord.js';
 import { getEnv } from './config/env.js';
 import { loadCommands } from './handlers/commandHandler.js';
 import { applyCommandLocalizations } from './modules/i18n/index.js';
-import { getLogger } from './services/logger.js';
+import { getLogger } from './modules/logger/index.js';
 import type { BotCommand } from './types/command.js';
 
 const env = getEnv();

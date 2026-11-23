@@ -27,6 +27,27 @@ export const PLAYLIST_LIST_LIMIT = 20;
 export const PLAYLIST_TRACK_PREVIEW = 10;
 
 /**
+ * Cakupan playlist.
+ *
+ * `server` adalah perilaku lama: playlist terikat ke satu guild dan terlihat
+ * lewat `/playlist`. `personal` adalah playlist dashboard yang dimiliki satu
+ * Discord user dan bisa dibuka dari guild mana pun, selama user itu masih
+ * terautentikasi.
+ */
+export type PlaylistScope = 'server' | 'personal';
+
+/**
+ * Penanda `guildId` untuk playlist personal.
+ *
+ * Kolom `guildId` tidak dibuat nullable karena unique index lama
+ * `(guildId, ownerId, name)` justru yang menegakkan nama unik per pemilik:
+ * semua playlist personal berbagi penanda ini, sehingga dua playlist personal
+ * dengan nama sama tidak bisa tersimpan. Baris server tetap memakai guild asli,
+ * jadi perilaku `/playlist` tidak berubah.
+ */
+export const PERSONAL_PLAYLIST_GUILD_ID = '@personal';
+
+/**
  * Satu lagu tersimpan di playlist.
  *
  * `uri` adalah sumber kebenaran: `encoded` Lavalink bisa basi setelah node
@@ -53,6 +74,7 @@ export interface Playlist {
   tracks: StoredTrack[];
   /** true = member lain di server ini boleh memutar playlist-nya. */
   isPublic: boolean;
+  scope: PlaylistScope;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -61,6 +83,8 @@ export interface CreatePlaylistInput {
   guildId: string;
   ownerId: string;
   name: string;
+  /** Default `server`, supaya pemanggil lama tidak perlu berubah. */
+  scope?: PlaylistScope;
 }
 
 /** Kenapa sebuah permintaan playlist tidak bisa dipenuhi. */

@@ -1,5 +1,5 @@
 import { MemoryKeyValueStore, type KeyValueStore } from '../services/kvStore.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 
 /**
  * Rate limit per user per perintah (§16).

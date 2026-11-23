@@ -1,6 +1,6 @@
 import type { EmbedBuilder } from 'discord.js';
 import { defaultTranslator, type Translator } from '../i18n/index.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { isDatabaseUnavailableError } from '../../services/prismaErrors.js';
 import { errorEmbed } from '../../utils/embeds.js';
 import { LoggingValidationError } from './validation.js';

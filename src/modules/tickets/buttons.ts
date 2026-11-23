@@ -6,7 +6,7 @@ import {
   type Guild,
   type GuildMember,
 } from 'discord.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
 import { getGuildConfigService, type GuildConfig } from '../config/index.js';
 import { translatorFor, type Translator } from '../i18n/index.js';

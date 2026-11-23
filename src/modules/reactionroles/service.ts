@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { defaultTranslator, type MessageKey } from '../i18n/index.js';
 import type { ReactionRoleRepository } from './repository.js';
 import type {

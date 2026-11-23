@@ -1,7 +1,7 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { defaultTranslator, translatorFor } from '../../modules/i18n/index.js';
 import { getPrivacyService, privacyEmbed } from '../../modules/privacy/index.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../../modules/logger/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { errorEmbed } from '../../utils/embeds.js';
 import { hasGuildPermission } from '../../utils/permissions.js';

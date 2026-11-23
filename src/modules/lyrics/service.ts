@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { parseLrc, parsePlainLyrics } from './lrc.js';
 import {
   buildLyricsQuery,

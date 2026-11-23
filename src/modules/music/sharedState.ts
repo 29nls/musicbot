@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { getKeyValueStore, type KeyValueStore } from '../../services/kvStore.js';
 import type { LoopMode } from './loop.js';
 import { MusicQueue } from './queue.js';

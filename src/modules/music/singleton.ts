@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import type { Client } from 'discord.js';
 import { getEnv } from '../../config/env.js';
 import { processInstanceId } from '../../services/instanceId.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { getGuildConfigService } from '../config/index.js';
 import { getMetricsRegistry } from '../metrics/index.js';
 import { getStatsService } from '../stats/index.js';

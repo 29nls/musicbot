@@ -2,7 +2,7 @@ import type { LogRetentionResult } from '../modules/logging/retention.js';
 import type { RetentionResult } from '../modules/moderation/retention.js';
 import type { StatRetentionResult } from '../modules/stats/retention.js';
 import type { TicketRetentionResult } from '../modules/tickets/retention.js';
-import { getLogger } from './logger.js';
+import { getLogger } from '../modules/logger/index.js';
 
 /**
  * Satu definisi tunggal untuk keempat sapuan retensi.

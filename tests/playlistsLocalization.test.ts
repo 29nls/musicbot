@@ -63,6 +63,7 @@ function playlist(overrides: Partial<Playlist> = {}): Playlist {
     name: 'Lofi',
     tracks: [],
     isPublic: false,
+    scope: 'server',
     createdAt: new Date('2026-10-03T00:00:00.000Z'),
     updatedAt: new Date('2026-10-03T00:00:00.000Z'),
     ...overrides,

@@ -7,7 +7,8 @@ import {
   type Player,
   type TrackEndEvent,
 } from 'shoukaku';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
+import { processInstanceId } from '../../services/instanceId.js';
 import type { GuildConfig } from '../config/index.js';
 import { DEFAULT_IDLE_TIMEOUT_SEC } from '../config/types.js';
 import { AttachmentStore, type AttachmentSource } from './attachments.js';
@@ -29,6 +30,13 @@ import { foundTracks, pickTracks } from './selection.js';
 import { SharedMusicState } from './sharedState.js';
 import type { RandomSource } from './shuffle.js';
 import { toTrackInfo } from './track.js';
+import {
+  buildPlayerSnapshot,
+  playerStateKey,
+  PLAYER_STATE_HEARTBEAT_MS,
+  PLAYER_STATE_TTL_MS,
+} from './playerState.js';
+import { getKeyValueStore } from '../../services/kvStore.js';
 import type {
   PlayOutcome,
   QueueSnapshot,
@@ -187,6 +195,14 @@ export class MusicService {
   private readonly ownedGuilds = new Set<string>();
   /** Timer perpanjangan lease; `undefined` sampai ada guild yang diklaim. */
   private ownershipTimer: ReturnType<typeof setInterval> | undefined;
+  /**
+   * Guild yang belum perlu diperiksa timer snapshot:
+   * `'idle'` = belum pernah memegang player, ditulis sekali saat heartbeat;
+   * `'gone'` = player sudah hilang, snapshotnya sudah dihapus.
+   */
+  private readonly snapshotWatch = new Map<string, 'idle' | 'gone'>();
+  /** Timer snapshot; `undefined` sampai ada guild yang perlu dipantau. */
+  private playerStateTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(client: Client, private readonly options: MusicServiceOptions) {
     const nodes = options.nodes.length > 0 ? options.nodes : [DEFAULT_NODE];
@@ -296,8 +312,8 @@ export class MusicService {
   }
 
   /** Cari lagu ke Lavalink. Tidak melempar: semua kegagalan jadi hasil terstruktur. */
-  async resolve(query: string): Promise<SearchOutcome> {
-    return this.loadIdentifier(buildSearchIdentifier(query));
+  async resolve(query: string, source: 'youtube' | 'soundcloud' = 'youtube'): Promise<SearchOutcome> {
+    return this.loadIdentifier(buildSearchIdentifier(query, source));
   }
 
   /**
@@ -466,6 +482,7 @@ export class MusicService {
       await player.setGlobalVolume(clampVolume(config.defaultVolume));
       await this.applyStoredFilters(guildId, player);
       await this.startTrack(guildId, player, first);
+      this.touchPlayerState(guildId);
 
       return {
         kind: 'added',
@@ -481,6 +498,7 @@ export class MusicService {
 
     const queued = await this.state.add(guildId, tracks);
     if (queued.accepted.length === 0) return { kind: 'queue-full' };
+    this.touchPlayerState(guildId);
 
     return {
       kind: 'added',
@@ -517,6 +535,7 @@ export class MusicService {
       await this.scheduleIdleDisconnect(guildId);
     }
 
+    this.touchPlayerState(guildId);
     return { skipped, next };
   }
 
@@ -525,6 +544,7 @@ export class MusicService {
     if (!player) return false;
 
     await player.setPaused(paused);
+    this.touchPlayerState(guildId);
     return true;
   }
 
@@ -547,6 +567,7 @@ export class MusicService {
       this.playedCycles.delete(guildId);
     }
 
+    this.touchPlayerState(guildId);
     return previous;
   }
 
@@ -600,6 +621,7 @@ export class MusicService {
     if (!player) return volume;
 
     await player.setGlobalVolume(volume);
+    this.touchPlayerState(guildId);
     return volume;
   }
 
@@ -652,12 +674,13 @@ export class MusicService {
       [...queued, ...(stopped ? [stopped] : [])].map((track) => track.encoded),
     );
 
+    this.touchPlayerState(guildId);
     return stopped;
   }
 
   /** Keluar dari voice channel dan bersihkan seluruh state server ini. */
   async disconnect(guildId: string): Promise<void> {
-    await this.resetGuildState(guildId);
+    await this.resetGuildState(guildId, true);
 
     if (this.manager.players.has(guildId) || this.manager.connections.has(guildId)) {
       await this.manager.leaveVoiceChannel(guildId).catch((error: unknown) => {
@@ -746,6 +769,8 @@ export class MusicService {
     this.attachments.stopSweeper();
     for (const timer of this.idleTimers.values()) timer.cancel();
     this.idleTimers.clear();
+    if (this.playerStateTimer) clearInterval(this.playerStateTimer);
+    this.playerStateTimer = undefined;
     this.state.forgetAll();
 
     const guildIds = [...this.manager.connections.keys()];
@@ -978,6 +1003,7 @@ export class MusicService {
     void this.attachments.touch(track.encoded);
 
     await player.playTrack({ track: { encoded: track.encoded } });
+    this.touchPlayerState(guildId);
   }
 
   private async ensurePlayer(guildId: string, channelId: string, shardId: number): Promise<Player> {
@@ -985,6 +1011,7 @@ export class MusicService {
     // lease setiap ada perintah, jadi guild yang dipegang proses ini tidak
     // pernah diambil proses lain lewat jalur diam-diam.
     await this.claimPlayerOwnership(guildId);
+    this.publishPlayerState(guildId);
 
     const existing = this.manager.players.get(guildId);
     if (existing && this.botVoiceChannelId(guildId) === channelId) return existing;
@@ -1004,6 +1031,117 @@ export class MusicService {
 
     this.attachPlayerLogging(player);
     return player;
+  }
+
+  /**
+   * Tulis snapshot pemutar untuk dashboard, lalu jadwalkan pembaruan berkala.
+   *
+   * Dipanggil dari jalur yang sudah memegang lease (`ensurePlayer`), jadi hanya
+   * proses pemilik player yang menulis — dan itu yang membuat snapshot bisa
+   * dipercaya sebagai keadaan pemutar, bukan tebakan shard lain.
+   *
+   * Kegagalan penulisan tidak boleh menggagalkan perintah musik: dashboard
+   * adalah pengamat, bukan syarat pemutaran.
+   */
+  private publishPlayerState(guildId: string): void {
+    this.snapshotWatch.set(guildId, 'idle');
+    void this.writeSnapshot(guildId).catch((error: unknown) =>
+      getLogger().debug({ err: error, guildId }, 'Snapshot pemutar gagal ditulis'),
+    );
+    this.startSnapshotTimer();
+  }
+
+  /**
+   * Tulis snapshot setelah perubahan state yang relevan.
+   *
+   * Heartbeat lima detik cukup untuk posisi, tapi tidak untuk tombol: setelah
+   * pause atau tambah antrean, dashboard yang polling tiap 2–3 detik bisa
+   * menampilkan status lama satu putaran penuh. Penulisan ini menutup jeda itu.
+   */
+  private touchPlayerState(guildId: string): void {
+    this.snapshotWatch.set(guildId, 'idle');
+    this.startSnapshotTimer();
+    void this.writeSnapshot(guildId).catch((error: unknown) =>
+      getLogger().debug({ err: error, guildId }, 'Snapshot pemutar gagal diperbarui'),
+    );
+  }
+
+  /** Tulis snapshot sekarang; `null` = player hilang, snapshot ikut dihapus. */
+  private async writeSnapshot(guildId: string): Promise<void> {
+    const store = getKeyValueStore();
+    const player = this.manager.players.get(guildId);
+    const current = this.currents.get(guildId) ?? null;
+
+    if (!player || (!current && !this.manager.connections.has(guildId))) {
+      this.snapshotWatch.set(guildId, 'gone');
+      await store.delete(playerStateKey(guildId)).catch(() => undefined);
+      return;
+    }
+
+    // Hanya pemilik lease yang boleh menulis. Tanpa cek ini, proses yang baru
+    // kehilangan kepemilikan masih bisa menimpa snapshot pemilik baru selama
+    // timer lamanya belum berhenti.
+    const ownership = this.options.ownership;
+    if (ownership?.available) {
+      const owner = await ownership.ownerOf(guildId).catch(() => null);
+      if (owner !== ownership.instanceId) {
+        this.snapshotWatch.delete(guildId);
+        return;
+      }
+    }
+
+    const snapshot = buildPlayerSnapshot({
+      guildId,
+      owner: ownership?.instanceId ?? processInstanceId(),
+      current,
+      paused: player.paused ?? false,
+      voiceChannelId: this.botVoiceChannelId(guildId),
+      volume: player.volume ?? 100,
+      loopMode: this.loopMode(guildId),
+      lavalinkConnected: this.isConnected,
+      positionMs: player.position ?? 0,
+      queue: this.state.tracks(guildId),
+    });
+
+    await store.set(playerStateKey(guildId), JSON.stringify(snapshot), {
+      ttlMs: PLAYER_STATE_TTL_MS,
+    });
+  }
+
+  /**
+   * Perbarui posisi semua guild yang dipantau.
+   *
+   * Yang dilewati bukan lagi pemilik player melainkan guild yang memang belum
+   * pernah memutar apa pun (`'idle'`): player bisa hilang dan dibuat lagi oleh
+   * proses lain, dan `'idle'` hanya ditulis sekali supaya guild yang tidak
+   * pernah memutar musik tidak menghasilkan satu tulis Redis per detik.
+   */
+  private startSnapshotTimer(): void {
+    if (this.playerStateTimer) return;
+
+    this.playerStateTimer = setInterval(() => {
+      for (const guildId of this.snapshotWatch.keys()) {
+        if (!this.manager.players.has(guildId) && !this.manager.connections.has(guildId)) continue;
+
+        void this.writeSnapshot(guildId).catch((error: unknown) =>
+          getLogger().debug({ err: error, guildId }, 'Snapshot pemutar gagal diperbarui'),
+        );
+      }
+    }, PLAYER_STATE_HEARTBEAT_MS);
+    this.playerStateTimer.unref?.();
+  }
+
+  /** Lepas pantauan snapshot sebuah guild (pemutaran berhenti, bot keluar). */
+  private forgetPlayerState(guildId: string): void {
+    this.snapshotWatch.delete(guildId);
+    void getKeyValueStore()
+      .delete(playerStateKey(guildId))
+      .catch(() => undefined);
+
+    if (this.snapshotWatch.size === 0 && this.playerStateTimer) {
+      clearInterval(this.playerStateTimer);
+      this.playerStateTimer = undefined;
+    }
   }
 
   /**
@@ -1127,7 +1265,7 @@ export class MusicService {
     await this.disconnect(guildId);
   }
 
-  private async resetGuildState(guildId: string): Promise<void> {
+  private async resetGuildState(guildId: string, forgetSnapshot = false): Promise<void> {
     // Antrean dibaca sebelum dikosongkan supaya file lampiran di dalamnya ikut
     // dilepas; kalau tidak, file hanya menunggu sapuan TTL.
     await this.state.refresh(guildId);
@@ -1139,6 +1277,7 @@ export class MusicService {
     this.currents.delete(guildId);
     this.idleTimers.get(guildId)?.cancel();
     this.attachedPlayers.delete(guildId);
+    if (forgetSnapshot) this.forgetPlayerState(guildId);
     this.filterModes.delete(guildId);
     this.playedCycles.delete(guildId);
 

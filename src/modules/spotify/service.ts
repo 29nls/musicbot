@@ -1,5 +1,10 @@
-import { getLogger } from '../../services/logger.js';
-import { toSpotifyMeta, type SpotifyResult, type SpotifyTrackMeta } from './types.js';
+import { getLogger } from '../logger/index.js';
+import {
+  toSpotifyMeta,
+  type SpotifyResult,
+  type SpotifySearchResult,
+  type SpotifyTrackMeta,
+} from './types.js';
 
 /**
  * Pengambilan metadata dari Spotify Web API.
@@ -126,6 +131,14 @@ export class SpotifyMetadataService {
       };
     }
 
+    if (response.status === 403) {
+      return {
+        kind: 'error',
+        message:
+          'Spotify menjawab 403: akun pemilik aplikasi Spotify perlu langganan Premium aktif.',
+      };
+    }
+
     if (!response.ok) {
       return { kind: 'error', message: `Spotify menjawab ${response.status}.` };
     }
@@ -136,6 +149,62 @@ export class SpotifyMetadataService {
     }
 
     return { kind: 'found', track: meta };
+  }
+
+  /**
+   * Cari lagu berdasarkan kata kunci.
+   *
+   * Hanya metadata resmi yang diambil; dashboard akan mencari audionya lewat
+   * Lavalink. Batas `limit` dijaga 1..10 supaya satu permintaan tidak menarik
+   * puluhan hasil yang tidak akan ditampilkan.
+   */
+  async searchTracks(query: string, limit = 5): Promise<SpotifySearchResult> {
+    if (!this.isConfigured) return { kind: 'not-configured' };
+
+    const trimmed = query.trim();
+    if (trimmed.length === 0) return { kind: 'empty' };
+
+    const token = await this.accessToken();
+    if (!token) {
+      return {
+        kind: 'error',
+        message:
+          'Spotify menolak kredensial bot (401). Periksa `SPOTIFY_CLIENT_ID` & `SPOTIFY_CLIENT_SECRET` di .env.',
+      };
+    }
+
+    const size = Math.min(Math.max(Math.trunc(limit), 1), 10);
+    const response = await this.send({
+      method: 'GET',
+      url: `${this.apiBaseUrl}/search?type=track&limit=${size}&q=${encodeURIComponent(trimmed)}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response) {
+      return { kind: 'error', message: 'Spotify tidak bisa dihubungi. Coba lagi nanti.' };
+    }
+
+    if (response.status === 429) {
+      return {
+        kind: 'error',
+        message: 'Spotify membatasi permintaan (rate limit). Coba lagi beberapa menit lagi.',
+      };
+    }
+
+    if (response.status === 403) {
+      return {
+        kind: 'error',
+        message:
+          'Spotify menjawab 403: akun pemilik aplikasi Spotify perlu langganan Premium aktif.',
+      };
+    }
+
+    if (!response.ok) {
+      return { kind: 'error', message: `Spotify menjawab ${response.status}.` };
+    }
+
+    const tracks = mapSearch(response.body);
+    return tracks.length > 0 ? { kind: 'found', tracks } : { kind: 'empty' };
   }
 
   /** Buang token yang di-cache (mis. setelah kredensial diubah). */
@@ -190,6 +259,21 @@ export class SpotifyMetadataService {
       return null;
     }
   }
+}
+
+/** Bentuk `/v1/search?type=track` → daftar metadata; item rusak dilewati. */
+export function mapSearch(body: unknown): SpotifyTrackMeta[] {
+  if (!body || typeof body !== 'object') return [];
+
+  const tracks = (body as Record<string, unknown>).tracks;
+  if (!tracks || typeof tracks !== 'object') return [];
+
+  const items = (tracks as Record<string, unknown>).items;
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item) => mapTrack(item))
+    .filter((track): track is SpotifyTrackMeta => track !== null);
 }
 
 /** Bentuk `/v1/tracks/{id}` → domain; null kalau bentuknya tak dikenal. */

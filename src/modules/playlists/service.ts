@@ -1,12 +1,17 @@
 import { parsePlaylistName, PlaylistNameError } from './validation.js';
 import type { PlaylistRepository } from './repository.js';
 import {
+  hasSameTrack,
   resolveStoredTracks,
   toStoredTrack,
   type ResolvedPlaylist,
   type TrackResolver,
 } from './tracks.js';
-import { MAX_PLAYLIST_TRACKS, PLAYLIST_LIST_LIMIT } from './types.js';
+import {
+  MAX_PLAYLIST_TRACKS,
+  PERSONAL_PLAYLIST_GUILD_ID,
+  PLAYLIST_LIST_LIMIT,
+} from './types.js';
 import type {
   Playlist,
   PlaylistFailure,
@@ -40,20 +45,18 @@ export class PlaylistService {
     input: { guildId: string; ownerId: string; name: string },
     now = new Date(),
   ): Promise<PlaylistResult<Playlist>> {
-    let name: string;
-    try {
-      name = parsePlaylistName(input.name);
-    } catch (error) {
-      if (error instanceof PlaylistNameError) {
-        return fail({ kind: 'name-invalid', key: error.key, params: error.params });
-      }
-      throw error;
-    }
+    const name = parseName(input.name);
+    if (!name.ok) return name;
 
-    const existing = await this.repository.findByName(input.guildId, input.ownerId, name);
+    const existing = await this.repository.findByName(input.guildId, input.ownerId, name.value);
     if (existing) return fail({ kind: 'name-taken', name: existing.name });
 
-    return ok(await this.repository.create({ ...input, name }, now));
+    try {
+      return ok(await this.repository.create({ ...input, name: name.value }, now));
+    } catch (error) {
+      if (isUniqueViolation(error)) return fail({ kind: 'name-taken', name: name.value });
+      throw error;
+    }
   }
 
   /**
@@ -108,27 +111,9 @@ export class PlaylistService {
     const playlist = await this.repository.findByName(guildId, userId, name.trim());
     if (!playlist) return fail({ kind: 'not-found' });
 
-    // Batas dicek terhadap hasil akhir (sekarang + baru), bukan hanya jumlah
-    // baru — playlist yang sudah penuh harus menolak satu lagu tambahan.
-    const incoming: StoredTrack[] = tracks.map(toStoredTrack);
-    const fresh = incoming.filter((track) => !hasSameTrack(playlist.tracks, track));
-
-    if (playlist.tracks.length + fresh.length > MAX_PLAYLIST_TRACKS) {
-      return fail({ kind: 'full', limit: MAX_PLAYLIST_TRACKS });
-    }
-
-    if (fresh.length === 0) {
-      return ok({ playlist, added: 0, skippedDuplicates: incoming.length });
-    }
-
-    const updated = await this.repository.appendTracks(playlist.id, fresh);
-    if (!updated) return fail({ kind: 'not-found' });
-
-    return ok({
-      playlist: updated,
-      added: fresh.length,
-      skippedDuplicates: incoming.length - fresh.length,
-    });
+    return this.addToPlaylist(playlist, tracks, (id, fresh) =>
+      this.repository.appendTracks(id, fresh),
+    );
   }
 
   /** Hapus satu lagu; posisi dimulai dari 1 seperti `/remove`. */
@@ -141,15 +126,9 @@ export class PlaylistService {
     const playlist = await this.repository.findByName(guildId, userId, name.trim());
     if (!playlist) return fail({ kind: 'not-found' });
 
-    const index = position - 1;
-    if (!Number.isInteger(index) || index < 0 || index >= playlist.tracks.length) {
-      return fail({ kind: 'out-of-range', count: playlist.tracks.length });
-    }
-
-    const updated = await this.repository.removeTrackAt(playlist.id, index);
-    if (!updated) return fail({ kind: 'out-of-range', count: playlist.tracks.length });
-
-    return ok(updated);
+    return this.removeAt(playlist, position, (id, index) =>
+      this.repository.removeTrackAt(id, index),
+    );
   }
 
   /**
@@ -187,6 +166,159 @@ export class PlaylistService {
     return deleted ? ok(playlist) : fail({ kind: 'not-found' });
   }
 
+  // ── Playlist personal dashboard ────────────────────────────────────────────
+
+  /**
+   * Playlist personal satu user, lintas guild.
+   *
+   * `ownerId` datang dari session yang sudah diverifikasi, bukan badan
+   * permintaan. Itu satu-satunya alasan query ini tidak membutuhkan `guildId`.
+   */
+  async listPersonal(ownerId: string): Promise<Playlist[]> {
+    return this.repository.listPersonal(ownerId, PLAYLIST_LIST_LIMIT);
+  }
+
+  async createPersonal(
+    ownerId: string,
+    rawName: string,
+    now = new Date(),
+  ): Promise<PlaylistResult<Playlist>> {
+    const name = parseName(rawName);
+    if (!name.ok) return name;
+
+    const existing = await this.repository.findPersonalByName(ownerId, name.value);
+    if (existing) return fail({ kind: 'name-taken', name: existing.name });
+
+    try {
+      return ok(
+        await this.repository.create(
+          {
+            guildId: PERSONAL_PLAYLIST_GUILD_ID,
+            ownerId,
+            name: name.value,
+            scope: 'personal',
+          },
+          now,
+        ),
+      );
+    } catch (error) {
+      if (isUniqueViolation(error)) return fail({ kind: 'name-taken', name: name.value });
+      throw error;
+    }
+  }
+
+  /** Cari playlist personal berdasarkan ID; pemilik dan scope wajib cocok. */
+  async findPersonalById(ownerId: string, playlistId: number): Promise<PlaylistResult<Playlist>> {
+    const found = await this.repository.findById(playlistId);
+    if (!found || found.scope !== 'personal' || found.ownerId !== ownerId) {
+      return fail({ kind: 'not-found' });
+    }
+
+    return ok(found);
+  }
+
+  async renamePersonal(
+    ownerId: string,
+    playlistId: number,
+    rawName: string,
+  ): Promise<PlaylistResult<Playlist>> {
+    const name = parseName(rawName);
+    if (!name.ok) return name;
+
+    const found = await this.findPersonalById(ownerId, playlistId);
+    if (!found.ok) return found;
+
+    const duplicate = await this.repository.findPersonalByName(ownerId, name.value);
+    if (duplicate && duplicate.id !== playlistId) {
+      return fail({ kind: 'name-taken', name: duplicate.name });
+    }
+
+    try {
+      const updated = await this.repository.renamePersonal(playlistId, ownerId, name.value);
+      return updated ? ok(updated) : fail({ kind: 'not-found' });
+    } catch (error) {
+      if (isUniqueViolation(error)) return fail({ kind: 'name-taken', name: name.value });
+      if (isMissingRow(error)) return fail({ kind: 'not-found' });
+      throw error;
+    }
+  }
+
+  async removePersonal(
+    ownerId: string,
+    playlistId: number,
+  ): Promise<PlaylistResult<Playlist>> {
+    const found = await this.findPersonalById(ownerId, playlistId);
+    if (!found.ok) return found;
+
+    const deleted = await this.repository.deletePersonal(playlistId, ownerId);
+    return deleted ? ok(found.value) : fail({ kind: 'not-found' });
+  }
+
+  async addTracksToPersonal(
+    ownerId: string,
+    playlistId: number,
+    tracks: readonly TrackInfo[],
+  ): Promise<PlaylistResult<AddedTracks>> {
+    const found = await this.findPersonalById(ownerId, playlistId);
+    if (!found.ok) return found;
+
+    return this.addToPlaylist(found.value, tracks, (id, fresh) =>
+      this.repository.appendPersonalTracks(id, ownerId, fresh),
+    );
+  }
+
+  /** Hapus lagu personal berdasarkan posisi 0-based dari dashboard. */
+  async removeTrackFromPersonal(
+    ownerId: string,
+    playlistId: number,
+    index: number,
+  ): Promise<PlaylistResult<Playlist>> {
+    const found = await this.findPersonalById(ownerId, playlistId);
+    if (!found.ok) return found;
+
+    const current = found.value.tracks.length;
+    if (!Number.isInteger(index) || index < 0 || index >= current) {
+      return fail({ kind: 'out-of-range', count: current });
+    }
+
+    const updated = await this.repository.removePersonalTrackAt(playlistId, ownerId, index);
+    return updated ? ok(updated) : fail({ kind: 'out-of-range', count: current });
+  }
+
+  /** Pindahkan lagu personal ke posisi lain; posisi 0-based. */
+  async moveTrackInPersonal(
+    ownerId: string,
+    playlistId: number,
+    fromIndex: number,
+    toIndex: number,
+  ): Promise<PlaylistResult<Playlist>> {
+    const found = await this.findPersonalById(ownerId, playlistId);
+    if (!found.ok) return found;
+
+    const count = found.value.tracks.length;
+    if (
+      !Number.isInteger(fromIndex) ||
+      !Number.isInteger(toIndex) ||
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= count ||
+      toIndex >= count
+    ) {
+      return fail({ kind: 'out-of-range', count });
+    }
+
+    if (fromIndex === toIndex) return ok(found.value);
+
+    const updated = await this.repository.movePersonalTrackAt(
+      playlistId,
+      ownerId,
+      fromIndex,
+      toIndex,
+    );
+
+    return updated ? ok(updated) : fail({ kind: 'out-of-range', count });
+  }
+
   /**
    * Muat playlist untuk diputar: resolve tiap entri lalu laporkan berapa yang
    * gagal, supaya angka "diputar" tidak pernah lebih besar dari yang benar-benar
@@ -199,26 +331,86 @@ export class PlaylistService {
   ): Promise<ResolvedPlaylist> {
     return resolveStoredTracks(playlist.tracks, resolve, requesterId);
   }
+
+  private async addToPlaylist(
+    playlist: Playlist,
+    tracks: readonly TrackInfo[],
+    append: (playlistId: number, tracks: readonly StoredTrack[]) => Promise<Playlist | null>,
+  ): Promise<PlaylistResult<AddedTracks>> {
+    // Batas dicek terhadap hasil akhir (sekarang + baru), bukan hanya jumlah
+    // baru — playlist yang sudah penuh harus menolak satu lagu tambahan.
+    const incoming: StoredTrack[] = tracks.map(toStoredTrack);
+    const fresh = incoming.filter((track) => !hasSameTrack(playlist.tracks, track));
+
+    if (playlist.tracks.length + fresh.length > MAX_PLAYLIST_TRACKS) {
+      return fail({ kind: 'full', limit: MAX_PLAYLIST_TRACKS });
+    }
+
+    if (fresh.length === 0) {
+      return ok({ playlist, added: 0, skippedDuplicates: incoming.length });
+    }
+
+    const updated = await append(playlist.id, fresh);
+    if (!updated) return fail({ kind: 'not-found' });
+
+    // Repository memeriksa ulang duplikat di dalam transaksi; hitung dari hasil
+    // akhir supaya jumlah "ditambahkan" tidak pernah lebih besar dari kenyataan
+    // saat dua tab menyimpan lagu yang sama hampir bersamaan.
+    const added = Math.min(fresh.length, Math.max(updated.tracks.length - playlist.tracks.length, 0));
+
+    return ok({
+      playlist: updated,
+      added,
+      skippedDuplicates: incoming.length - added,
+    });
+  }
+
+  private async removeAt(
+    playlist: Playlist,
+    position: number,
+    remove: (playlistId: number, index: number) => Promise<Playlist | null>,
+  ): Promise<PlaylistResult<Playlist>> {
+    const index = position - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= playlist.tracks.length) {
+      return fail({ kind: 'out-of-range', count: playlist.tracks.length });
+    }
+
+    const updated = await remove(playlist.id, index);
+    if (!updated) return fail({ kind: 'out-of-range', count: playlist.tracks.length });
+
+    return ok(updated);
+  }
+}
+
+function parseName(raw: string): PlaylistResult<string> {
+  try {
+    return { ok: true, value: parsePlaylistName(raw) };
+  } catch (error) {
+    if (error instanceof PlaylistNameError) {
+      return { ok: false, error: { kind: 'name-invalid', key: error.key, params: error.params } };
+    }
+    throw error;
+  }
 }
 
 /**
- * Dua entri dianggap lagu sama.
+ * Bentuk error Prisma yang bisa muncul saat dua permintaan balapan.
  *
- * Sumber yang sama (uri) adalah bukti terkuat, jadi itu yang dibandingkan lebih
- * dulu. Kalau salah satu tidak punya uri, Bandingkan judul + artis.
- *
- * `encoded` sengaja **tidak** dipakai sebagai pembeda: string base64 berbeda setiap
- * kali lagu yang sama di-resolve ulang, jadi memakainya membuat trek yang sama
- * terduplikasi hanya karena/node Lavalink yang menyelesaikannya berubah.
+ * Dicek lewat `code`, bukan `instanceof`: kelas error Prisma bisa berbeda antar
+ * bundel (bot dan dashboard mengimpor klien yang sama dari jalur berbeda), dan
+ * yang stabil di semua jalur adalah kode P2002/P2025.
  */
-export function hasSameTrack(tracks: readonly StoredTrack[], candidate: StoredTrack): boolean {
-  return tracks.some((track) => {
-    if (candidate.uri && track.uri) return candidate.uri === track.uri;
-
-    return isSameText(track.title, candidate.title) && isSameText(track.author, candidate.author);
-  });
+function isUniqueViolation(error: unknown): boolean {
+  return errorCode(error) === 'P2002';
 }
 
-function isSameText(left: string, right: string): boolean {
-  return left.trim().toLocaleLowerCase('id') === right.trim().toLocaleLowerCase('id');
+function isMissingRow(error: unknown): boolean {
+  return errorCode(error) === 'P2025';
+}
+
+function errorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return null;
+  const code = (error as { code?: unknown }).code;
+
+  return typeof code === 'string' ? code : null;
 }

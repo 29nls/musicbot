@@ -29,7 +29,7 @@ const logger = vi.hoisted(() => ({
   debug: vi.fn(),
 }));
 
-vi.mock('../src/services/logger.js', () => ({ getLogger: () => logger }));
+vi.mock('./../src/modules/logger/index.js', () => ({ getLogger: () => logger }));
 
 beforeEach(() => {
   logger.error.mockClear();

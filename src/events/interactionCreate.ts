@@ -4,7 +4,7 @@ import { routeComponent } from '../handlers/componentRouter.js';
 import { translatorForGuild, type Translator } from '../modules/i18n/index.js';
 import { getMetricsRegistry } from '../modules/metrics/index.js';
 import { getStatsService } from '../modules/stats/index.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 import { checkCooldown } from '../utils/cooldown.js';
 import { errorEmbed, warningEmbed } from '../utils/embeds.js';
 

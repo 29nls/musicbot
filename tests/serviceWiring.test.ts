@@ -36,7 +36,7 @@ vi.mock('../src/services/database.js', async (importOriginal) => {
   return { ...actual, getPrisma: () => prisma };
 });
 
-vi.mock('../src/services/logger.js', () => ({
+vi.mock('./../src/modules/logger/index.js', () => ({
   getLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
 }));
 

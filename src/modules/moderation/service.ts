@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import {
   buildModeratorProfile,
   MODERATOR_ACTIVE_WINDOW_DAYS,

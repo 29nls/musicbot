@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BotClient } from '../client.js';
-import { getLogger } from '../services/logger.js';
+import { getLogger } from './../modules/logger/index.js';
 import type { BotEvent } from '../types/event.js';
 import { importDefault, listModuleFiles } from '../utils/moduleLoader.js';
 

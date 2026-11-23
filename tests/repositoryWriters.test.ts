@@ -256,6 +256,10 @@ function fakePrisma(
         return { count };
       },
     },
+    // Query kunci baris tidak mengubah data; fake ini cukup menjawab tanpa baris.
+    async $queryRaw() {
+      return [];
+    },
     async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
       return fn(prisma);
     },
@@ -284,6 +288,7 @@ function playlistRow(overrides: Row = {}): Row {
     ownerId: 'user-1',
     name: 'Putih',
     isPublic: false,
+    scope: 'server',
     tracks: [
       { uri: 'https://a/1', title: 'Lagu satu' },
       { uri: 'https://a/2', title: 'Lagu dua' },
@@ -661,6 +666,19 @@ describe('PrismaPlaylistRepository', () => {
     expect(updated?.tracks).toHaveLength(3);
   });
 
+  it('tidak menambahkan lagu yang sudah ada di playlist', async () => {
+    const { prisma, state } = fakePrisma({ playlists: [playlistRow()] });
+
+    const updated = await new PrismaPlaylistRepository(prisma).appendTracks(1, [
+      { uri: 'https://a/2', title: 'Lagu dua', author: 'Artis', durationMs: 180_000, encoded: null },
+      { uri: 'https://a/3', title: 'Lagu baru', author: 'Artis', durationMs: 210_000, encoded: null },
+    ]);
+
+    const stored = parseStoredTracks(state.playlists[0]?.tracks as never);
+    expect(stored.map((track) => track.title)).toEqual(['Lagu satu', 'Lagu dua', 'Lagu baru']);
+    expect(updated?.tracks).toHaveLength(3);
+  });
+
   it('playlist yang sudah hilang menghasilkan null, bukan playlist kosong', async () => {
     const { prisma } = fakePrisma({ playlists: [] });
 
@@ -686,6 +704,22 @@ describe('PrismaPlaylistRepository', () => {
     // bisa bilang "lagu itu tidak ada" alih-alih melaporkan berhasil.
     expect(await repository.removeTrackAt(1, 99)).toBeNull();
     expect(parseStoredTracks(state.playlists[0]?.tracks as never)).toHaveLength(1);
+  });
+
+  it('memindahkan lagu personal hanya untuk pemilik dan menolak posisi di luar jangkauan', async () => {
+    const { prisma, state } = fakePrisma({
+      playlists: [playlistRow({ guildId: '@personal', scope: 'personal' })],
+    });
+    const repository = new PrismaPlaylistRepository(prisma);
+
+    const moved = await repository.movePersonalTrackAt(1, 'user-1', 1, 0);
+
+    expect(parseStoredTracks(state.playlists[0]?.tracks as never).map((track) => track.title)).toEqual(
+      ['Lagu dua', 'Lagu satu'],
+    );
+    expect(moved?.tracks.map((track) => track.title)).toEqual(['Lagu dua', 'Lagu satu']);
+    expect(await repository.movePersonalTrackAt(1, 'user-2', 0, 1)).toBeNull();
+    expect(await repository.movePersonalTrackAt(1, 'user-1', 0, 99)).toBeNull();
   });
 
   it('playlist milik orang lain tidak bisa dibaca lewat pencarian publik', async () => {

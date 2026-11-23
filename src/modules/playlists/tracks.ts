@@ -19,7 +19,7 @@ export function toStoredTrack(track: TrackInfo): StoredTrack {
     author: track.author,
     durationMs: track.isStream ? 0 : track.durationMs,
     uri: track.uri,
-    encoded: track.encoded,
+    encoded: track.encoded.length > 0 ? track.encoded : null,
   };
 }
 
@@ -138,6 +138,28 @@ export async function resolveStoredTracks(
   const tracks = results.filter((track): track is TrackInfo => track !== null);
 
   return { tracks, failed: entries.length - tracks.length };
+}
+
+/**
+ * Dua entri dianggap lagu sama.
+ *
+ * Sumber yang sama (uri) adalah bukti terkuat, jadi itu yang dibandingkan lebih
+ * dulu. Kalau salah satu tidak punya uri, bandingkan judul + artis.
+ *
+ * `encoded` sengaja **tidak** dipakai sebagai pembeda: string base64 berbeda setiap
+ * kali lagu yang sama di-resolve ulang, jadi memakainya membuat trek yang sama
+ * terduplikasi hanya karena node Lavalink yang menyelesaikannya berubah.
+ */
+export function hasSameTrack(tracks: readonly StoredTrack[], candidate: StoredTrack): boolean {
+  return tracks.some((track) => {
+    if (candidate.uri && track.uri) return candidate.uri === track.uri;
+
+    return isSameText(track.title, candidate.title) && isSameText(track.author, candidate.author);
+  });
+}
+
+function isSameText(left: string, right: string): boolean {
+  return left.trim().toLocaleLowerCase('id') === right.trim().toLocaleLowerCase('id');
 }
 
 /** `Promise.all` per potongan: paralel tapi urutan hasil tetap sama. */

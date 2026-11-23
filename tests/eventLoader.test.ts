@@ -31,7 +31,7 @@ vi.mock('../src/utils/moduleLoader.js', async (importOriginal) => {
   return { ...actual, listModuleFiles: mocks.listModuleFiles, importDefault: mocks.importDefault };
 });
 
-vi.mock('../src/services/logger.js', () => ({
+vi.mock('./../src/modules/logger/index.js', () => ({
   getLogger: () => ({ debug: mocks.loggerDebug, info: mocks.loggerInfo, error: mocks.loggerError }),
 }));
 

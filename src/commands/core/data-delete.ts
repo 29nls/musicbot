@@ -12,7 +12,7 @@ import {
   getPrivacyService,
   inventoryTouchedCount,
 } from '../../modules/privacy/index.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../../modules/logger/index.js';
 import type { BotCommand } from '../../types/command.js';
 import { errorEmbed } from '../../utils/embeds.js';
 import { hasGuildPermission } from '../../utils/permissions.js';

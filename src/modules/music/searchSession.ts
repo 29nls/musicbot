@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { getKeyValueStore, type KeyValueStore } from '../../services/kvStore.js';
 import { SEARCH_RESULT_LIMIT } from './selection.js';
 import { decodeSearchSession, encodeSearchSession } from './searchSessionCodec.js';

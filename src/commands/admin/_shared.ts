@@ -27,7 +27,7 @@ import {
   type NotifiableAction,
 } from '../../modules/moderation/index.js';
 import { defaultTranslator, translatorFor, type Translator } from '../../modules/i18n/index.js';
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../../modules/logger/index.js';
 import { errorEmbed } from '../../utils/embeds.js';
 import { hasGuildPermission } from '../../utils/permissions.js';
 

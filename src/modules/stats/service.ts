@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { buildSummary } from './aggregate.js';
 import { dayRange, startOfUtcDay } from './day.js';
 import type { PlaybackStatRepository } from './repository.js';

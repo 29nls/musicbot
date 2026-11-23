@@ -1,4 +1,4 @@
-import { getLogger } from '../../services/logger.js';
+import { getLogger } from '../logger/index.js';
 import { purgeExpiredTickets, type TicketRetentionResult } from './retention.js';
 import type { TicketRepository } from './repository.js';
 import type { TicketTranscript } from './transcript.js';

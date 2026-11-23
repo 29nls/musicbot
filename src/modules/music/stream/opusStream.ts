@@ -171,6 +171,10 @@ export async function createDirectStream(options: DirectStreamOptions): Promise<
     channels: 2,
     frameSize: OPUS_FRAME_SIZE,
   });
+  // Pakai bitrate tinggi supaya kualitas audio YouTube yang diterima Discord
+  // tidak turun ke bawaan encoder (64/96 kbps). 128 kbps adalah langkah aman
+  // yang tetap didukung voice channel biasa.
+  encoder.setBitrate(128000);
 
   const reportFailure = (message: string): void => {
     if (stopped) return;

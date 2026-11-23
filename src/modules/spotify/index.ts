@@ -12,6 +12,7 @@ export {
   SPOTIFY_TOKEN_URL,
   SpotifyMetadataService,
   fetchSpotify,
+  mapSearch,
   mapTrack,
 } from './service.js';
 export type {
@@ -28,4 +29,9 @@ export type { MatchInput, SpotifyMatch } from './match.js';
 export { parseSpotifyLink, unsupportedLinkMessage } from './parse.js';
 export type { SpotifyLink } from './parse.js';
 export { toSpotifyMeta } from './types.js';
-export type { CreateSpotifyMetaInput, SpotifyResult, SpotifyTrackMeta } from './types.js';
+export type {
+  CreateSpotifyMetaInput,
+  SpotifyResult,
+  SpotifySearchResult,
+  SpotifyTrackMeta,
+} from './types.js';

@@ -42,7 +42,7 @@ vi.mock('../src/modules/logging/singleton.js', () => ({
   getLoggingService: () => ({ record: mocks.record, attachMessage: mocks.attachMessage }),
 }));
 
-vi.mock('../src/services/logger.js', () => ({
+vi.mock('./../src/modules/logger/index.js', () => ({
   getLogger: () => ({ warn: mocks.loggerWarn, debug: mocks.loggerDebug, error: vi.fn(), info: vi.fn() }),
 }));
 

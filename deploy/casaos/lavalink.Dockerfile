@@ -40,5 +40,15 @@ USER root
 RUN apk add --no-cache python3 py3-pip \
  && python3 -m pip install --break-system-packages --no-cache-dir 'yt-dlp>=2026.08.19'
 
+# Plugin SoundCloud (soundy) karena sumber SoundCloud bawaan Lavalink sudah
+# rusak. Jar diambil dari rilis GitHub; Lavalink memuatnya dari plugins/.
+RUN mkdir -p /opt/Lavalink/plugins-bundled \
+ && wget -q -O /opt/Lavalink/plugins-bundled/soundy-plugin-1.1.1.jar \
+      https://github.com/lpaiu-cs/soundy-plugin/releases/download/v1.1.1/soundy-plugin-1.1.1.jar
+
 # Kembalikan ke user bawaan image supaya runtime tidak berjalan sebagai root.
 USER lavalink
+
+# Salin jar soundy ke volume plugins (kalau belum ada) sebelum menjalankan
+# Lavalink, karena named volume menutupi folder plugins bawaan image.
+ENTRYPOINT ["sh", "-c", "cp -n /opt/Lavalink/plugins-bundled/*.jar /opt/Lavalink/plugins/ 2>/dev/null || true; exec java -jar /opt/Lavalink/Lavalink.jar"]
