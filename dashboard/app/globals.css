@@ -64,6 +64,22 @@ img {
   flex-wrap: wrap;
 }
 
+.music-skeleton {
+  background: linear-gradient(90deg, #1e1f22 0%, #2a2d33 50%, #1e1f22 100%);
+  background-size: 200% 100%;
+  animation: music-skeleton-shimmer 1.2s ease-in-out infinite;
+  border: 1px solid #2f3136;
+}
+
+@keyframes music-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .music-skeleton { animation: none; }
+}
+
 @media (max-width: 820px) {
   .music-grid {
     grid-template-columns: 1fr;
