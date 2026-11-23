@@ -181,6 +181,7 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<DashboardTrack[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [playlistsLoading, setPlaylistsLoading] = useState(true);
@@ -310,6 +311,7 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
     setSearching(true);
     setSearchError(null);
     setResults(null);
+    setSelectedKeys(new Set());
 
     try {
       const response = await fetch(`/api/music/search?guildId=${guildId}`, {
@@ -348,6 +350,42 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
   function playTrack(track: DashboardTrack, mode: 'play' | 'enqueue'): void {
     const target = track.uri ?? `${track.title} ${track.author}`.trim();
     void sendCommand({ kind: mode, query: target, source: 'youtube' });
+  }
+
+  async function handleBulkPlay(): Promise<void> {
+    if (!results) return;
+    const tracks = results.filter((track, index) => selectedKeys.has(`${track.uri ?? track.title}-${index}`));
+    if (tracks.length === 0) return;
+    for (const [index, track] of tracks.entries()) {
+      await sendCommand({
+        kind: index === 0 ? 'play' : 'enqueue',
+        query: track.uri ?? `${track.title} ${track.author}`.trim(),
+        source: 'youtube',
+      });
+    }
+    setSelectedKeys(new Set());
+  }
+
+  async function handleBulkEnqueue(): Promise<void> {
+    if (!results) return;
+    const tracks = results.filter((track, index) => selectedKeys.has(`${track.uri ?? track.title}-${index}`));
+    for (const track of tracks) {
+      await sendCommand({
+        kind: 'enqueue',
+        query: track.uri ?? `${track.title} ${track.author}`.trim(),
+        source: 'youtube',
+      });
+    }
+    setSelectedKeys(new Set());
+  }
+
+  async function handleBulkSave(): Promise<void> {
+    if (!results || !selected) return;
+    const tracks = results.filter((track, index) => selectedKeys.has(`${track.uri ?? track.title}-${index}`));
+    for (const track of tracks) {
+      await saveTrack(track);
+    }
+    setSelectedKeys(new Set());
   }
 
   async function createPlaylist(event: FormEvent): Promise<void> {
@@ -541,8 +579,11 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
     }
   }
 
-  async function loadPlaylist(): Promise<void> {
+  async function loadPlaylist(replace = false): Promise<void> {
     if (!selected) return;
+    if (replace && player) {
+      await sendCommand({ kind: 'stop' });
+    }
 
     setBusy('playlist-play');
     setNotice(null);
@@ -835,10 +876,14 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
               ) : null}
 
               {results && results.length > 0 ? (
+                <>
                 <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
-                  {results.map((track, index) => (
+                  {results.map((track, index) => {
+                    const key = `${track.uri ?? track.title}-${index}`;
+                    const checked = selectedKeys.has(key);
+                    return (
                     <li
-                      key={`${track.uri ?? track.title}-${index}`}
+                      key={key}
                       className="music-track-row"
                       style={{
                         ...trackRowStyle,
@@ -849,6 +894,20 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
                         alignItems: 'flex-start',
                       }}
                     >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          setSelectedKeys((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(key);
+                            else next.delete(key);
+                            return next;
+                          });
+                        }}
+                        aria-label={`Pilih ${track.title}`}
+                        style={{ width: 18, height: 18, marginTop: 4 }}
+                      />
                       {track.artworkUrl ? (
                         <img
                           src={track.artworkUrl}
@@ -897,8 +956,49 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
                         </button>
                       </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
+                {selectedKeys.size > 0 ? (
+                  <div style={{ ...CARD, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+                    <span style={{ color: '#b5bac1', fontSize: 13 }}>
+                      {selectedKeys.size} dipilih
+                    </span>
+                    <button
+                      type="button"
+                      style={PRIMARY}
+                      onClick={() => void handleBulkPlay()}
+                      disabled={isBusy}
+                    >
+                      Putar terpilih
+                    </button>
+                    <button
+                      type="button"
+                      style={BUTTON}
+                      onClick={() => void handleBulkEnqueue()}
+                      disabled={isBusy}
+                    >
+                      + Antrean
+                    </button>
+                    <button
+                      type="button"
+                      style={BUTTON}
+                      onClick={() => void handleBulkSave()}
+                      disabled={isBusy || !selected}
+                    >
+                      Simpan ke playlist
+                    </button>
+                    <button
+                      type="button"
+                      style={BUTTON}
+                      onClick={() => setSelectedKeys(new Set())}
+                      disabled={isBusy}
+                    >
+                      Batal
+                    </button>
+                  </div>
+                ) : null}
+                </>
               ) : null}
             </div>
           </section>
@@ -1031,10 +1131,18 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
                 <button
                   type="button"
                   style={PRIMARY}
-                  onClick={() => void loadPlaylist()}
+                  onClick={() => void loadPlaylist(true)}
                   disabled={isBusy || selected.trackCount === 0}
                 >
-                  {busy === 'playlist-play' ? 'Memuat...' : 'Muat ke antrean'}
+                  {busy === 'playlist-play' || busy === 'stop' ? 'Memutar...' : 'Putar playlist'}
+                </button>
+                <button
+                  type="button"
+                  style={BUTTON}
+                  onClick={() => void loadPlaylist(false)}
+                  disabled={isBusy || selected.trackCount === 0}
+                >
+                  {busy === 'playlist-play' ? 'Menambah...' : 'Tambah ke antrean'}
                 </button>
                 <button
                   type="button"
