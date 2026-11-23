@@ -620,8 +620,11 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
       ) : null}
 
       {stateError ? (
-        <div role="alert" style={noticeStyle('error')}>
-          {stateError}
+        <div role="alert" style={{ ...noticeStyle('error'), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <span>{stateError}</span>
+          <button type="button" style={{ ...BUTTON, padding: '6px 10px' }} onClick={() => void fetchState()}>
+            Coba lagi
+          </button>
         </div>
       ) : null}
 
@@ -639,22 +642,31 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
             </h2>
             <div style={CARD}>
               {stateLoading && !state ? (
-                <p style={mutedText}>Memuat status pemutar...</p>
+                <div style={{ display: 'grid', gap: 10 }} aria-busy="true" aria-live="polite">
+                  <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div className="music-skeleton" style={{ width: 128, height: 128, borderRadius: 12 }} />
+                    <div style={{ flex: 1, minWidth: 200, display: 'grid', gap: 8 }}>
+                      <div className="music-skeleton" style={{ height: 22, width: '70%' }} />
+                      <div className="music-skeleton" style={{ height: 14, width: '40%' }} />
+                      <div className="music-skeleton" style={{ height: 10, width: '100%' }} />
+                    </div>
+                  </div>
+                </div>
               ) : current ? (
                 <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   {current.artworkUrl ? (
                     <img
                       src={current.artworkUrl}
                       alt=""
-                      width={84}
-                      height={84}
-                      style={{ borderRadius: 8, objectFit: 'cover', background: '#1e1f22' }}
+                      width={128}
+                      height={128}
+                      style={{ borderRadius: 12, objectFit: 'cover', background: '#1e1f22', boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
                     />
                   ) : (
-                    <div aria-hidden style={artworkPlaceholder} />
+                    <div aria-hidden style={{ ...artworkPlaceholder, width: 128, height: 128, borderRadius: 12 }} />
                   )}
                   <div style={{ flex: 1, minWidth: 200 }}>
-                    <div style={{ fontWeight: 600, fontSize: 18, overflowWrap: 'anywhere' }}>
+                    <div style={{ fontWeight: 700, fontSize: 22, lineHeight: 1.2, overflowWrap: 'anywhere' }}>
                       {current.title}
                     </div>
                     <div style={{ color: '#b5bac1', fontSize: 14, marginTop: 2 }}>
@@ -665,7 +677,7 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
                       Loop {player?.loopMode ?? 'off'}
                     </div>
                     <div
-                      style={{ marginTop: 10, height: 6, background: '#1e1f22', borderRadius: 3, overflow: 'hidden' }}
+                      style={{ marginTop: 12, height: 10, background: '#1e1f22', borderRadius: 5, overflow: 'hidden' }}
                       role="progressbar"
                       aria-valuemin={0}
                       aria-valuemax={current.isStream ? undefined : current.durationMs}
@@ -784,22 +796,23 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
                     maxLength={200}
                   />
                 </div>
-                <div className="music-search-row">
-                  <div style={{ minWidth: 160 }}>
-                    <label htmlFor="music-source" style={LABEL}>
-                      Sumber pencarian
-                    </label>
-                    <select
-                      id="music-source"
-                      value={source}
-                      onChange={(event) => setSource(event.target.value as Source)}
-                      style={INPUT}
+                <div className="music-search-row" role="group" aria-label="Sumber pencarian">
+                  {(['youtube', 'soundcloud', 'spotify'] as Source[]).map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setSource(item)}
+                      aria-pressed={source === item}
+                      style={{
+                        ...BUTTON,
+                        background: source === item ? '#5865f2' : '#2f3136',
+                        color: source === item ? '#fff' : '#dbdee1',
+                        fontWeight: source === item ? 600 : 400,
+                      }}
                     >
-                      <option value="youtube">YouTube</option>
-                      <option value="soundcloud">SoundCloud</option>
-                      <option value="spotify">Spotify (metadata)</option>
-                    </select>
-                  </div>
+                      {item === 'youtube' ? 'YouTube' : item === 'soundcloud' ? 'SoundCloud' : 'Spotify'}
+                    </button>
+                  ))}
                   <button type="submit" style={{ ...PRIMARY, alignSelf: 'end' }} disabled={searching || !query.trim()}>
                     {searching ? 'Mencari...' : 'Cari'}
                   </button>
@@ -822,12 +835,19 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
               ) : null}
 
               {results && results.length > 0 ? (
-                <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 8 }}>
+                <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
                   {results.map((track, index) => (
                     <li
                       key={`${track.uri ?? track.title}-${index}`}
                       className="music-track-row"
-                      style={trackRowStyle}
+                      style={{
+                        ...trackRowStyle,
+                        background: '#1e1f22',
+                        border: '1px solid #2f3136',
+                        borderRadius: 10,
+                        padding: '10px 12px',
+                        alignItems: 'flex-start',
+                      }}
                     >
                       {track.artworkUrl ? (
                         <img
@@ -935,13 +955,20 @@ export function MusicDashboard({ guildId }: { guildId: string }) {
           </div>
 
           {playlistsError ? (
-            <p role="alert" style={{ ...mutedText, color: '#f5c2c7' }}>
-              {playlistsError}
-            </p>
+            <div role="alert" style={{ ...noticeStyle('error'), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <span>{playlistsError}</span>
+              <button type="button" style={{ ...BUTTON, padding: '6px 10px' }} onClick={() => void fetchPlaylists()}>
+                Coba lagi
+              </button>
+            </div>
           ) : null}
 
           {playlistsLoading ? (
-            <p style={mutedText}>Memuat playlist...</p>
+            <div style={{ display: 'grid', gap: 8 }} aria-busy="true" aria-live="polite">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="music-skeleton" style={{ height: 62, borderRadius: 12 }} />
+              ))}
+            </div>
           ) : playlists.length === 0 && !playlistsError ? (
             <p style={mutedText}>
               Belum ada playlist personal. Playlist ini bisa dibuka dari server mana pun tempat Anda
